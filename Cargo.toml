@@ -1,0 +1,13 @@
+[package]
+name = "edolview"
+version = "0.1.0"
+edition = "2021"
+authors = ["You <you@example.com>"]
+description = "Simple image viewer using OpenCV in Rust"
+license = "MIT"
+
+[dependencies]
+# Adjust version if build complains; this is a recent version as of 2025, change if needed.
+opencv = { version = "0.95.1", features = ["imgcodecs", "highgui", "imgproc"] }
+clap = { version = "4", features = ["derive"] }
+color-eyre = "0.6"
