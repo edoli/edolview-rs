@@ -138,6 +138,11 @@ struct ViewerApp {
     state: ImageState,
     gl_prog: Option<Arc<ImageProgram>>,
     gl_raw_tex: Option<glow::NativeTexture>,
+    // Interaction
+    zoom: f32,          // isotropic scale in clip space (1.0 = fit panel)
+    pan: egui::Vec2,    // clip-space offset
+    dragging: bool,
+    last_drag_pos: egui::Pos2,
 }
 
 impl eframe::App for ViewerApp {
@@ -152,6 +157,10 @@ impl eframe::App for ViewerApp {
                 if ui.button("Reload").clicked() {
                     if let Err(e) = self.state.rebuild() { eprintln!("Error reloading: {e}"); }
                     self.gl_raw_tex = None;
+                }
+                if ui.button("Reset View").clicked() {
+                    self.zoom = 1.0;
+                    self.pan = egui::Vec2::ZERO;
                 }
                 ui.label(format!("{}", self.state.path.display()));
             });
@@ -199,11 +208,47 @@ impl eframe::App for ViewerApp {
                     }
                 }
                 let desired = ui.available_size();
-                let (rect, _resp) = ui.allocate_exact_size(desired, egui::Sense::hover());
+                let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::drag());
+
+                // Handle scroll for zoom (center on mouse)
+                if resp.hovered() {
+                    let scroll = ui.input(|i| i.raw_scroll_delta.y);
+                    if scroll.abs() > 0.0 {
+                        // scale factor per notch
+                        let factor = (1.0 + scroll * 0.1).clamp(0.1, 10.0);
+                        // Convert mouse pos to clip space before zoom to keep point under cursor
+                        if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
+                            let center = rect.center();
+                            let rel = pointer - center; // in ui points
+                            // Map to clip: [-1,1] range assuming rect fully covers clip quad
+                            let rel_clip = egui::Vec2::new(rel.x / (rect.width()/2.0), rel.y / (rect.height()/2.0));
+                            // Adjust pan so that rel point stays stable
+                            self.pan -= rel_clip * (factor - 1.0) * self.zoom;
+                        }
+                        self.zoom = (self.zoom * factor).clamp(0.05, 100.0);
+                    }
+                }
+
+                // Drag for panning
+                if resp.drag_started() { self.dragging = true; self.last_drag_pos = resp.interact_pointer_pos().unwrap_or(self.last_drag_pos); }
+                if self.dragging {
+                    if let Some(pos) = resp.interact_pointer_pos() {
+                        let delta = pos - self.last_drag_pos;
+                        self.last_drag_pos = pos;
+                        // Convert delta in ui points to clip space offset
+                        let dx = delta.x / (rect.width()/2.0);
+                        let dy = delta.y / (rect.height()/2.0);
+                        self.pan += egui::vec2(dx, dy);
+                    }
+                    if resp.drag_released() { self.dragging = false; }
+                }
+
                 if let (Some(gl_prog), Some(gl)) = (self.gl_prog.clone(), frame.gl()) {
                     // Register a custom paint callback
                     let grayscale = self.state.grayscale;
                     let tex_handle = self.gl_raw_tex.unwrap();
+                    let scale = self.zoom;
+                    let offset = self.pan;
                     ui.painter().add(egui::PaintCallback {
                         rect,
                         callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| {
@@ -218,7 +263,7 @@ impl eframe::App for ViewerApp {
                                 let width = rect.width().round() as i32;
                                 gl.viewport(x, y, width, height);
                                 // Don't clear or disable scissor: that would wipe earlier drawn egui UI.
-                                gl_prog.draw(gl, tex_handle, grayscale);
+                                gl_prog.draw(gl, tex_handle, grayscale, scale, (offset.x, -offset.y)); // invert y for GL
                                 // Restore viewport so subsequent egui draws (e.g. text glyphs) use full surface.
                                 gl.viewport(0, 0, screen_w, screen_h);
                             }
@@ -238,7 +283,7 @@ fn main() -> Result<()> {
     let (max_w, max_h) = parse_max_size(&args.max_size)?;
     let state = ImageState::load(args.image.clone(), args.grayscale, max_w, max_h)?;
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None }))) {
+    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None, zoom: 1.0, pan: egui::Vec2::ZERO, dragging: false, last_drag_pos: egui::Pos2::ZERO }))) {
         return Err(eyre!("eframe initialization failed: {e}"));
     }
     Ok(())

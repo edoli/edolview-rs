@@ -9,6 +9,8 @@ pub struct ImageProgram {
     pub ebo: glow::Buffer,
     u_tex: Option<glow::UniformLocation>,
     u_gray: Option<glow::UniformLocation>,
+    u_scale: Option<glow::UniformLocation>,
+    u_offset: Option<glow::UniformLocation>,
 }
 
 impl ImageProgram {
@@ -18,9 +20,12 @@ impl ImageProgram {
                 layout (location = 0) in vec2 aPos;
                 layout (location = 1) in vec2 aUv;
                 out vec2 vUv;
+                uniform float u_scale;          // isotropic scale
+                uniform vec2  u_offset;         // additive offset in clip space
                 void main(){
                     vUv = aUv;
-                    gl_Position = vec4(aPos, 0.0, 1.0);
+                    vec2 pos = aPos * u_scale + u_offset; // apply pan/zoom
+                    gl_Position = vec4(pos, 0.0, 1.0);
                 }
             "#;
             let frag_src = r#"#version 330 core
@@ -85,17 +90,21 @@ impl ImageProgram {
 
             let u_tex = gl.get_uniform_location(program, "u_tex");
             let u_gray = gl.get_uniform_location(program, "u_gray");
+            let u_scale = gl.get_uniform_location(program, "u_scale");
+            let u_offset = gl.get_uniform_location(program, "u_offset");
 
-            Ok(Self { program, vao, vbo, ebo, u_tex, u_gray })
+            Ok(Self { program, vao, vbo, ebo, u_tex, u_gray, u_scale, u_offset })
         }
     }
 
-    pub unsafe fn draw(&self, gl: &glow::Context, tex_id: glow::NativeTexture, grayscale: bool) {
+    pub unsafe fn draw(&self, gl: &glow::Context, tex_id: glow::NativeTexture, grayscale: bool, scale: f32, offset: (f32, f32)) {
         gl.use_program(Some(self.program));
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
         if let Some(loc) = &self.u_tex { gl.uniform_1_i32(Some(loc), 0); }
         if let Some(loc) = &self.u_gray { gl.uniform_1_i32(Some(loc), if grayscale {1} else {0}); }
+        if let Some(loc) = &self.u_scale { gl.uniform_1_f32(Some(loc), scale); }
+        if let Some(loc) = &self.u_offset { gl.uniform_2_f32(Some(loc), offset.0, offset.1); }
         gl.bind_vertex_array(Some(self.vao));
         gl.draw_elements(glow::TRIANGLES, 6, glow::UNSIGNED_INT, 0);
         gl.bind_vertex_array(None);
