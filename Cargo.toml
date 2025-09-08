@@ -12,6 +12,6 @@ opencv = { version = "0.95.1", features = ["imgcodecs", "imgproc"] }
 clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
 # Use only the glow backend so we can run custom OpenGL shaders via egui callbacks.
-eframe = { version = "0.27", default-features = true, features = ["glow"] }
-egui_glow = "0.27"
+eframe = { version = "0.32", default-features = true, features = ["glow"] }
+egui_glow = "0.32"
 bytemuck = { version = "1.15", features = ["derive"] }

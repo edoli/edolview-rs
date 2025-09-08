@@ -189,7 +189,7 @@ impl eframe::App for ViewerApp {
                                 0,
                                 glow::RGBA,
                                 glow::UNSIGNED_BYTE,
-                                Some(bytemuck::cast_slice(&ci.pixels)),
+                                glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(&ci.pixels))),
                             );
                             self.gl_raw_tex = Some(tex);
                         }
@@ -240,7 +240,7 @@ impl eframe::App for ViewerApp {
                         let dy = delta.y / (rect.height()/2.0);
                         self.pan += egui::vec2(dx, dy);
                     }
-                    if resp.drag_released() { self.dragging = false; }
+                    if resp.drag_stopped() { self.dragging = false; }
                 }
 
                 if let (Some(gl_prog), Some(gl)) = (self.gl_prog.clone(), frame.gl()) {
@@ -283,7 +283,7 @@ fn main() -> Result<()> {
     let (max_w, max_h) = parse_max_size(&args.max_size)?;
     let state = ImageState::load(args.image.clone(), args.grayscale, max_w, max_h)?;
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None, zoom: 1.0, pan: egui::Vec2::ZERO, dragging: false, last_drag_pos: egui::Pos2::ZERO }))) {
+    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Ok(Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None, zoom: 1.0, pan: egui::Vec2::ZERO, dragging: false, last_drag_pos: egui::Pos2::ZERO })))) {
         return Err(eyre!("eframe initialization failed: {e}"));
     }
     Ok(())
