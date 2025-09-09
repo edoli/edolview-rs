@@ -1,0 +1,123 @@
+use std::sync::Arc;
+use eframe::{egui};
+use eframe::glow::{self, HasContext};
+use opencv::core;
+use opencv::prelude::*; // bring MatTrait* into scope
+use color_eyre::eyre::{Result, eyre};
+use crate::shader::ImageProgram;
+
+// Helper responsible ONLY for drawing the already prepared OpenCV Mat as an interactive image.
+pub fn show_image(
+	ui: &mut egui::Ui,
+	frame: &mut eframe::Frame,
+	mat: &core::Mat,
+	grayscale: bool,
+	gl_prog: &mut Option<Arc<ImageProgram>>,
+	gl_raw_tex: &mut Option<glow::NativeTexture>,
+	zoom: &mut f32,
+	pan: &mut egui::Vec2,
+	dragging: &mut bool,
+	last_drag_pos: &mut egui::Pos2,
+) {
+	// Upload texture if needed
+	if gl_raw_tex.is_none() {
+		if let Some(gl) = frame.gl() {
+			if let Ok(ci) = mat_to_color_image(mat) {
+				let size = [ci.width() as i32, ci.height() as i32];
+				unsafe {
+					let tex = gl.create_texture().unwrap();
+					gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+					gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+					gl.tex_image_2d(
+						glow::TEXTURE_2D, 0, glow::RGBA8 as i32, size[0], size[1], 0,
+						glow::RGBA, glow::UNSIGNED_BYTE,
+						glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(&ci.pixels)))
+					);
+					*gl_raw_tex = Some(tex);
+				}
+			}
+		}
+	}
+
+	if gl_raw_tex.is_some() {
+		if gl_prog.is_none() {
+			if let Some(gl) = frame.gl() {
+				if let Ok(p) = ImageProgram::new(gl) { *gl_prog = Some(Arc::new(p)); }
+			}
+		}
+		let desired = ui.available_size();
+		let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::drag());
+
+		if resp.hovered() {
+			let scroll = ui.input(|i| i.raw_scroll_delta.y);
+			if scroll.abs() > 0.0 {
+				let factor = (1.0 + scroll * 0.1).clamp(0.1, 10.0);
+				if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
+					let center = rect.center();
+					let rel = pointer - center;
+					let rel_clip = egui::Vec2::new(rel.x / (rect.width()/2.0), rel.y / (rect.height()/2.0));
+					*pan -= rel_clip * (factor - 1.0) * *zoom;
+				}
+				*zoom = (*zoom * factor).clamp(0.05, 100.0);
+			}
+		}
+
+		if resp.drag_started() { *dragging = true; *last_drag_pos = resp.interact_pointer_pos().unwrap_or(*last_drag_pos); }
+		if *dragging {
+			if let Some(pos) = resp.interact_pointer_pos() {
+				let delta = pos - *last_drag_pos;
+				*last_drag_pos = pos;
+				let dx = delta.x / (rect.width()/2.0);
+				let dy = delta.y / (rect.height()/2.0);
+				*pan += egui::vec2(dx, dy);
+			}
+			if resp.drag_stopped() { *dragging = false; }
+		}
+
+		if let (Some(gl_prog), Some(_gl)) = (gl_prog.clone(), frame.gl()) {
+			let tex_handle = gl_raw_tex.unwrap();
+			let scale = *zoom;
+			let offset = *pan;
+			let grayscale_flag = grayscale;
+			ui.painter().add(egui::PaintCallback {
+				rect,
+				callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| {
+					unsafe {
+						let gl = painter.gl();
+						let screen_h = info.screen_size_px[1] as i32;
+						let screen_w = info.screen_size_px[0] as i32;
+						let x = rect.min.x.round() as i32;
+						let y_top = rect.max.y.round() as i32;
+						let height = rect.height().round() as i32;
+						let y = screen_h - y_top;
+						let width = rect.width().round() as i32;
+						gl.viewport(x, y, width, height);
+						gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y));
+						gl.viewport(0, 0, screen_w, screen_h);
+					}
+				}) ),
+			});
+		}
+	} else {
+		ui.colored_label(egui::Color32::RED, "No texture uploaded");
+	}
+}
+
+fn mat_to_color_image(mat: &core::Mat) -> Result<egui::ColorImage> {
+	let size = mat.size()?;
+	let (w, h) = (size.width as usize, size.height as usize);
+	let channels = mat.channels();
+	let buf = mat.data_bytes()?.to_vec();
+	let mut rgba = Vec::with_capacity(w * h * 4);
+	match channels {
+		1 => { for &v in &buf { rgba.extend_from_slice(&[v, v, v, 255]); } }
+		3 => { for chunk in buf.chunks_exact(3) { rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], 255]); } }
+		4 => { for chunk in buf.chunks_exact(4) { rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]); } }
+	_ => return Err(eyre!("Unsupported channel count: {}", channels)),
+	}
+	Ok(egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba))
+}

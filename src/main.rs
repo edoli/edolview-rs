@@ -1,12 +1,14 @@
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
-use eframe::{egui, egui::ColorImage};
-use std::sync::Arc;
-use eframe::glow::{self, HasContext};
-mod shader;
-use shader::ImageProgram;
+use eframe::{egui};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
 use std::path::PathBuf;
+use std::sync::Arc;
+
+mod shader;
+mod image_viewer; // now only contains image drawing helper
+use shader::ImageProgram;
+use image_viewer::show_image;
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -45,7 +47,6 @@ struct ImageState {
     path: PathBuf,
     original: core::Mat,
     display: core::Mat,
-    texture: Option<egui::TextureHandle>,
     grayscale: bool,
     max_w: i32,
     max_h: i32,
@@ -53,41 +54,26 @@ struct ImageState {
 
 impl ImageState {
     fn load(path: PathBuf, grayscale: bool, max_w: i32, max_h: i32) -> Result<Self> {
-        if !path.exists() {
-            return Err(eyre!("Image does not exist: {:?}", path));
-        }
+        if !path.exists() { return Err(eyre!("Image does not exist: {:?}", path)); }
         let img = imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?;
-        if img.empty() {
-            return Err(eyre!("Failed to load image"));
-        }
-    let display = img.clone();
-        let mut state = ImageState {
-            path,
-            original: img,
-            display: core::Mat::default(),
-            texture: None,
-            grayscale,
-            max_w,
-            max_h,
-        };
-        state.display = state.process(&display)?;
+        if img.empty() { return Err(eyre!("Failed to load image")); }
+        let mut state = ImageState { path, original: img.clone(), display: core::Mat::default(), grayscale, max_w, max_h };
+        state.display = state.process(&img)?;
         Ok(state)
     }
 
     fn process(&self, img: &core::Mat) -> Result<core::Mat> {
-    let mut out = img.clone();
-    // If alpha, drop alpha for display for now.
-    if out.channels() == 4 {
+        let mut out = img.clone();
+        if out.channels() == 4 {
             let mut bgr = core::Mat::default();
             imgproc::cvt_color(img, &mut bgr, imgproc::COLOR_BGRA2BGR, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
             out = bgr;
         }
-    if self.grayscale {
+        if self.grayscale {
             let mut gray = core::Mat::default();
             imgproc::cvt_color(&out, &mut gray, imgproc::COLOR_BGR2GRAY, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
             out = gray;
         }
-
         if self.max_w > 0 && self.max_h > 0 {
             let size = out.size()?;
             let (w, h) = (size.width, size.height);
@@ -105,42 +91,16 @@ impl ImageState {
 
     fn rebuild(&mut self) -> Result<()> {
         self.display = self.process(&self.original.clone())?;
-        // Texture will be recreated lazily next frame
-        self.texture = None;
         Ok(())
-    }
-
-    fn to_color_image(&self) -> Result<ColorImage> {
-        let mat = &self.display;
-        let size = mat.size()?;
-        let (w, h) = (size.width as usize, size.height as usize);
-    let channels = mat.channels();
-    let buf = mat.data_bytes()?.to_vec();
-        // Convert BGR / Gray -> RGBA8 for egui
-        let mut rgba = Vec::with_capacity(w * h * 4);
-        match channels {
-            1 => {
-                for &v in &buf { rgba.extend_from_slice(&[v, v, v, 255]); }
-            }
-            3 => {
-                for chunk in buf.chunks_exact(3) { rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], 255]); }
-            }
-            4 => {
-                for chunk in buf.chunks_exact(4) { rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]); }
-            }
-            _ => return Err(eyre!("Unsupported channel count: {}", channels)),
-        }
-        Ok(ColorImage::from_rgba_unmultiplied([w, h], &rgba))
     }
 }
 
 struct ViewerApp {
     state: ImageState,
     gl_prog: Option<Arc<ImageProgram>>,
-    gl_raw_tex: Option<glow::NativeTexture>,
-    // Interaction
-    zoom: f32,          // isotropic scale in clip space (1.0 = fit panel)
-    pan: egui::Vec2,    // clip-space offset
+    gl_raw_tex: Option<eframe::glow::NativeTexture>,
+    zoom: f32,
+    pan: egui::Vec2,
     dragging: bool,
     last_drag_pos: egui::Pos2,
 }
@@ -152,7 +112,7 @@ impl eframe::App for ViewerApp {
                 if ui.button(if self.state.grayscale { "Grayscale ✔" } else { "Grayscale" }).clicked() {
                     self.state.grayscale = !self.state.grayscale;
                     if let Err(e) = self.state.rebuild() { eprintln!("Error rebuilding image: {e}"); }
-                    self.gl_raw_tex = None; // Force re-upload
+                    self.gl_raw_tex = None; // force reupload next frame
                 }
                 if ui.button("Reload").clicked() {
                     if let Err(e) = self.state.rebuild() { eprintln!("Error reloading: {e}"); }
@@ -163,116 +123,28 @@ impl eframe::App for ViewerApp {
                     self.pan = egui::Vec2::ZERO;
                 }
                 ui.label(format!("{}", self.state.path.display()));
+                let response = ui.add(egui::widgets::Label::new("Right-click me!").sense(egui::Sense::click()));
+                response.context_menu(|ui| {
+                    if ui.button("Close the menu").clicked() {
+                        ui.close();
+                    }
+                });
             });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Prepare egui texture from Mat (we upload raw & let shader sample it)
-            if self.gl_raw_tex.is_none() {
-                if let Some(gl) = frame.gl() {
-                    if let Ok(ci) = self.state.to_color_image() {
-                        let size = [ci.width() as i32, ci.height() as i32];
-                        unsafe {
-                            let tex = gl.create_texture().unwrap();
-                            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-                            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-                            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-                            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-                            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-                            gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-                            gl.tex_image_2d(
-                                glow::TEXTURE_2D,
-                                0,
-                                glow::RGBA8 as i32,
-                                size[0],
-                                size[1],
-                                0,
-                                glow::RGBA,
-                                glow::UNSIGNED_BYTE,
-                                glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(&ci.pixels))),
-                            );
-                            self.gl_raw_tex = Some(tex);
-                        }
-                    }
-                }
-            }
-            if self.gl_raw_tex.is_some() {
-                // Ensure shader program exists
-                if self.gl_prog.is_none() {
-                    // Access glow context
-                    if let Some(gl) = frame.gl() {
-                        match ImageProgram::new(gl) {
-                            Ok(p) => self.gl_prog = Some(Arc::new(p)),
-                            Err(e) => eprintln!("Shader program error: {e}"),
-                        }
-                    }
-                }
-                let desired = ui.available_size();
-                let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::drag());
-
-                // Handle scroll for zoom (center on mouse)
-                if resp.hovered() {
-                    let scroll = ui.input(|i| i.raw_scroll_delta.y);
-                    if scroll.abs() > 0.0 {
-                        // scale factor per notch
-                        let factor = (1.0 + scroll * 0.1).clamp(0.1, 10.0);
-                        // Convert mouse pos to clip space before zoom to keep point under cursor
-                        if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
-                            let center = rect.center();
-                            let rel = pointer - center; // in ui points
-                            // Map to clip: [-1,1] range assuming rect fully covers clip quad
-                            let rel_clip = egui::Vec2::new(rel.x / (rect.width()/2.0), rel.y / (rect.height()/2.0));
-                            // Adjust pan so that rel point stays stable
-                            self.pan -= rel_clip * (factor - 1.0) * self.zoom;
-                        }
-                        self.zoom = (self.zoom * factor).clamp(0.05, 100.0);
-                    }
-                }
-
-                // Drag for panning
-                if resp.drag_started() { self.dragging = true; self.last_drag_pos = resp.interact_pointer_pos().unwrap_or(self.last_drag_pos); }
-                if self.dragging {
-                    if let Some(pos) = resp.interact_pointer_pos() {
-                        let delta = pos - self.last_drag_pos;
-                        self.last_drag_pos = pos;
-                        // Convert delta in ui points to clip space offset
-                        let dx = delta.x / (rect.width()/2.0);
-                        let dy = delta.y / (rect.height()/2.0);
-                        self.pan += egui::vec2(dx, dy);
-                    }
-                    if resp.drag_stopped() { self.dragging = false; }
-                }
-
-                if let (Some(gl_prog), Some(gl)) = (self.gl_prog.clone(), frame.gl()) {
-                    // Register a custom paint callback
-                    let grayscale = self.state.grayscale;
-                    let tex_handle = self.gl_raw_tex.unwrap();
-                    let scale = self.zoom;
-                    let offset = self.pan;
-                    ui.painter().add(egui::PaintCallback {
-                        rect,
-                        callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| {
-                            unsafe {
-                                let gl = painter.gl();
-                                let screen_h = info.screen_size_px[1] as i32;
-                                let screen_w = info.screen_size_px[0] as i32;
-                                let x = rect.min.x.round() as i32;
-                                let y_top = rect.max.y.round() as i32; // egui origin top-left
-                                let height = rect.height().round() as i32;
-                                let y = screen_h - y_top; // convert to GL origin bottom-left
-                                let width = rect.width().round() as i32;
-                                gl.viewport(x, y, width, height);
-                                // Don't clear or disable scissor: that would wipe earlier drawn egui UI.
-                                gl_prog.draw(gl, tex_handle, grayscale, scale, (offset.x, -offset.y)); // invert y for GL
-                                // Restore viewport so subsequent egui draws (e.g. text glyphs) use full surface.
-                                gl.viewport(0, 0, screen_w, screen_h);
-                            }
-                        })),
-                    });
-                } else {
-                    ui.colored_label(egui::Color32::RED, "GL context not ready");
-                }
-            }
+            show_image(
+                ui,
+                frame,
+                &self.state.display,
+                self.state.grayscale,
+                &mut self.gl_prog,
+                &mut self.gl_raw_tex,
+                &mut self.zoom,
+                &mut self.pan,
+                &mut self.dragging,
+                &mut self.last_drag_pos,
+            );
         });
     }
 }
