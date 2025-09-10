@@ -6,9 +6,16 @@ use opencv::prelude::*; // bring MatTrait* into scope
 use color_eyre::eyre::{Result, eyre};
 use crate::shader::ImageProgram;
 
+pub struct ImageSpec {
+	pub width: i32,
+	pub height: i32,
+	pub channels: i32,
+}
+
 pub struct ImageViewer {
 	gl_prog: Option<Arc<ImageProgram>>,
 	gl_raw_tex: Option<glow::NativeTexture>,
+	image_spec: Option<ImageSpec>,
 	zoom_level: f32,
 	zoom_base: f32,
 	pan: egui::Vec2,
@@ -21,6 +28,7 @@ impl ImageViewer {
 		Self {
 			gl_prog: None,
 			gl_raw_tex: None,
+			image_spec: None,
 			zoom_level: 0.0,
 			zoom_base: 1.1,
 			pan: egui::Vec2::ZERO,
@@ -56,6 +64,12 @@ impl ImageViewer {
 						);
 						self.gl_raw_tex = Some(tex);
 					}
+
+					self.image_spec = Some(ImageSpec {
+						width: size[0],
+						height: size[1],
+						channels: 4,
+					});
 				}
 			}
 		}

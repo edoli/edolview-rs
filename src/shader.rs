@@ -44,7 +44,8 @@ impl ImageProgram {
                 uniform sampler2D u_tex;
                 uniform int u_gray;
                 void main(){
-                    vec4 c = texture(u_tex, vUv);
+                    vec2 flippedUv = vec2(vUv.x, 1.0 - vUv.y);
+                    vec4 c = texture(u_tex, flippedUv);
                     if(u_gray == 1){
                         float g = dot(c.rgb, vec3(0.299,0.587,0.114));
                         FragColor = vec4(vec3(g), c.a);

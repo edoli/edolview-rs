@@ -128,6 +128,13 @@ impl eframe::App for ViewerApp {
             });
         });
 
+        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(format!("Image size: {}x{}", self.state.display.cols(), self.state.display.rows()));
+                ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
+            });
+        });
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
