@@ -126,6 +126,15 @@ impl ImageViewer {
 				let scale = self.zoom() as f32;
 				let offset = self.pan;
 				let grayscale_flag = grayscale;
+				// base image scale: when scale==1.0 image shows 1:1 pixels
+				let mut img_scale = (1.0_f32, 1.0_f32);
+				if let Some(spec) = &self.image_spec {
+					let viewport_w_px = rect_pixels.width() as f32;
+					let viewport_h_px = rect_pixels.height() as f32;
+					if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
+						img_scale = (spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
+					}
+				}
 				ui.painter().add(egui::PaintCallback {
 					rect,
 					callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| {
@@ -139,7 +148,7 @@ impl ImageViewer {
 							let y = screen_h - y_top;
 							let width = rect_pixels.width().round() as i32;
 							gl.viewport(x, y, width, height);
-							gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y));
+							gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y), img_scale);
 							gl.viewport(0, 0, screen_w, screen_h);
 						}
 					}) ),
@@ -151,7 +160,8 @@ impl ImageViewer {
 	}
 
 	pub fn reset_view(&mut self) {
-		self.zoom_level = 1.0;
+		// zoom_level baseline 0 => powf -> 1.0
+		self.zoom_level = 0.0;
 		self.pan = egui::Vec2::ZERO;
 	}
 

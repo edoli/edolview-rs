@@ -11,6 +11,7 @@ pub struct ImageProgram {
     u_gray: glow::UniformLocation,
     u_scale: glow::UniformLocation,
     u_offset: glow::UniformLocation,
+    u_img_scale: glow::UniformLocation,
 }
 
 trait GlExt {
@@ -32,9 +33,11 @@ impl ImageProgram {
                 out vec2 vUv;
                 uniform float u_scale;          // isotropic scale
                 uniform vec2  u_offset;         // additive offset in clip space
+                uniform vec2  u_img_scale;      // base scale (image_px / viewport_px) per axis so that zoom=1 is 1:1
                 void main(){
                     vUv = aUv;
-                    vec2 pos = aPos * u_scale + u_offset; // apply pan/zoom
+                    // aPos spans [-1,1]; scale it first by base image to viewport ratio, then by user zoom
+                    vec2 pos = aPos * u_img_scale * u_scale + u_offset; // apply base scale + pan/zoom
                     gl_Position = vec4(pos, 0.0, 1.0);
                 }
             "#;
@@ -103,12 +106,13 @@ impl ImageProgram {
             let u_gray = gl.check_and_get_uniform_location(program, "u_gray");
             let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
             let u_offset = gl.check_and_get_uniform_location(program, "u_offset");
+            let u_img_scale = gl.check_and_get_uniform_location(program, "u_img_scale");
 
-            Ok(Self { program, vao, vbo, ebo, u_tex, u_gray, u_scale, u_offset })
+            Ok(Self { program, vao, vbo, ebo, u_tex, u_gray, u_scale, u_offset, u_img_scale })
         }
     }
 
-    pub unsafe fn draw(&self, gl: &glow::Context, tex_id: glow::NativeTexture, grayscale: bool, scale: f32, offset: (f32, f32)) {
+    pub unsafe fn draw(&self, gl: &glow::Context, tex_id: glow::NativeTexture, grayscale: bool, scale: f32, offset: (f32, f32), img_scale: (f32, f32)) {
         gl.use_program(Some(self.program));
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
@@ -116,6 +120,7 @@ impl ImageProgram {
         gl.uniform_1_i32(Some(&self.u_gray), if grayscale {1} else {0});
         gl.uniform_1_f32(Some(&self.u_scale), scale);
         gl.uniform_2_f32(Some(&self.u_offset), offset.0, offset.1);
+        gl.uniform_2_f32(Some(&self.u_img_scale), img_scale.0, img_scale.1);
         gl.bind_vertex_array(Some(self.vao));
         gl.draw_elements(glow::TRIANGLES, 6, glow::UNSIGNED_INT, 0);
         gl.bind_vertex_array(None);
