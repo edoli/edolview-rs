@@ -9,7 +9,8 @@ use crate::shader::ImageProgram;
 pub struct ImageViewer {
 	gl_prog: Option<Arc<ImageProgram>>,
 	gl_raw_tex: Option<glow::NativeTexture>,
-	zoom: f32,
+	zoom_level: f32,
+	zoom_base: f32,
 	pan: egui::Vec2,
 	dragging: bool,
 	last_drag_pos: egui::Pos2,
@@ -20,7 +21,8 @@ impl ImageViewer {
 		Self {
 			gl_prog: None,
 			gl_raw_tex: None,
-			zoom: 1.0,
+			zoom_level: 0.0,
+			zoom_base: 1.1,
 			pan: egui::Vec2::ZERO,
 			dragging: false,
 			last_drag_pos: egui::Pos2::ZERO,
@@ -71,19 +73,25 @@ impl ImageViewer {
 			if resp.hovered() {
 				let scroll = ui.input(|i| i.raw_scroll_delta.y);
 				if scroll.abs() > 0.0 {
-					let factor = (1.0 + scroll * 0.1).clamp(0.1, 10.0);
+					// Compute old scale before applying zoom change
+					let old_scale = self.zoom();
+					let scroll_sign = scroll.signum();
+					self.zoom_level += scroll_sign; // update zoom level first
+					let new_scale = self.zoom();
+					let k = new_scale / old_scale; // scaling factor applied to existing pan
 					if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
-						let center = rect.center();
-						let rel = pointer - center;
-						let rel_clip = egui::Vec2::new(rel.x / (rect.width()/2.0), rel.y / (rect.height()/2.0));
-						self.pan -= rel_clip * (factor - 1.0) * self.zoom;
+						let local = pointer - rect.center();
+						let clip = egui::Vec2::new(local.x / (rect.width()/2.0), local.y / (rect.height()/2.0));
+
+						self.pan.x = self.pan.x * k + clip.x * (1.0 - k);
+						self.pan.y = self.pan.y * k + clip.y * (1.0 - k);
 					}
-					self.zoom = (self.zoom * factor).clamp(0.05, 100.0);
 				}
 			}
 
 			if resp.drag_started() { 
-				self.dragging = true; self.last_drag_pos = resp.interact_pointer_pos().unwrap_or(self.last_drag_pos); 
+				self.dragging = true;
+				self.last_drag_pos = resp.interact_pointer_pos().unwrap_or(self.last_drag_pos); 
 			}
 
 			if self.dragging {
@@ -101,7 +109,7 @@ impl ImageViewer {
 
 			if let (Some(gl_prog), Some(_gl)) = (self.gl_prog.clone(), frame.gl()) {
 				let tex_handle = self.gl_raw_tex.unwrap();
-				let scale = self.zoom;
+				let scale = self.zoom() as f32;
 				let offset = self.pan;
 				let grayscale_flag = grayscale;
 				ui.painter().add(egui::PaintCallback {
@@ -129,9 +137,13 @@ impl ImageViewer {
 	}
 
 	pub fn reset_view(&mut self) {
-		self.zoom = 1.0;
+		self.zoom_level = 1.0;
 		self.pan = egui::Vec2::ZERO;
 	}
+
+    pub fn zoom(&self) -> f32 {
+        self.zoom_base.powf(self.zoom_level)
+    }
 }
 
 fn mat_to_color_image(mat: &core::Mat) -> Result<egui::ColorImage> {
