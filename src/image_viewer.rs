@@ -49,8 +49,9 @@ pub fn show_image(
 				if let Ok(p) = ImageProgram::new(gl) { *gl_prog = Some(Arc::new(p)); }
 			}
 		}
-		let desired = ui.available_size();
-		let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::drag());
+		let available_points = ui.available_size();
+		let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
+		let rect_pixels = rect * ui.ctx().pixels_per_point();
 
 		if resp.hovered() {
 			let scroll = ui.input(|i| i.raw_scroll_delta.y);
@@ -90,11 +91,11 @@ pub fn show_image(
 						let gl = painter.gl();
 						let screen_h = info.screen_size_px[1] as i32;
 						let screen_w = info.screen_size_px[0] as i32;
-						let x = rect.min.x.round() as i32;
-						let y_top = rect.max.y.round() as i32;
-						let height = rect.height().round() as i32;
+						let x = rect_pixels.min.x.round() as i32;
+						let y_top = rect_pixels.max.y.round() as i32;
+						let height = rect_pixels.height().round() as i32;
 						let y = screen_h - y_top;
-						let width = rect.width().round() as i32;
+						let width = rect_pixels.width().round() as i32;
 						gl.viewport(x, y, width, height);
 						gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y));
 						gl.viewport(0, 0, screen_w, screen_h);

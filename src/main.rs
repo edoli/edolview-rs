@@ -132,20 +132,22 @@ impl eframe::App for ViewerApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            show_image(
-                ui,
-                frame,
-                &self.state.display,
-                self.state.grayscale,
-                &mut self.gl_prog,
-                &mut self.gl_raw_tex,
-                &mut self.zoom,
-                &mut self.pan,
-                &mut self.dragging,
-                &mut self.last_drag_pos,
-            );
-        });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(0))
+            .show(ctx, |ui| {
+                show_image(
+                    ui,
+                    frame,
+                    &self.state.display,
+                    self.state.grayscale,
+                    &mut self.gl_prog,
+                    &mut self.gl_raw_tex,
+                    &mut self.zoom,
+                    &mut self.pan,
+                    &mut self.dragging,
+                    &mut self.last_drag_pos,
+                );
+            });
     }
 }
 
