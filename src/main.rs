@@ -8,7 +8,7 @@ use std::sync::Arc;
 mod shader;
 mod image_viewer; // now only contains image drawing helper
 use shader::ImageProgram;
-use image_viewer::show_image;
+use image_viewer::ImageViewer;
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -99,10 +99,7 @@ struct ViewerApp {
     state: ImageState,
     gl_prog: Option<Arc<ImageProgram>>,
     gl_raw_tex: Option<eframe::glow::NativeTexture>,
-    zoom: f32,
-    pan: egui::Vec2,
-    dragging: bool,
-    last_drag_pos: egui::Pos2,
+    viewer: ImageViewer,
 }
 
 impl eframe::App for ViewerApp {
@@ -119,8 +116,7 @@ impl eframe::App for ViewerApp {
                     self.gl_raw_tex = None;
                 }
                 if ui.button("Reset View").clicked() {
-                    self.zoom = 1.0;
-                    self.pan = egui::Vec2::ZERO;
+                    self.viewer.reset_view();
                 }
                 ui.label(format!("{}", self.state.path.display()));
                 let response = ui.add(egui::widgets::Label::new("Right-click me!").sense(egui::Sense::click()));
@@ -135,17 +131,11 @@ impl eframe::App for ViewerApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
-                show_image(
+                self.viewer.show_image(
                     ui,
                     frame,
                     &self.state.display,
                     self.state.grayscale,
-                    &mut self.gl_prog,
-                    &mut self.gl_raw_tex,
-                    &mut self.zoom,
-                    &mut self.pan,
-                    &mut self.dragging,
-                    &mut self.last_drag_pos,
                 );
             });
     }
@@ -157,7 +147,7 @@ fn main() -> Result<()> {
     let (max_w, max_h) = parse_max_size(&args.max_size)?;
     let state = ImageState::load(args.image.clone(), args.grayscale, max_w, max_h)?;
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Ok(Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None, zoom: 1.0, pan: egui::Vec2::ZERO, dragging: false, last_drag_pos: egui::Pos2::ZERO })))) {
+    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Ok(Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None, viewer: ImageViewer::new() })))) {
         return Err(eyre!("eframe initialization failed: {e}"));
     }
     Ok(())

@@ -6,105 +6,131 @@ use opencv::prelude::*; // bring MatTrait* into scope
 use color_eyre::eyre::{Result, eyre};
 use crate::shader::ImageProgram;
 
-// Helper responsible ONLY for drawing the already prepared OpenCV Mat as an interactive image.
-pub fn show_image(
-	ui: &mut egui::Ui,
-	frame: &mut eframe::Frame,
-	mat: &core::Mat,
-	grayscale: bool,
-	gl_prog: &mut Option<Arc<ImageProgram>>,
-	gl_raw_tex: &mut Option<glow::NativeTexture>,
-	zoom: &mut f32,
-	pan: &mut egui::Vec2,
-	dragging: &mut bool,
-	last_drag_pos: &mut egui::Pos2,
-) {
-	// Upload texture if needed
-	if gl_raw_tex.is_none() {
-		if let Some(gl) = frame.gl() {
-			if let Ok(ci) = mat_to_color_image(mat) {
-				let size = [ci.width() as i32, ci.height() as i32];
-				unsafe {
-					let tex = gl.create_texture().unwrap();
-					gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-					gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-					gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-					gl.tex_image_2d(
-						glow::TEXTURE_2D, 0, glow::RGBA8 as i32, size[0], size[1], 0,
-						glow::RGBA, glow::UNSIGNED_BYTE,
-						glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(&ci.pixels)))
-					);
-					*gl_raw_tex = Some(tex);
+pub struct ImageViewer {
+	gl_prog: Option<Arc<ImageProgram>>,
+	gl_raw_tex: Option<glow::NativeTexture>,
+	zoom: f32,
+	pan: egui::Vec2,
+	dragging: bool,
+	last_drag_pos: egui::Pos2,
+}
+
+impl ImageViewer {
+	pub fn new() -> Self {
+		Self {
+			gl_prog: None,
+			gl_raw_tex: None,
+			zoom: 1.0,
+			pan: egui::Vec2::ZERO,
+			dragging: false,
+			last_drag_pos: egui::Pos2::ZERO,
+		}
+	}
+	
+	pub fn show_image(
+		&mut self,
+		ui: &mut egui::Ui,
+		frame: &mut eframe::Frame,
+		mat: &core::Mat,
+		grayscale: bool,
+	) {
+		// Upload texture if needed
+		if self.gl_raw_tex.is_none() {
+			if let Some(gl) = frame.gl() {
+				if let Ok(ci) = mat_to_color_image(mat) {
+					let size = [ci.width() as i32, ci.height() as i32];
+					unsafe {
+						let tex = gl.create_texture().unwrap();
+						gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+						gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+						gl.tex_image_2d(
+							glow::TEXTURE_2D, 0, glow::RGBA8 as i32, size[0], size[1], 0,
+							glow::RGBA, glow::UNSIGNED_BYTE,
+							glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(&ci.pixels)))
+						);
+						self.gl_raw_tex = Some(tex);
+					}
 				}
 			}
+		}
+
+		if self.gl_raw_tex.is_some() {
+			if self.gl_prog.is_none() {
+				if let Some(gl) = frame.gl() {
+					if let Ok(p) = ImageProgram::new(gl) { self.gl_prog = Some(Arc::new(p)); }
+				}
+			}
+			let available_points = ui.available_size();
+			let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
+			let rect_pixels = rect * ui.ctx().pixels_per_point();
+
+			if resp.hovered() {
+				let scroll = ui.input(|i| i.raw_scroll_delta.y);
+				if scroll.abs() > 0.0 {
+					let factor = (1.0 + scroll * 0.1).clamp(0.1, 10.0);
+					if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
+						let center = rect.center();
+						let rel = pointer - center;
+						let rel_clip = egui::Vec2::new(rel.x / (rect.width()/2.0), rel.y / (rect.height()/2.0));
+						self.pan -= rel_clip * (factor - 1.0) * self.zoom;
+					}
+					self.zoom = (self.zoom * factor).clamp(0.05, 100.0);
+				}
+			}
+
+			if resp.drag_started() { 
+				self.dragging = true; self.last_drag_pos = resp.interact_pointer_pos().unwrap_or(self.last_drag_pos); 
+			}
+
+			if self.dragging {
+				if let Some(pos) = resp.interact_pointer_pos() {
+					let delta = pos - self.last_drag_pos;
+					self.last_drag_pos = pos;
+					let dx = delta.x / (rect.width()/2.0);
+					let dy = delta.y / (rect.height()/2.0);
+					self.pan += egui::vec2(dx, dy);
+				}
+				if resp.drag_stopped() { 
+					self.dragging = false;
+				}
+			}
+
+			if let (Some(gl_prog), Some(_gl)) = (self.gl_prog.clone(), frame.gl()) {
+				let tex_handle = self.gl_raw_tex.unwrap();
+				let scale = self.zoom;
+				let offset = self.pan;
+				let grayscale_flag = grayscale;
+				ui.painter().add(egui::PaintCallback {
+					rect,
+					callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| {
+						unsafe {
+							let gl = painter.gl();
+							let screen_h = info.screen_size_px[1] as i32;
+							let screen_w = info.screen_size_px[0] as i32;
+							let x = rect_pixels.min.x.round() as i32;
+							let y_top = rect_pixels.max.y.round() as i32;
+							let height = rect_pixels.height().round() as i32;
+							let y = screen_h - y_top;
+							let width = rect_pixels.width().round() as i32;
+							gl.viewport(x, y, width, height);
+							gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y));
+							gl.viewport(0, 0, screen_w, screen_h);
+						}
+					}) ),
+				});
+			}
+		} else {
+			ui.colored_label(egui::Color32::RED, "No texture uploaded");
 		}
 	}
 
-	if gl_raw_tex.is_some() {
-		if gl_prog.is_none() {
-			if let Some(gl) = frame.gl() {
-				if let Ok(p) = ImageProgram::new(gl) { *gl_prog = Some(Arc::new(p)); }
-			}
-		}
-		let available_points = ui.available_size();
-		let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
-		let rect_pixels = rect * ui.ctx().pixels_per_point();
-
-		if resp.hovered() {
-			let scroll = ui.input(|i| i.raw_scroll_delta.y);
-			if scroll.abs() > 0.0 {
-				let factor = (1.0 + scroll * 0.1).clamp(0.1, 10.0);
-				if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
-					let center = rect.center();
-					let rel = pointer - center;
-					let rel_clip = egui::Vec2::new(rel.x / (rect.width()/2.0), rel.y / (rect.height()/2.0));
-					*pan -= rel_clip * (factor - 1.0) * *zoom;
-				}
-				*zoom = (*zoom * factor).clamp(0.05, 100.0);
-			}
-		}
-
-		if resp.drag_started() { *dragging = true; *last_drag_pos = resp.interact_pointer_pos().unwrap_or(*last_drag_pos); }
-		if *dragging {
-			if let Some(pos) = resp.interact_pointer_pos() {
-				let delta = pos - *last_drag_pos;
-				*last_drag_pos = pos;
-				let dx = delta.x / (rect.width()/2.0);
-				let dy = delta.y / (rect.height()/2.0);
-				*pan += egui::vec2(dx, dy);
-			}
-			if resp.drag_stopped() { *dragging = false; }
-		}
-
-		if let (Some(gl_prog), Some(_gl)) = (gl_prog.clone(), frame.gl()) {
-			let tex_handle = gl_raw_tex.unwrap();
-			let scale = *zoom;
-			let offset = *pan;
-			let grayscale_flag = grayscale;
-			ui.painter().add(egui::PaintCallback {
-				rect,
-				callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| {
-					unsafe {
-						let gl = painter.gl();
-						let screen_h = info.screen_size_px[1] as i32;
-						let screen_w = info.screen_size_px[0] as i32;
-						let x = rect_pixels.min.x.round() as i32;
-						let y_top = rect_pixels.max.y.round() as i32;
-						let height = rect_pixels.height().round() as i32;
-						let y = screen_h - y_top;
-						let width = rect_pixels.width().round() as i32;
-						gl.viewport(x, y, width, height);
-						gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y));
-						gl.viewport(0, 0, screen_w, screen_h);
-					}
-				}) ),
-			});
-		}
-	} else {
-		ui.colored_label(egui::Color32::RED, "No texture uploaded");
+	pub fn reset_view(&mut self) {
+		self.zoom = 1.0;
+		self.pan = egui::Vec2::ZERO;
 	}
 }
 
