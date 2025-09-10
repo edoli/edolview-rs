@@ -5,12 +5,22 @@ use color_eyre::eyre::{Result, eyre};
 pub struct ImageProgram {
     pub program: glow::Program,
     pub vao: glow::VertexArray,
-    pub vbo: glow::Buffer,
-    pub ebo: glow::Buffer,
-    u_tex: Option<glow::UniformLocation>,
-    u_gray: Option<glow::UniformLocation>,
-    u_scale: Option<glow::UniformLocation>,
-    u_offset: Option<glow::UniformLocation>,
+    vbo: glow::Buffer,
+    ebo: glow::Buffer,
+    u_tex: glow::UniformLocation,
+    u_gray: glow::UniformLocation,
+    u_scale: glow::UniformLocation,
+    u_offset: glow::UniformLocation,
+}
+
+trait GlExt {
+    unsafe fn check_and_get_uniform_location(&self, program: glow::Program, name: &str) -> glow::UniformLocation;
+}
+
+impl GlExt for glow::Context {
+    unsafe fn check_and_get_uniform_location(&self, program: glow::Program, name: &str) -> glow::UniformLocation {
+        self.get_uniform_location(program, name).expect(&format!("Failed to get uniform location for {}", name))
+    }
 }
 
 impl ImageProgram {
@@ -88,10 +98,10 @@ impl ImageProgram {
             gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 2 * 4);
             gl.bind_vertex_array(None);
 
-            let u_tex = gl.get_uniform_location(program, "u_tex");
-            let u_gray = gl.get_uniform_location(program, "u_gray");
-            let u_scale = gl.get_uniform_location(program, "u_scale");
-            let u_offset = gl.get_uniform_location(program, "u_offset");
+            let u_tex = gl.check_and_get_uniform_location(program, "u_tex");
+            let u_gray = gl.check_and_get_uniform_location(program, "u_gray");
+            let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
+            let u_offset = gl.check_and_get_uniform_location(program, "u_offset");
 
             Ok(Self { program, vao, vbo, ebo, u_tex, u_gray, u_scale, u_offset })
         }
@@ -101,19 +111,22 @@ impl ImageProgram {
         gl.use_program(Some(self.program));
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
-        if let Some(loc) = &self.u_tex { gl.uniform_1_i32(Some(loc), 0); }
-        if let Some(loc) = &self.u_gray { gl.uniform_1_i32(Some(loc), if grayscale {1} else {0}); }
-        if let Some(loc) = &self.u_scale { gl.uniform_1_f32(Some(loc), scale); }
-        if let Some(loc) = &self.u_offset { gl.uniform_2_f32(Some(loc), offset.0, offset.1); }
+        gl.uniform_1_i32(Some(&self.u_tex), 0);
+        gl.uniform_1_i32(Some(&self.u_gray), if grayscale {1} else {0});
+        gl.uniform_1_f32(Some(&self.u_scale), scale);
+        gl.uniform_2_f32(Some(&self.u_offset), offset.0, offset.1);
         gl.bind_vertex_array(Some(self.vao));
         gl.draw_elements(glow::TRIANGLES, 6, glow::UNSIGNED_INT, 0);
         gl.bind_vertex_array(None);
         gl.use_program(None);
     }
-}
 
-impl Drop for ImageProgram {
-    fn drop(&mut self) {
-        // Usually cleaned up automatically when context is destroyed; skip for brevity.
+    pub unsafe fn destroy(&self, gl: &glow::Context) {
+        
+        // Ignore any errors; we're in Drop.
+        gl.delete_program(self.program);
+        gl.delete_vertex_array(self.vao);
+        gl.delete_buffer(self.vbo);
+        gl.delete_buffer(self.ebo);
     }
 }
