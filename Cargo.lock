@@ -936,7 +936,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "edolview"
+name = "edolview-rs"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
