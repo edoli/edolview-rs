@@ -3,12 +3,12 @@ use color_eyre::eyre::{eyre, Result};
 use eframe::{egui};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
 use std::path::PathBuf;
-use std::sync::Arc;
 
-mod shader;
-mod image_viewer; // now only contains image drawing helper
-use shader::ImageProgram;
-use image_viewer::ImageViewer;
+mod model;
+mod ui;
+use crate::{
+    ui::ImageViewer,
+};
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -97,8 +97,6 @@ impl ImageState {
 
 struct ViewerApp {
     state: ImageState,
-    gl_prog: Option<Arc<ImageProgram>>,
-    gl_raw_tex: Option<eframe::glow::NativeTexture>,
     viewer: ImageViewer,
 }
 
@@ -109,11 +107,9 @@ impl eframe::App for ViewerApp {
                 if ui.button(if self.state.grayscale { "Grayscale ✔" } else { "Grayscale" }).clicked() {
                     self.state.grayscale = !self.state.grayscale;
                     if let Err(e) = self.state.rebuild() { eprintln!("Error rebuilding image: {e}"); }
-                    self.gl_raw_tex = None; // force reupload next frame
                 }
                 if ui.button("Reload").clicked() {
                     if let Err(e) = self.state.rebuild() { eprintln!("Error reloading: {e}"); }
-                    self.gl_raw_tex = None;
                 }
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();
@@ -154,7 +150,7 @@ fn main() -> Result<()> {
     let (max_w, max_h) = parse_max_size(&args.max_size)?;
     let state = ImageState::load(args.image.clone(), args.grayscale, max_w, max_h)?;
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Ok(Box::new(ViewerApp { state, gl_prog: None, gl_raw_tex: None, viewer: ImageViewer::new() })))) {
+    if let Err(e) = eframe::run_native(&args.title, native_options, Box::new(|_cc| Ok(Box::new(ViewerApp { state, viewer: ImageViewer::new() })))) {
         return Err(eyre!("eframe initialization failed: {e}"));
     }
     Ok(())

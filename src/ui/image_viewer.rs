@@ -2,15 +2,13 @@ use std::sync::Arc;
 use eframe::{egui};
 use eframe::glow::{self, HasContext};
 use opencv::core;
-use opencv::prelude::*; // bring MatTrait* into scope
+use opencv::prelude::*;
 use color_eyre::eyre::{Result, eyre};
-use crate::shader::ImageProgram;
 
-pub struct ImageSpec {
-	pub width: i32,
-	pub height: i32,
-	pub channels: i32,
-}
+use crate::{
+	ui::gl::ImageProgram,
+	model::ImageSpec,
+};
 
 pub struct ImageViewer {
 	gl_prog: Option<Arc<ImageProgram>>,
