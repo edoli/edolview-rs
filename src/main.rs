@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 mod model;
 mod ui;
+mod util;
 use crate::{
     ui::ImageViewer,
 };

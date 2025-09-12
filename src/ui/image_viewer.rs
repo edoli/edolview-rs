@@ -45,6 +45,9 @@ impl ImageViewer {
 		// Upload texture if needed
 		if self.gl_raw_tex.is_none() {
 			if let Some(gl) = frame.gl() {
+
+				self.image_spec = Some(ImageSpec::new(mat));
+
 				if let Ok(ci) = mat_to_color_image(mat) {
 					let size = [ci.width() as i32, ci.height() as i32];
 					unsafe {
@@ -62,12 +65,6 @@ impl ImageViewer {
 						);
 						self.gl_raw_tex = Some(tex);
 					}
-
-					self.image_spec = Some(ImageSpec {
-						width: size[0],
-						height: size[1],
-						channels: 4,
-					});
 				}
 			}
 		}
