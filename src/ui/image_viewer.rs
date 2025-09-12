@@ -42,30 +42,11 @@ impl ImageViewer {
 		mat: &core::Mat,
 		grayscale: bool,
 	) {
-		// Upload texture if needed
+		// Upload texture if needed (direct from OpenCV Mat)
 		if self.gl_raw_tex.is_none() {
 			if let Some(gl) = frame.gl() {
-
 				self.image_spec = Some(ImageSpec::new(mat));
-
-				if let Ok(ci) = mat_to_color_image(mat) {
-					let size = [ci.width() as i32, ci.height() as i32];
-					unsafe {
-						let tex = gl.create_texture().unwrap();
-						gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-						gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-						gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-						gl.tex_image_2d(
-							glow::TEXTURE_2D, 0, glow::RGBA8 as i32, size[0], size[1], 0,
-							glow::RGBA, glow::UNSIGNED_BYTE,
-							glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(&ci.pixels)))
-						);
-						self.gl_raw_tex = Some(tex);
-					}
-				}
+				if let Ok(tex) = upload_mat_texture(gl, mat) { self.gl_raw_tex = Some(tex); }
 			}
 		}
 
@@ -165,17 +146,61 @@ impl ImageViewer {
     }
 }
 
-fn mat_to_color_image(mat: &core::Mat) -> Result<egui::ColorImage> {
+// Upload an OpenCV Mat directly as an OpenGL texture.
+// Supports 1 (GRAY), 3 (BGR), 4 (BGRA) channel 8-bit mats.
+fn upload_mat_texture(gl: &glow::Context, mat: &core::Mat) -> Result<glow::NativeTexture> {
 	let size = mat.size()?;
-	let (w, h) = (size.width as usize, size.height as usize);
+	let (w, h) = (size.width, size.height);
 	let channels = mat.channels();
-	let buf = mat.data_bytes()?.to_vec();
-	let mut rgba = Vec::with_capacity(w * h * 4);
-	match channels {
-		1 => { for &v in &buf { rgba.extend_from_slice(&[v, v, v, 255]); } }
-		3 => { for chunk in buf.chunks_exact(3) { rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], 255]); } }
-		4 => { for chunk in buf.chunks_exact(4) { rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]); } }
-	_ => return Err(eyre!("Unsupported channel count: {}", channels)),
+	if mat.depth() != core::CV_32F { return Err(eyre!("Expected CV_32F mat")); }
+
+	let total_elems = (w * h * channels) as usize;
+
+	// For non-contiguous mats we copy once into a Vec<f32>; contiguous path is zero-copy.
+	let owned_vec; // will hold data only if non-contiguous path taken
+	let f32_slice: &[f32] = if mat.is_continuous() {
+		let bytes = mat.data_bytes()?;
+		let (head, f32s, tail) = unsafe { bytes.align_to::<f32>() };
+		if !(head.is_empty() && tail.is_empty()) { return Err(eyre!("Data not properly aligned for f32")); }
+		f32s
+	} else {
+		let mut tmp = core::Mat::default();
+		mat.copy_to(&mut tmp)?; // single CPU copy to make it contiguous
+		let bytes = tmp.data_bytes()?;
+		let (head, f32s, tail) = unsafe { bytes.align_to::<f32>() };
+		if !(head.is_empty() && tail.is_empty()) { return Err(eyre!("Cloned data not properly aligned for f32")); }
+		owned_vec = f32s.to_vec(); // one copy
+		owned_vec.as_slice()
+	};
+
+	if f32_slice.len() != total_elems { return Err(eyre!("Unexpected data length: {} != {}", f32_slice.len(), total_elems)); }
+
+	let (internal, format) = match channels {
+		1 => (glow::R32F, glow::RED),
+		3 => (glow::RGB32F, glow::RGB),
+		4 => (glow::RGBA32F, glow::RGBA),
+		_ => return Err(eyre!("Unsupported channels: {channels}")),
+	};
+
+	unsafe {
+		let tex = gl.create_texture().unwrap();
+		gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+		gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as _);
+		gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as _);
+		gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as _);
+		gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as _);
+		gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+		gl.tex_image_2d(
+			glow::TEXTURE_2D,
+			0,
+			internal as i32,
+			w,
+			h,
+			0,
+			format,
+			glow::FLOAT,
+			glow::PixelUnpackData::Slice(Some(bytemuck::cast_slice(f32_slice))),
+		);
+		Ok(tex)
 	}
-	Ok(egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba))
 }

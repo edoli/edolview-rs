@@ -14,7 +14,7 @@ impl ImageSpec {
 			width: mat.cols(),
 			height: mat.rows(),
 			channels: mat.channels(),
-			cv_type: mat.typ().cv_type_depth(),
+			cv_type: mat.depth(),
 		}
 	}
 

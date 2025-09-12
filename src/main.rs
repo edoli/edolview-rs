@@ -63,31 +63,14 @@ impl ImageState {
         Ok(state)
     }
 
-    fn process(&self, img: &core::Mat) -> Result<core::Mat> {
-        let mut out = img.clone();
-        if out.channels() == 4 {
-            let mut bgr = core::Mat::default();
-            imgproc::cvt_color(img, &mut bgr, imgproc::COLOR_BGRA2BGR, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
-            out = bgr;
+    fn process(&self, mat: &core::Mat) -> Result<core::Mat> {
+        let mut mat_f32 = core::Mat::default();
+        {
+            let mut tmp = core::Mat::default();
+            imgproc::cvt_color(&mat, &mut tmp, imgproc::COLOR_BGR2RGB, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
+            tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0/255.0, 0.0)?;
         }
-        if self.grayscale {
-            let mut gray = core::Mat::default();
-            imgproc::cvt_color(&out, &mut gray, imgproc::COLOR_BGR2GRAY, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
-            out = gray;
-        }
-        if self.max_w > 0 && self.max_h > 0 {
-            let size = out.size()?;
-            let (w, h) = (size.width, size.height);
-            if w > self.max_w || h > self.max_h {
-                let scale = f64::min(self.max_w as f64 / w as f64, self.max_h as f64 / h as f64);
-                let new_w = (w as f64 * scale).round() as i32;
-                let new_h = (h as f64 * scale).round() as i32;
-                let mut resized = core::Mat::default();
-                imgproc::resize(&out, &mut resized, core::Size::new(new_w, new_h), 0.0, 0.0, imgproc::INTER_LINEAR)?;
-                out = resized;
-            }
-        }
-        Ok(out)
+        Ok(mat_f32)
     }
 
     fn rebuild(&mut self) -> Result<()> {
