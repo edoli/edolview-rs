@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use eframe::{egui};
