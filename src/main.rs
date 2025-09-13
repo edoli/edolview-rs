@@ -94,16 +94,26 @@ impl ImageState {
         let mut mat_f32 = core::Mat::default();
         {
             let mut tmp = core::Mat::default();
+            
+            let channels = mat.channels();
+            let color_convert = match mat.channels() {
+                1 => imgproc::COLOR_BGR2RGB,
+                3 => imgproc::COLOR_BGR2RGB,
+                4 => imgproc::COLOR_BGRA2RGBA,
+                _ => {
+                    return Err(eyre!("Unsupported image channels: {}", channels));
+                }
+            };
+
             imgproc::cvt_color(
                 &mat,
                 &mut tmp,
-                imgproc::COLOR_BGR2RGB,
+                color_convert,
                 0,
                 core::AlgorithmHint::ALGO_HINT_DEFAULT,
             )?;
-
+            
             let dtype = tmp.depth();
-
             match dtype {
                 core::CV_8U => {
                     tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 255.0, 0.0)?;

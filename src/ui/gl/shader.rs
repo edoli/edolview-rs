@@ -140,6 +140,8 @@ impl ImageProgram {
         img_scale: (f32, f32),
     ) {
         gl.use_program(Some(self.program));
+        gl.enable(glow::BLEND);
+        gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
         gl.uniform_1_i32(Some(&self.u_tex), 0);
