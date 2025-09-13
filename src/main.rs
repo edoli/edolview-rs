@@ -142,6 +142,16 @@ impl eframe::App for ViewerApp {
             });
         });
 
+        egui::SidePanel::right("right").show(ctx, |ui| {
+            ui.heading("Controls");
+            ui.label("Use mouse wheel to zoom, drag to pan.");
+            ui.separator();
+            ui.label("Keyboard shortcuts:");
+            ui.label("  R: Reset view");
+            ui.label("  G: Toggle grayscale");
+            ui.label("  Q/Esc: Quit");
+        });
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
