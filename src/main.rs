@@ -101,7 +101,35 @@ impl ImageState {
                 0,
                 core::AlgorithmHint::ALGO_HINT_DEFAULT,
             )?;
-            tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 255.0, 0.0)?;
+
+            let dtype = tmp.depth();
+
+            match dtype {
+                core::CV_8U => {
+                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 255.0, 0.0)?;
+                }
+                core::CV_8S => {
+                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 127.0, 0.0)?;
+                }
+                core::CV_16U => {
+                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 65535.0, 0.0)?;
+                }
+                core::CV_16S => {
+                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 32767.0, 0.0)?;
+                }
+                core::CV_32S => {
+                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 2147483647.0, 0.0)?;
+                }
+                core::CV_32F => {
+                    mat_f32 = tmp;
+                }
+                core::CV_64F => {
+                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0, 0.0)?;
+                }
+                _ => {
+                    return Err(eyre!("Unsupported image depth: {}", dtype));
+                }
+            }
         }
         Ok(MatImage::new(mat_f32))
     }
