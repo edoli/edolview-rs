@@ -4,13 +4,19 @@ use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use eframe::egui;
 use opencv::{core, imgcodecs, imgproc, prelude::*};
+use rfd::FileDialog;
+use std::fs;
 use std::path::PathBuf;
+
+use crate::{
+    model::{Image, MatImage},
+    ui::ImageViewer,
+    util::bool_ext::BoolExt,
+};
 
 mod model;
 mod ui;
 mod util;
-use crate::{model::{Image, MatImage}, ui::ImageViewer, util::bool_ext::BoolExt};
-use rfd::FileDialog;
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -68,7 +74,14 @@ impl ImageState {
         if !path.exists() {
             return Err(eyre!("Image does not exist: {:?}", path));
         }
-        let img = imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?;
+
+        // Read image using imread fails on paths with non-ASCII characters.
+        // let img = imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?;
+
+        let data = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
+        let data_mat = core::Mat::new_rows_cols_with_data(1, data.len() as i32, &data)?;
+        let img = imgcodecs::imdecode(&data_mat, imgcodecs::IMREAD_UNCHANGED)?;
+
         if img.empty() {
             return Err(eyre!("Failed to load image"));
         }
@@ -143,8 +156,9 @@ impl eframe::App for ViewerApp {
                     if ui.button("Open...").clicked() {
                         ui.close();
                         if let Some(path) = FileDialog::new()
-                            .add_filter("Images", &["png","jpg","jpeg","bmp","tif","tiff","hdr","exr"])
-                            .pick_file() {
+                            .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "tif", "tiff", "hdr", "exr"])
+                            .pick_file()
+                        {
                             match self.state.load_from_path(path.clone()) {
                                 Ok(_) => self.viewer.reset_view(),
                                 Err(e) => eprintln!("Failed to open file: {e}"),
@@ -163,7 +177,11 @@ impl eframe::App for ViewerApp {
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();
                 }
-                if let Some(p) = &self.state.path { ui.label(format!("{}", p.display())); } else { ui.label("(no image)"); }
+                if let Some(p) = &self.state.path {
+                    ui.label(format!("{}", p.display()));
+                } else {
+                    ui.label("(no image)");
+                }
             });
         });
 
