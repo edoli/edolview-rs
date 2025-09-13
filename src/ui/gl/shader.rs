@@ -1,6 +1,6 @@
+use color_eyre::eyre::{eyre, Result};
 use egui_glow::glow; // Re-exported glow
 use glow::HasContext;
-use color_eyre::eyre::{Result, eyre};
 
 pub struct ImageProgram {
     pub program: glow::Program,
@@ -20,7 +20,8 @@ trait GlExt {
 
 impl GlExt for glow::Context {
     unsafe fn check_and_get_uniform_location(&self, program: glow::Program, name: &str) -> glow::UniformLocation {
-        self.get_uniform_location(program, name).expect(&format!("Failed to get uniform location for {}", name))
+        self.get_uniform_location(program, name)
+            .expect(&format!("Failed to get uniform location for {}", name))
     }
 }
 
@@ -64,20 +65,27 @@ impl ImageProgram {
             let vs = gl.create_shader(glow::VERTEX_SHADER).unwrap();
             gl.shader_source(vs, vert_src);
             gl.compile_shader(vs);
-            if !gl.get_shader_compile_status(vs) { return Err(eyre!(gl.get_shader_info_log(vs))); }
+            if !gl.get_shader_compile_status(vs) {
+                return Err(eyre!(gl.get_shader_info_log(vs)));
+            }
             let fs = gl.create_shader(glow::FRAGMENT_SHADER).unwrap();
             gl.shader_source(fs, frag_src);
             gl.compile_shader(fs);
-            if !gl.get_shader_compile_status(fs) { return Err(eyre!(gl.get_shader_info_log(fs))); }
+            if !gl.get_shader_compile_status(fs) {
+                return Err(eyre!(gl.get_shader_info_log(fs)));
+            }
             gl.attach_shader(program, vs);
             gl.attach_shader(program, fs);
             gl.link_program(program);
-            if !gl.get_program_link_status(program) { return Err(eyre!(gl.get_program_info_log(program))); }
+            if !gl.get_program_link_status(program) {
+                return Err(eyre!(gl.get_program_info_log(program)));
+            }
             gl.detach_shader(program, vs);
             gl.detach_shader(program, fs);
             gl.delete_shader(vs);
             gl.delete_shader(fs);
 
+            #[rustfmt::skip]
             let vertices: [f32; 16] = [
                 // pos   // uv
                 -1.0, -1.0, 0.0, 0.0,
@@ -85,7 +93,7 @@ impl ImageProgram {
                  1.0,  1.0, 1.0, 1.0,
                 -1.0,  1.0, 0.0, 1.0,
             ];
-            let indices: [u32; 6] = [0,1,2, 2,3,0];
+            let indices: [u32; 6] = [0, 1, 2, 2, 3, 0];
 
             let vao = gl.create_vertex_array().unwrap();
             let vbo = gl.create_buffer().unwrap();
@@ -108,16 +116,34 @@ impl ImageProgram {
             let u_offset = gl.check_and_get_uniform_location(program, "u_offset");
             let u_img_scale = gl.check_and_get_uniform_location(program, "u_img_scale");
 
-            Ok(Self { program, vao, vbo, ebo, u_tex, u_gray, u_scale, u_offset, u_img_scale })
+            Ok(Self {
+                program,
+                vao,
+                vbo,
+                ebo,
+                u_tex,
+                u_gray,
+                u_scale,
+                u_offset,
+                u_img_scale,
+            })
         }
     }
 
-    pub unsafe fn draw(&self, gl: &glow::Context, tex_id: glow::NativeTexture, grayscale: bool, scale: f32, offset: (f32, f32), img_scale: (f32, f32)) {
+    pub unsafe fn draw(
+        &self,
+        gl: &glow::Context,
+        tex_id: glow::NativeTexture,
+        grayscale: bool,
+        scale: f32,
+        offset: (f32, f32),
+        img_scale: (f32, f32),
+    ) {
         gl.use_program(Some(self.program));
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
         gl.uniform_1_i32(Some(&self.u_tex), 0);
-        gl.uniform_1_i32(Some(&self.u_gray), if grayscale {1} else {0});
+        gl.uniform_1_i32(Some(&self.u_gray), if grayscale { 1 } else { 0 });
         gl.uniform_1_f32(Some(&self.u_scale), scale);
         gl.uniform_2_f32(Some(&self.u_offset), offset.0, offset.1);
         gl.uniform_2_f32(Some(&self.u_img_scale), img_scale.0, img_scale.1);
@@ -128,7 +154,6 @@ impl ImageProgram {
     }
 
     pub unsafe fn destroy(&self, gl: &glow::Context) {
-        
         // Ignore any errors; we're in Drop.
         gl.delete_program(self.program);
         gl.delete_vertex_array(self.vao);

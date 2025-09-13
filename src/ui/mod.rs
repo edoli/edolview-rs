@@ -1,6 +1,4 @@
-mod image_viewer;
 pub mod gl;
+mod image_viewer;
 
-pub use {
-    image_viewer::ImageViewer,
-};
+pub use image_viewer::ImageViewer;

@@ -1,0 +1,19 @@
+max_width = 120
+tab_spaces = 4
+hard_tabs = false
+newline_style = "Unix"
+
+# use style
+reorder_imports = true
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"
+
+# function style
+wrap_comments = true
+format_macro_bodies = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# function chaning / call
+chain_width = 80
+fn_call_width = 80

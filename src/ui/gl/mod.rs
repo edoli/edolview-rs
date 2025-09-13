@@ -1,5 +1,3 @@
 mod shader;
 
-pub use {
-    shader::ImageProgram,
-};
+pub use shader::ImageProgram;

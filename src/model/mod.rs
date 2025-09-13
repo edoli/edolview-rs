@@ -1,5 +1,3 @@
 mod image;
 
-pub use {
-    image::ImageSpec,
-};
+pub use image::ImageSpec;

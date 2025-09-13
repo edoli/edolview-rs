@@ -10,12 +10,12 @@ pub use opencv::core;
 /// Return the (0..7) depth code stored in a Mat type flag.
 #[inline]
 pub fn cv_depth_of(cv_type: i32) -> i32 {
-	cv_type & CV_MAT_DEPTH_MASK
+    cv_type & CV_MAT_DEPTH_MASK
 }
 
 #[inline]
 pub fn cv_channels_of(cv_type: i32) -> i32 {
-	((cv_type >> CV_CN_SHIFT) & 0x1F) + 1
+    ((cv_type >> CV_CN_SHIFT) & 0x1F) + 1
 }
 
 #[inline]
@@ -40,7 +40,7 @@ pub fn cv_bytes_of(cv_type: i32) -> usize {
 /// Construct a Mat type code from depth (e.g. `CV_8U`) and channel count.
 #[inline]
 pub fn cv_make_type(depth: i32, channels: i32) -> i32 {
-	(depth & CV_MAT_DEPTH_MASK) + ((channels - 1) << CV_CN_SHIFT)
+    (depth & CV_MAT_DEPTH_MASK) + ((channels - 1) << CV_CN_SHIFT)
 }
 
 pub trait CvIntExt {
@@ -86,17 +86,17 @@ impl CvIntExt for i32 {
 }
 
 pub fn parse_cv_depth(s: &str) -> i32 {
-	match s {
-		"float64" => core::CV_64F,
-		"float32" => core::CV_32F,
-		"float16" => core::CV_16F,
-		"uint16" => core::CV_16U,
-		"uint8" => core::CV_8U,
-		"int32" => core::CV_32S,
-		"int16" => core::CV_16S,
-		"int8" => core::CV_8S,
-		_ => -1,
-	}
+    match s {
+        "float64" => core::CV_64F,
+        "float32" => core::CV_32F,
+        "float16" => core::CV_16F,
+        "uint16" => core::CV_16U,
+        "uint8" => core::CV_8U,
+        "int32" => core::CV_32S,
+        "int16" => core::CV_16S,
+        "int8" => core::CV_8S,
+        _ => -1,
+    }
 }
 
 pub fn parse_cv_type(s: &str, channels: i32) -> i32 {
