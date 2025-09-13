@@ -8,7 +8,6 @@ pub struct ImageProgram {
     vbo: glow::Buffer,
     ebo: glow::Buffer,
     u_tex: glow::UniformLocation,
-    u_gray: glow::UniformLocation,
     u_scale: glow::UniformLocation,
     u_offset: glow::UniformLocation,
     u_img_scale: glow::UniformLocation,
@@ -46,19 +45,12 @@ impl ImageProgram {
                 out vec4 FragColor;
                 in vec2 vUv;
                 uniform sampler2D u_tex;
-                uniform int u_gray;
                 void main(){
                     vec2 flippedUv = vec2(vUv.x, 1.0 - vUv.y);
                     vec4 c = texture(u_tex, flippedUv);
-                    if(u_gray == 1){
-                        float g = dot(c.rgb, vec3(0.299,0.587,0.114));
-                        FragColor = vec4(vec3(g), c.a);
-                    } else {
-                        // simple slight contrast curve example
-                        vec3 rgb = c.rgb;
-                        rgb = pow(rgb, vec3(1.0/1.1));
-                        FragColor = vec4(rgb, c.a);
-                    }
+                    vec3 rgb = c.rgb;
+                    rgb = pow(rgb, vec3(1.0/1.1));
+                    FragColor = vec4(rgb, c.a);
                 }
             "#;
             let program = gl.create_program().map_err(|e| eyre!(e))?;
@@ -111,7 +103,6 @@ impl ImageProgram {
             gl.bind_vertex_array(None);
 
             let u_tex = gl.check_and_get_uniform_location(program, "u_tex");
-            let u_gray = gl.check_and_get_uniform_location(program, "u_gray");
             let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
             let u_offset = gl.check_and_get_uniform_location(program, "u_offset");
             let u_img_scale = gl.check_and_get_uniform_location(program, "u_img_scale");
@@ -122,7 +113,6 @@ impl ImageProgram {
                 vbo,
                 ebo,
                 u_tex,
-                u_gray,
                 u_scale,
                 u_offset,
                 u_img_scale,
@@ -134,7 +124,6 @@ impl ImageProgram {
         &self,
         gl: &glow::Context,
         tex_id: glow::NativeTexture,
-        grayscale: bool,
         scale: f32,
         offset: (f32, f32),
         img_scale: (f32, f32),
@@ -145,7 +134,6 @@ impl ImageProgram {
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
         gl.uniform_1_i32(Some(&self.u_tex), 0);
-        gl.uniform_1_i32(Some(&self.u_gray), if grayscale { 1 } else { 0 });
         gl.uniform_1_f32(Some(&self.u_scale), scale);
         gl.uniform_2_f32(Some(&self.u_offset), offset.0, offset.1);
         gl.uniform_2_f32(Some(&self.u_img_scale), img_scale.0, img_scale.1);

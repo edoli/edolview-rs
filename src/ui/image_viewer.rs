@@ -31,7 +31,7 @@ impl ImageViewer {
         }
     }
 
-    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, image: &impl Image, grayscale: bool) {
+    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, image: &impl Image) {
         // Determine if we need a (re)upload
         let mut need_update_texture = false;
         let new_id = image.id();
@@ -109,7 +109,6 @@ impl ImageViewer {
                 let tex_handle = self.gl_raw_tex.unwrap();
                 let scale = self.zoom() as f32;
                 let offset = self.pan;
-                let grayscale_flag = grayscale;
                 let spec = image.spec();
 
                 let mut pixel_scale = (1.0_f32, 1.0_f32);
@@ -132,7 +131,7 @@ impl ImageViewer {
                         let y = screen_h - y_top;
                         let width = rect_pixels.width().round() as i32;
                         gl.viewport(x, y, width, height);
-                        gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y), pixel_scale);
+                        gl_prog.draw(gl, tex_handle, scale, (offset.x, -offset.y), pixel_scale);
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });

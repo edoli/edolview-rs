@@ -24,18 +24,6 @@ mod util;
 struct Args {
     /// Path to the image file to open (optional)
     image: Option<PathBuf>,
-
-    /// Window title
-    #[arg(short, long, default_value_t=String::from("edolview"))]
-    title: String,
-
-    /// Max initial window size (WIDTHxHEIGHT). 0x0 keeps original size.
-    #[arg(short = 's', long = "max-size", default_value = "0x0")]
-    max_size: String,
-
-    /// Start in grayscale
-    #[arg(short = 'g', long)]
-    grayscale: bool,
 }
 
 fn parse_max_size(spec: &str) -> Result<(i32, i32)> {
@@ -54,19 +42,13 @@ fn parse_max_size(spec: &str) -> Result<(i32, i32)> {
 struct ImageState {
     path: Option<PathBuf>,
     display: Option<MatImage>,
-    grayscale: bool,
-    max_w: i32,
-    max_h: i32,
 }
 
 impl ImageState {
-    fn empty(grayscale: bool, max_w: i32, max_h: i32) -> Self {
+    fn empty() -> Self {
         Self {
             path: None,
             display: None,
-            grayscale,
-            max_w,
-            max_h,
         }
     }
 
@@ -209,9 +191,6 @@ impl eframe::App for ViewerApp {
                     }
                 });
                 ui.separator();
-                if ui.button(self.state.grayscale.switch("Grayscale ✔", "Grayscale")).clicked() {
-                    self.state.grayscale = !self.state.grayscale;
-                }
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();
                 }
@@ -240,7 +219,6 @@ impl eframe::App for ViewerApp {
             ui.separator();
             ui.label("Keyboard shortcuts:");
             ui.label("  R: Reset view");
-            ui.label("  G: Toggle grayscale");
             ui.label("  Q/Esc: Quit");
         });
 
@@ -248,7 +226,7 @@ impl eframe::App for ViewerApp {
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
                 if let Some(d) = &self.state.display {
-                    self.viewer.show_image(ui, frame, d, self.state.grayscale);
+                    self.viewer.show_image(ui, frame, d);
                 } else {
                     ui.centered_and_justified(|ui| {
                         ui.label("Drag & Drop an image file here.");
@@ -261,8 +239,7 @@ impl eframe::App for ViewerApp {
 fn main() -> Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
-    let (max_w, max_h) = parse_max_size(&args.max_size)?;
-    let mut state = ImageState::empty(args.grayscale, max_w, max_h);
+    let mut state = ImageState::empty();
     if let Some(p) = args.image.clone() {
         if let Err(e) = state.load_from_path(p) {
             eprintln!("Failed to load image: {e}");
@@ -270,7 +247,7 @@ fn main() -> Result<()> {
     }
     let native_options = eframe::NativeOptions::default();
     if let Err(e) = eframe::run_native(
-        &args.title,
+        "edolview-rs",
         native_options,
         Box::new(|_cc| {
             Ok(Box::new(ViewerApp {
