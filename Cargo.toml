@@ -16,3 +16,4 @@ eframe = { version = "0.32", default-features = true, features = ["glow"] }
 egui_glow = "0.32"
 bytemuck = { version = "1.15", features = ["derive"] }
 lru = "=0.16.1"
+rfd = "0.15"

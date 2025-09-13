@@ -10,6 +10,7 @@ mod model;
 mod ui;
 mod util;
 use crate::{ui::ImageViewer, util::bool_ext::BoolExt};
+use rfd::FileDialog;
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -112,8 +113,60 @@ impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
 
+        // Handle drag & drop events (files) at the start of frame
+        // Show a visual hint while hovering
+        if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
+            egui::Area::new(egui::Id::new("file_hover_overlay"))
+                .fixed_pos(egui::pos2(16.0, 16.0))
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label("Release to open image...");
+                        for f in ctx.input(|i| i.raw.hovered_files.clone()) {
+                            if let Some(path) = f.path {
+                                ui.label(format!("{}", path.display()));
+                            }
+                        }
+                    });
+                });
+        }
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        if !dropped_files.is_empty() {
+            // Load first valid file
+            for f in dropped_files {
+                if let Some(path) = f.path {
+                    match self.state.load_from_path(path.clone()) {
+                        Ok(_) => {
+                            self.viewer.reset_view();
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to load dropped file: {e}");
+                        }
+                    }
+                }
+            }
+        }
+
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.horizontal(|ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open...").clicked() {
+                        ui.close();
+                        if let Some(path) = FileDialog::new()
+                            .add_filter("Images", &["png","jpg","jpeg","bmp","tif","tiff","hdr","exr"])
+                            .pick_file() {
+                            match self.state.load_from_path(path.clone()) {
+                                Ok(_) => self.viewer.reset_view(),
+                                Err(e) => eprintln!("Failed to open file: {e}"),
+                            }
+                        }
+                    }
+                    if ui.button("Exit").clicked() {
+                        ui.close();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+                ui.separator();
                 if ui.button(self.state.grayscale.switch("Grayscale ✔", "Grayscale")).clicked() {
                     self.state.grayscale = !self.state.grayscale;
                     if let Err(e) = self.state.rebuild() {
@@ -128,17 +181,7 @@ impl eframe::App for ViewerApp {
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();
                 }
-                if let Some(p) = &self.state.path {
-                    ui.label(format!("{}", p.display()));
-                } else {
-                    ui.label("(no image)");
-                }
-                let response = ui.add(egui::widgets::Label::new("Right-click me!").sense(egui::Sense::click()));
-                response.context_menu(|ui| {
-                    if ui.button("Close the menu").clicked() {
-                        ui.close();
-                    }
-                });
+                if let Some(p) = &self.state.path { ui.label(format!("{}", p.display())); } else { ui.label("(no image)"); }
             });
         });
 
@@ -170,7 +213,7 @@ impl eframe::App for ViewerApp {
                     self.viewer.show_image(ui, frame, d, self.state.grayscale);
                 } else {
                     ui.centered_and_justified(|ui| {
-                        ui.label("Drag & Drop an image file or use future Open command (not implemented).");
+                        ui.label("Drag & Drop an image file here.");
                     });
                 }
             });
