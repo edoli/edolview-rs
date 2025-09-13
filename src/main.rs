@@ -88,6 +88,8 @@ struct ViewerApp {
 
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
+        
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button(if self.state.grayscale { "Grayscale ✔" } else { "Grayscale" }).clicked() {
