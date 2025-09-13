@@ -9,7 +9,7 @@ use std::path::PathBuf;
 mod model;
 mod ui;
 mod util;
-use crate::ui::ImageViewer;
+use crate::{ui::ImageViewer, util::bool_ext::BoolExt};
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -107,14 +107,7 @@ impl eframe::App for ViewerApp {
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui
-                    .button(if self.state.grayscale {
-                        "Grayscale ✔"
-                    } else {
-                        "Grayscale"
-                    })
-                    .clicked()
-                {
+                if ui.button(self.state.grayscale.switch("Grayscale ✔", "Grayscale")).clicked() {
                     self.state.grayscale = !self.state.grayscale;
                     if let Err(e) = self.state.rebuild() {
                         eprintln!("Error rebuilding image: {e}");
