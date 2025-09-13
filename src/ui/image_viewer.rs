@@ -2,21 +2,20 @@ use color_eyre::eyre::{eyre, Result};
 use eframe::egui;
 use eframe::glow::{self as GL, HasContext};
 use opencv::core;
-use opencv::prelude::*;
 use std::sync::Arc;
 
-use crate::model::ImageSpec;
+use crate::model::Image;
 use crate::ui::gl::ImageProgram;
 
 pub struct ImageViewer {
     gl_prog: Option<Arc<ImageProgram>>,
     gl_raw_tex: Option<GL::NativeTexture>,
-    image_spec: Option<ImageSpec>,
     zoom_level: f32,
     zoom_base: f32,
     pan: egui::Vec2,
     dragging: bool,
     last_drag_pos: egui::Pos2,
+    last_image_id: Option<u64>, // cache key to know when to re-upload texture
 }
 
 impl ImageViewer {
@@ -24,21 +23,35 @@ impl ImageViewer {
         Self {
             gl_prog: None,
             gl_raw_tex: None,
-            image_spec: None,
             zoom_level: 0.0,
             zoom_base: 1.1,
             pan: egui::Vec2::ZERO,
             dragging: false,
             last_drag_pos: egui::Pos2::ZERO,
+            last_image_id: None,
         }
     }
 
-    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, mat: &core::Mat, grayscale: bool) {
-        if self.gl_raw_tex.is_none() {
+    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, image: &impl Image, grayscale: bool) {
+        // Determine if we need a (re)upload
+        let mut need_update_texture = false;
+        let new_id = image.id();
+
+        if self.gl_raw_tex.is_none() || Some(new_id) != self.last_image_id {
+            need_update_texture = true;
+        }
+
+        if need_update_texture {
             if let Some(gl) = frame.gl() {
-                self.image_spec = Some(ImageSpec::new(mat));
-                if let Ok(tex) = upload_mat_texture(gl, mat) {
+                // Delete previous texture if any
+                if let Some(old_tex) = self.gl_raw_tex.take() {
+                    unsafe {
+                        gl.delete_texture(old_tex);
+                    }
+                }
+                if let Ok(tex) = upload_mat_texture(gl, image) {
                     self.gl_raw_tex = Some(tex);
+                    self.last_image_id = Some(new_id);
                 }
             }
         }
@@ -51,6 +64,7 @@ impl ImageViewer {
                     }
                 }
             }
+
             let available_points = ui.available_size();
             let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
             let rect_pixels = rect * ui.ctx().pixels_per_point();
@@ -97,14 +111,15 @@ impl ImageViewer {
                 let scale = self.zoom() as f32;
                 let offset = self.pan;
                 let grayscale_flag = grayscale;
-                // base image scale: when scale==1.0 image shows 1:1 pixels
-                let mut img_scale = (1.0_f32, 1.0_f32);
-                if let Some(spec) = &self.image_spec {
-                    let viewport_w_px = rect_pixels.width() as f32;
-                    let viewport_h_px = rect_pixels.height() as f32;
-                    if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
-                        img_scale = (spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
-                    }
+                let spec = image.spec();
+
+                let mut pixel_scale = (1.0_f32, 1.0_f32);
+                let viewport_w_px = rect_pixels.width() as f32;
+                let viewport_h_px = rect_pixels.height() as f32;
+                if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
+                    // image will be strectched when pixel_scale is 1.0.
+                    // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
+                    pixel_scale = (spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
                 }
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -118,7 +133,7 @@ impl ImageViewer {
                         let y = screen_h - y_top;
                         let width = rect_pixels.width().round() as i32;
                         gl.viewport(x, y, width, height);
-                        gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y), img_scale);
+                        gl_prog.draw(gl, tex_handle, grayscale_flag, scale, (offset.x, -offset.y), pixel_scale);
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });
@@ -141,39 +156,24 @@ impl ImageViewer {
 
 // Upload an OpenCV Mat directly as an OpenGL texture.
 // Supports 1 (GRAY), 3 (BGR), 4 (BGRA) channel 8-bit mats.
-fn upload_mat_texture(gl: &GL::Context, mat: &core::Mat) -> Result<GL::NativeTexture> {
-    let size = mat.size()?;
-    let (w, h) = (size.width, size.height);
-    let channels = mat.channels();
-    if mat.depth() != core::CV_32F {
+fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::NativeTexture> {
+    let spec = image.spec();
+    let (w, h) = (spec.width, spec.height);
+    let channels = spec.channels;
+    if spec.dtype != core::CV_32F {
         return Err(eyre!("Expected CV_32F mat"));
     }
 
     let total_elems = (w * h * channels) as usize;
 
-    // For non-contiguous mats we copy once into a Vec<f32>; contiguous path is zero-copy.
-    let owned_vec; // will hold data only if non-contiguous path taken
-    let f32_slice: &[f32] = if mat.is_continuous() {
-        let bytes = mat.data_bytes()?;
-        let (head, f32s, tail) = unsafe { bytes.align_to::<f32>() };
-        if !(head.is_empty() && tail.is_empty()) {
-            return Err(eyre!("Data not properly aligned for f32"));
-        }
-        f32s
-    } else {
-        let mut tmp = core::Mat::default();
-        mat.copy_to(&mut tmp)?; // single CPU copy to make it contiguous
-        let bytes = tmp.data_bytes()?;
-        let (head, f32s, tail) = unsafe { bytes.align_to::<f32>() };
-        if !(head.is_empty() && tail.is_empty()) {
-            return Err(eyre!("Cloned data not properly aligned for f32"));
-        }
-        owned_vec = f32s.to_vec(); // one copy
-        owned_vec.as_slice()
-    };
+    let bytes = image.data_ptr()?;
+    let (head, f32s, tail) = unsafe { bytes.align_to::<f32>() };
+    if !(head.is_empty() && tail.is_empty()) {
+        return Err(eyre!("Data not properly aligned for f32"));
+    }
 
-    if f32_slice.len() != total_elems {
-        return Err(eyre!("Unexpected data length: {} != {}", f32_slice.len(), total_elems));
+    if f32s.len() != total_elems {
+        return Err(eyre!("Unexpected data length: {} != {}", f32s.len(), total_elems));
     }
 
     let (internal, format) = match channels {
@@ -200,7 +200,7 @@ fn upload_mat_texture(gl: &GL::Context, mat: &core::Mat) -> Result<GL::NativeTex
             0,
             format,
             GL::FLOAT,
-            GL::PixelUnpackData::Slice(Some(bytemuck::cast_slice(f32_slice))),
+            GL::PixelUnpackData::Slice(Some(bytemuck::cast_slice(f32s))),
         );
         Ok(tex)
     }

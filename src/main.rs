@@ -9,7 +9,7 @@ use std::path::PathBuf;
 mod model;
 mod ui;
 mod util;
-use crate::{ui::ImageViewer, util::bool_ext::BoolExt};
+use crate::{model::{Image, MatImage}, ui::ImageViewer, util::bool_ext::BoolExt};
 use rfd::FileDialog;
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
@@ -47,8 +47,7 @@ fn parse_max_size(spec: &str) -> Result<(i32, i32)> {
 
 struct ImageState {
     path: Option<PathBuf>,
-    original: Option<core::Mat>,
-    display: Option<core::Mat>,
+    display: Option<MatImage>,
     grayscale: bool,
     max_w: i32,
     max_h: i32,
@@ -58,7 +57,6 @@ impl ImageState {
     fn empty(grayscale: bool, max_w: i32, max_h: i32) -> Self {
         Self {
             path: None,
-            original: None,
             display: None,
             grayscale,
             max_w,
@@ -75,12 +73,11 @@ impl ImageState {
             return Err(eyre!("Failed to load image"));
         }
         self.path = Some(path);
-        self.original = Some(img.clone());
         self.display = Some(self.process(&img)?);
         Ok(())
     }
 
-    fn process(&self, mat: &core::Mat) -> Result<core::Mat> {
+    fn process(&self, mat: &core::Mat) -> Result<MatImage> {
         let mut mat_f32 = core::Mat::default();
         {
             let mut tmp = core::Mat::default();
@@ -93,14 +90,7 @@ impl ImageState {
             )?;
             tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 255.0, 0.0)?;
         }
-        Ok(mat_f32)
-    }
-
-    fn rebuild(&mut self) -> Result<()> {
-        if let Some(orig) = &self.original {
-            self.display = Some(self.process(orig)?);
-        }
-        Ok(())
+        Ok(MatImage::new(mat_f32))
     }
 }
 
@@ -169,14 +159,6 @@ impl eframe::App for ViewerApp {
                 ui.separator();
                 if ui.button(self.state.grayscale.switch("Grayscale ✔", "Grayscale")).clicked() {
                     self.state.grayscale = !self.state.grayscale;
-                    if let Err(e) = self.state.rebuild() {
-                        eprintln!("Error rebuilding image: {e}");
-                    }
-                }
-                if ui.button("Reload").clicked() {
-                    if let Err(e) = self.state.rebuild() {
-                        eprintln!("Error reloading: {e}");
-                    }
                 }
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();
@@ -188,7 +170,7 @@ impl eframe::App for ViewerApp {
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if let Some(d) = &self.state.display {
-                    ui.label(format!("Image size: {}x{}", d.cols(), d.rows()));
+                    ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
                 } else {
                     ui.label("Image size: -");
                 }

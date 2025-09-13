@@ -1,3 +1,4 @@
 mod image;
 
-pub use image::ImageSpec;
+pub use image::{Image, MatImage, ImageSpec};
+
