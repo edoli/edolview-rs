@@ -999,6 +999,7 @@ dependencies = [
  "color-eyre",
  "eframe",
  "egui_glow",
+ "half",
  "lru",
  "opencv",
  "rfd",

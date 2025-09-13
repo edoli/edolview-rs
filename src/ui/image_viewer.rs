@@ -1,10 +1,9 @@
 use color_eyre::eyre::{eyre, Result};
 use eframe::egui;
 use eframe::glow::{self as GL, HasContext};
-use opencv::core;
 use std::sync::Arc;
 
-use crate::model::Image;
+use crate::model::{DataType, Image};
 use crate::ui::gl::ImageProgram;
 
 pub struct ImageViewer {
@@ -154,14 +153,14 @@ impl ImageViewer {
     }
 }
 
-// Upload an OpenCV Mat directly as an OpenGL texture.
+// Upload an CPU data directly as an OpenGL texture.
 // Supports 1 (GRAY), 3 (BGR), 4 (BGRA) channel 8-bit mats.
 fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::NativeTexture> {
     let spec = image.spec();
     let (w, h) = (spec.width, spec.height);
     let channels = spec.channels;
-    if spec.dtype != core::CV_32F {
-        return Err(eyre!("Expected CV_32F mat"));
+    if spec.dtype != f32::typ()  {
+        return Err(eyre!("Expected f32 data type, got {}", spec.dtype));
     }
 
     let total_elems = (w * h * channels) as usize;

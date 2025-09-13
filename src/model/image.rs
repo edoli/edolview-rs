@@ -1,7 +1,33 @@
 use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::Result;
 use opencv::prelude::*;
+use half::f16;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+pub unsafe trait DataType: Copy {
+	fn typ() -> i32;
+}
+
+macro_rules! data_type {
+	($rust_type: ty, $type: expr) => {
+		unsafe impl DataType for $rust_type {
+			#[inline]
+			fn typ() -> i32 {
+				$type
+			}
+		}
+	};
+}
+
+// int
+data_type!(u8, 0);
+data_type!(i8, 1);
+data_type!(u16, 2);
+data_type!(i16, 3);
+data_type!(i32, 4);
+data_type!(f32, 5);
+data_type!(f64, 6);
+data_type!(f16, 7);
 
 pub struct ImageSpec {
     pub width: i32,
