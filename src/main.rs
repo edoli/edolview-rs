@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui;
+use eframe::egui::{self, Color32};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
 use rfd::FileDialog;
 use std::fs;
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use crate::{
     model::{Image, MatImage},
-    ui::{gl::ShaderParams, ImageViewer},
+    ui::{component::CustomSlider, gl::ShaderParams, ImageViewer},
 };
 
 mod model;
@@ -203,21 +203,25 @@ impl eframe::App for ViewerApp {
         });
 
         egui::SidePanel::right("right").show(ctx, |ui| {
-            ui.heading("Shader Parameters");
-
-            let mut image_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
+            ui.style_mut().spacing.slider_rail_height = 4.0;
+            
+            let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
                 ui.add(
-                    egui::Slider::new(value, min..=max)
+                    CustomSlider::new(value, min..=max)
                         .text(text)
                         .step_by(0.01)
                         .smart_aim(false)
-                        .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 }),
+                        .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
+                        .trailing_fill(true)
+                        .trailing_start(0.0)
+                        .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
+                        .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
                 );
             };
 
-            image_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
-            image_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
-            image_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
+            display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
+            display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
+            display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
         });
 
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
