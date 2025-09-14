@@ -1,3 +1,5 @@
 mod shader;
+mod shader_builder;
 
-pub use shader::ImageProgram;
+pub use shader::*;
+pub use shader_builder::*;

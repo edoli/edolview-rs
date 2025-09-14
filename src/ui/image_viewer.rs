@@ -1,10 +1,10 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui;
+use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::Arc;
 
 use crate::model::{DataType, Image};
-use crate::ui::gl::ImageProgram;
+use crate::ui::gl::{ImageProgram, ShaderParams};
 
 pub struct ImageViewer {
     gl_prog: Option<Arc<ImageProgram>>,
@@ -111,13 +111,13 @@ impl ImageViewer {
                 let offset = self.pan;
                 let spec = image.spec();
 
-                let mut pixel_scale = (1.0_f32, 1.0_f32);
+                let mut pixel_scale = vec2(1.0, 1.0);
                 let viewport_w_px = rect_pixels.width() as f32;
                 let viewport_h_px = rect_pixels.height() as f32;
                 if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
                     // image will be strectched when pixel_scale is 1.0.
                     // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
-                    pixel_scale = (spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
+                    pixel_scale = vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
                 }
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -131,7 +131,18 @@ impl ImageViewer {
                         let y = screen_h - y_top;
                         let width = rect_pixels.width().round() as i32;
                         gl.viewport(x, y, width, height);
-                        gl_prog.draw(gl, tex_handle, scale, (offset.x, -offset.y), pixel_scale);
+                        let shader_params = ShaderParams {
+                            offset: 0.0,
+                            exposure: 0.0,
+                            gamma: 1.0,
+                            min_v: 0.0,
+                            max_v: 1.0,
+                            r_scale: 1.0,
+                            g_scale: 1.0,
+                            b_scale: 1.0,
+                            is_reciprocal: false,
+                        };
+                        gl_prog.draw(gl, tex_handle, scale, offset, pixel_scale, shader_params);
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });
@@ -158,7 +169,7 @@ fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::Native
     let spec = image.spec();
     let (w, h) = (spec.width, spec.height);
     let channels = spec.channels;
-    if spec.dtype != f32::typ()  {
+    if spec.dtype != f32::typ() {
         return Err(eyre!("Expected f32 data type, got {}", spec.dtype));
     }
 
