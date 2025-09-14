@@ -76,7 +76,7 @@ impl ImageState {
         let mut mat_f32 = core::Mat::default();
         {
             let mut tmp = core::Mat::default();
-            
+
             let channels = mat.channels();
             let color_convert = match mat.channels() {
                 1 => imgproc::COLOR_BGR2RGB,
@@ -87,14 +87,8 @@ impl ImageState {
                 }
             };
 
-            imgproc::cvt_color(
-                &mat,
-                &mut tmp,
-                color_convert,
-                0,
-                core::AlgorithmHint::ALGO_HINT_DEFAULT,
-            )?;
-            
+            imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
+
             let dtype = tmp.depth();
             match dtype {
                 core::CV_8U => {
@@ -135,6 +129,11 @@ struct ViewerApp {
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
+
+        if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
+            let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
+        }
 
         // Handle drag & drop events (files) at the start of frame
         // Show a visual hint while hovering
