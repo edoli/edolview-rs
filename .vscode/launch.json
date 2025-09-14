@@ -6,8 +6,14 @@
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceFolder}/target/debug/edolview-rs.exe",
-      "args": ["image.png"],
+      "args": ["debug/test_big.hdr"],
       "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "RUST_BACKTRACE",
+          "value": "1"
+        }
+      ],
       "console": "integratedTerminal",
       "preLaunchTask": "cargo build"
     }
