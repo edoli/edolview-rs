@@ -10,8 +10,7 @@ use std::path::PathBuf;
 
 use crate::{
     model::{Image, MatImage},
-    ui::ImageViewer,
-    util::bool_ext::BoolExt,
+    ui::{gl::ShaderParams, ImageViewer},
 };
 
 mod model;
@@ -42,6 +41,7 @@ fn parse_max_size(spec: &str) -> Result<(i32, i32)> {
 struct ImageState {
     path: Option<PathBuf>,
     display: Option<MatImage>,
+    shader_params: ShaderParams,
 }
 
 impl ImageState {
@@ -49,6 +49,7 @@ impl ImageState {
         Self {
             path: None,
             display: None,
+            shader_params: ShaderParams::default(),
         }
     }
 
@@ -128,7 +129,7 @@ struct ViewerApp {
 
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
+        // ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
 
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
             let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
@@ -201,6 +202,24 @@ impl eframe::App for ViewerApp {
             });
         });
 
+        egui::SidePanel::right("right").show(ctx, |ui| {
+            ui.heading("Shader Parameters");
+
+            let mut image_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
+                ui.add(
+                    egui::Slider::new(value, min..=max)
+                        .text(text)
+                        .step_by(0.01)
+                        .smart_aim(false)
+                        .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 }),
+                );
+            };
+
+            image_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
+            image_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
+            image_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
+        });
+
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if let Some(d) = &self.state.display {
@@ -212,20 +231,11 @@ impl eframe::App for ViewerApp {
             });
         });
 
-        egui::SidePanel::right("right").show(ctx, |ui| {
-            ui.heading("Controls");
-            ui.label("Use mouse wheel to zoom, drag to pan.");
-            ui.separator();
-            ui.label("Keyboard shortcuts:");
-            ui.label("  R: Reset view");
-            ui.label("  Q/Esc: Quit");
-        });
-
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
                 if let Some(d) = &self.state.display {
-                    self.viewer.show_image(ui, frame, d);
+                    self.viewer.show_image(ui, frame, d, self.state.shader_params.clone());
                 } else {
                     ui.centered_and_justified(|ui| {
                         ui.label("Drag & Drop an image file here.");

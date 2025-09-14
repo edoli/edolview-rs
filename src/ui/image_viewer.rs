@@ -31,7 +31,7 @@ impl ImageViewer {
         }
     }
 
-    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, image: &impl Image) {
+    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, image: &impl Image, shader_params: ShaderParams) {
         // Determine if we need a (re)upload
         let mut need_update_texture = false;
         let new_id = image.id();
@@ -118,6 +118,7 @@ impl ImageViewer {
                     // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
                     pixel_scale = egui::vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
                 }
+
                 ui.painter().add(egui::PaintCallback {
                     rect,
                     callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| unsafe {
@@ -130,18 +131,7 @@ impl ImageViewer {
                         let y = screen_h - y_top;
                         let width = rect_pixels.width().round() as i32;
                         gl.viewport(x, y, width, height);
-                        let shader_params = ShaderParams {
-                            offset: 0.0,
-                            exposure: 0.0,
-                            gamma: 1.0,
-                            min_v: 0.0,
-                            max_v: 1.0,
-                            r_scale: 1.0,
-                            g_scale: 1.0,
-                            b_scale: 1.0,
-                            is_reciprocal: false,
-                        };
-                        gl_prog.draw(gl, tex_handle, scale, position, pixel_scale, shader_params);
+                        gl_prog.draw(gl, tex_handle, scale, position, pixel_scale, &shader_params);
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });

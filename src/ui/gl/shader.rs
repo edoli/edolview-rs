@@ -27,6 +27,7 @@ pub struct ImageProgram {
     u_is_reciprocal: glow::UniformLocation,
 }
 
+#[derive(Clone)]
 pub struct ShaderParams {
     pub offset: f32,
     pub exposure: f32,
@@ -37,6 +38,22 @@ pub struct ShaderParams {
     pub g_scale: f32,
     pub b_scale: f32,
     pub is_reciprocal: bool,
+}
+
+impl Default for ShaderParams {
+    fn default() -> Self {
+        Self {
+            offset: 0.0,
+            exposure: 0.0,
+            gamma: 1.0,
+            min_v: 0.0,
+            max_v: 1.0,
+            r_scale: 1.0,
+            g_scale: 1.0,
+            b_scale: 1.0,
+            is_reciprocal: false,
+        }
+    }
 }
 
 trait GlExt {
@@ -164,7 +181,7 @@ impl ImageProgram {
         scale: f32,
         position: Vec2,
         pixel_scale: Vec2,
-        shader_params: ShaderParams,
+        shader_params: &ShaderParams,
     ) {
         gl.use_program(Some(self.program));
         gl.enable(glow::BLEND);
