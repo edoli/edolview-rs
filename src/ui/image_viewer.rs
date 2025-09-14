@@ -1,5 +1,5 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui::{self, vec2};
+use eframe::egui;
 use eframe::glow::{self as GL, HasContext};
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ impl ImageViewer {
             gl_prog: None,
             gl_raw_tex: None,
             zoom_level: 0.0,
-            zoom_base: 1.1,
+            zoom_base: 2.0_f32.powf(1.0 / 4.0),
             pan: egui::Vec2::ZERO,
             dragging: false,
             last_drag_pos: egui::Pos2::ZERO,
@@ -66,7 +66,8 @@ impl ImageViewer {
 
             let available_points = ui.available_size();
             let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
-            let rect_pixels = rect * ui.ctx().pixels_per_point();
+            let pixel_per_point = ui.ctx().pixels_per_point();
+            let rect_pixels = rect * pixel_per_point;
 
             if resp.hovered() {
                 let scroll = ui.input(|i| i.raw_scroll_delta.y);
@@ -74,15 +75,12 @@ impl ImageViewer {
                     // Compute old scale before applying zoom change
                     let old_scale = self.zoom();
                     let scroll_sign = scroll.signum();
-                    self.zoom_level += scroll_sign; // update zoom level first
+                    self.zoom_level += scroll_sign;
                     let new_scale = self.zoom();
-                    let k = new_scale / old_scale; // scaling factor applied to existing pan
+                    let k = new_scale / old_scale;
                     if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
-                        let local = pointer - rect.center();
-                        let clip = egui::Vec2::new(local.x / (rect.width() / 2.0), local.y / (rect.height() / 2.0));
-
-                        self.pan.x = self.pan.x * k + clip.x * (1.0 - k);
-                        self.pan.y = self.pan.y * k + clip.y * (1.0 - k);
+                        let local = (pointer - rect.min) * pixel_per_point;
+                        self.pan = self.pan * k + local * (1.0 - k);
                     }
                 }
             }
@@ -96,8 +94,8 @@ impl ImageViewer {
                 if let Some(pos) = resp.interact_pointer_pos() {
                     let delta = pos - self.last_drag_pos;
                     self.last_drag_pos = pos;
-                    let dx = delta.x / (rect.width() / 2.0);
-                    let dy = delta.y / (rect.height() / 2.0);
+                    let dx = delta.x * pixel_per_point;
+                    let dy = delta.y * pixel_per_point;
                     self.pan += egui::vec2(dx, dy);
                 }
                 if resp.drag_stopped() {
@@ -106,18 +104,19 @@ impl ImageViewer {
             }
 
             if let (Some(gl_prog), Some(_gl)) = (self.gl_prog.clone(), frame.gl()) {
-                let tex_handle = self.gl_raw_tex.unwrap();
-                let scale = self.zoom() as f32;
-                let offset = self.pan;
-                let spec = image.spec();
-
-                let mut pixel_scale = vec2(1.0, 1.0);
                 let viewport_w_px = rect_pixels.width() as f32;
                 let viewport_h_px = rect_pixels.height() as f32;
+
+                let tex_handle = self.gl_raw_tex.unwrap();
+                let scale = self.zoom() as f32;
+                let position = self.pan / egui::vec2(viewport_w_px, viewport_h_px) * 2.0;
+                let spec = image.spec();
+
+                let mut pixel_scale = egui::vec2(1.0, 1.0);
                 if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
                     // image will be strectched when pixel_scale is 1.0.
                     // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
-                    pixel_scale = vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
+                    pixel_scale = egui::vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
                 }
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -142,7 +141,7 @@ impl ImageViewer {
                             b_scale: 1.0,
                             is_reciprocal: false,
                         };
-                        gl_prog.draw(gl, tex_handle, scale, offset, pixel_scale, shader_params);
+                        gl_prog.draw(gl, tex_handle, scale, position, pixel_scale, shader_params);
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });
@@ -153,7 +152,6 @@ impl ImageViewer {
     }
 
     pub fn reset_view(&mut self) {
-        // zoom_level baseline 0 => powf -> 1.0
         self.zoom_level = 0.0;
         self.pan = egui::Vec2::ZERO;
     }
@@ -196,7 +194,7 @@ fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::Native
         let tex = gl.create_texture().unwrap();
         gl.bind_texture(GL::TEXTURE_2D, Some(tex));
         gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as _);
-        gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::LINEAR as _);
+        gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as _);
         gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as _);
         gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as _);
         gl.pixel_store_i32(GL::UNPACK_ALIGNMENT, 1);
