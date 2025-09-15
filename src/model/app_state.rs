@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use color_eyre::eyre::{eyre, Result};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
 
-use crate::{model::MatImage, ui::gl::ShaderParams, util::{self, math_ext::Vec2i}};
+use crate::{model::MatImage, ui::gl::ShaderParams, util::{self, cv_ext::CvIntExt, math_ext::Vec2i}};
 
 pub struct AppState {
     pub path: Option<PathBuf>,
@@ -47,49 +47,28 @@ impl AppState {
 
     fn process(&self, mat: &core::Mat) -> Result<MatImage> {
         let mut mat_f32 = core::Mat::default();
-        {
-            let mut tmp = core::Mat::default();
+        let mut tmp = core::Mat::default();
 
-            let channels = mat.channels();
-            let color_convert = match mat.channels() {
-                1 => imgproc::COLOR_BGR2RGB,
-                3 => imgproc::COLOR_BGR2RGB,
-                4 => imgproc::COLOR_BGRA2RGBA,
-                _ => {
-                    return Err(eyre!("Unsupported image channels: {}", channels));
-                }
-            };
-
-            imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
-
-            let dtype = tmp.depth();
-            match dtype {
-                core::CV_8U => {
-                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 255.0, 0.0)?;
-                }
-                core::CV_8S => {
-                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 127.0, 0.0)?;
-                }
-                core::CV_16U => {
-                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 65535.0, 0.0)?;
-                }
-                core::CV_16S => {
-                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 32767.0, 0.0)?;
-                }
-                core::CV_32S => {
-                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / 2147483647.0, 0.0)?;
-                }
-                core::CV_32F => {
-                    mat_f32 = tmp;
-                }
-                core::CV_64F => {
-                    tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0, 0.0)?;
-                }
-                _ => {
-                    return Err(eyre!("Unsupported image depth: {}", dtype));
-                }
+        let channels = mat.channels();
+        let color_convert = match mat.channels() {
+            1 => -1,
+            3 => imgproc::COLOR_BGR2RGB,
+            4 => imgproc::COLOR_BGRA2RGBA,
+            _ => {
+                return Err(eyre!("Unsupported image channels: {}", channels));
             }
+        };
+        
+        if color_convert != -1 {
+            imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
+        } else {
+            tmp = mat.clone();
         }
-        Ok(MatImage::new(mat_f32))
+
+        let dtype = tmp.depth();
+        
+        tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / dtype.alpha(), 0.0)?;
+        
+        Ok(MatImage::new(mat_f32, dtype))
     }
 }

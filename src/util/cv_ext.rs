@@ -51,6 +51,7 @@ pub trait CvIntExt {
     fn cv_type_bytes(self) -> usize;
     fn cv_type_depth_bytes(self) -> usize;
     fn cv_type_is_floating(self) -> bool;
+    fn alpha(self) -> f64;
 }
 
 impl CvIntExt for i32 {
@@ -82,6 +83,19 @@ impl CvIntExt for i32 {
 
     fn cv_type_is_floating(self) -> bool {
         matches!(self.cv_type_depth(), core::CV_32F | core::CV_64F | core::CV_16F)
+    }
+
+    fn alpha(self) -> f64 {
+        match self {
+            core::CV_8U => 255.0,
+            core::CV_8S => 127.0,
+            core::CV_16U => 65535.0,
+            core::CV_16S => 32767.0,
+            core::CV_32S => 2147483647.0,
+            core::CV_32F => 1.0,
+            core::CV_64F => 1.0,
+            _ => 1.0,
+        }
     }
 }
 

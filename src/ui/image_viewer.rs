@@ -1,10 +1,10 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui::{self, Vec2b};
+use eframe::egui::{self};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::Arc;
 
-use crate::model::{AppState, DataType, Image};
-use crate::ui::gl::{ImageProgram, ShaderParams};
+use crate::model::{AppState, Image};
+use crate::ui::gl::ImageProgram;
 use crate::util::math_ext::vec2i;
 
 pub struct ImageViewer {
@@ -180,9 +180,6 @@ fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::Native
     let spec = image.spec();
     let (w, h) = (spec.width, spec.height);
     let channels = spec.channels;
-    if spec.dtype != f32::typ() {
-        return Err(eyre!("Expected f32 data type, got {}", spec.dtype));
-    }
 
     let total_elems = (w * h * channels) as usize;
 

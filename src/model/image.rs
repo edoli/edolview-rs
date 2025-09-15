@@ -2,7 +2,7 @@ use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::Result;
 use opencv::prelude::*;
 use half::f16;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{mem, sync::atomic::{AtomicU64, Ordering}};
 
 pub unsafe trait DataType: Copy {
 	fn typ() -> i32;
@@ -36,22 +36,23 @@ pub struct ImageSpec {
     pub dtype: i32, // OpenCV type, e.g. CV_8U, CV_32F
 }
 
+// data of ImageSpec should be always f32
 impl ImageSpec {
-    pub fn new(mat: &opencv::core::Mat) -> Self {
+    pub fn new(mat: &opencv::core::Mat, dtype: i32) -> Self {
         Self {
             width: mat.cols(),
             height: mat.rows(),
             channels: mat.channels(),
-            dtype: mat.depth(),
+            dtype: dtype,
         }
     }
 
     pub fn total_bytes(&self) -> usize {
-        (self.width as usize) * (self.height as usize) * (self.channels as usize) * self.dtype.cv_type_bytes()
+        (self.width as usize) * (self.height as usize) * (self.channels as usize) * mem::size_of::<f32>()
     }
 
     pub fn bytes_per_pixel(&self) -> usize {
-        (self.channels as usize) * self.dtype.cv_type_bytes()
+        (self.channels as usize) * mem::size_of::<f32>()
     }
 }
 
@@ -59,7 +60,7 @@ pub trait Image {
     fn id(&self) -> u64;
     fn spec(&self) -> &ImageSpec;
     fn data_ptr(&self) -> Result<&[u8]>;
-    fn get_pixel_at(&self, x: i32, y: i32) -> Result<&[u8]> {
+    fn get_pixel_at(&self, x: i32, y: i32) -> Result<&[f32]> {
         let spec = self.spec();
         if x < 0 || x >= spec.width || y < 0 || y >= spec.height {
             return Err(color_eyre::eyre::eyre!("Coordinates out of bounds"));
@@ -69,10 +70,12 @@ pub trait Image {
         let start = (y as usize) * row_bytes + (x as usize) * bytes_per_pixel;
         let end = start + bytes_per_pixel;
         let data = self.data_ptr()?;
-        Ok(&data[start..end])
+        let (_, f32s, _) = unsafe { data[start..end].align_to::<f32>() };
+        Ok(&f32s)
     }
 }
 
+// data of MatImage should be always f32. dtype of spec is not dtype of mat, but the original dtype before conversion to f32.
 pub struct MatImage {
     id: u64,
     mat: opencv::core::Mat,
@@ -80,8 +83,9 @@ pub struct MatImage {
 }
 
 impl MatImage {
-    pub fn new(mat: opencv::core::Mat) -> Self {
-        let spec = ImageSpec::new(&mat);
+    pub fn new(mat: opencv::core::Mat, dtype: i32) -> Self {
+        let spec = ImageSpec::new(&mat, dtype);
+        assert!(mat.depth() == f32::typ());
         Self {
             mat,
             spec,

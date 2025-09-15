@@ -5,7 +5,7 @@ use rfd::FileDialog;
 
 use crate::{
     model::{AppState, Image},
-    ui::{component::CustomSlider, ImageViewer},
+    ui::{component::{CustomSlider, egui_ext::UiExt}, ImageViewer},
 };
 
 pub struct ViewerApp {
@@ -143,36 +143,21 @@ impl eframe::App for ViewerApp {
                     } else {
                         ui.label("Cursor: (-, -)");
                     }
+                    
+                    ui.label(" | ");
 
-                    let color = if let Some(d) = &self.state.display {
+                    if let Some(d) = &self.state.display {
                         if let Ok(pixel) = d.get_pixel_at(
                             self.state.cursor_pos.map_or(-1, |p| p.x),
                             self.state.cursor_pos.map_or(-1, |p| p.y),
                         ) {
-                            if d.spec().channels >= 3 {
-                                Color32::from_rgb(pixel[0], pixel[1], pixel[2])
-                            } else if d.spec().channels == 1 {
-                                Color32::from_gray(pixel[0])
-                            } else {
-                                Color32::BLACK
-                            }
+                            let color: Vec<f32> = pixel.iter().cloned().collect();
+                            let dtype = d.spec().dtype;
+                            ui.label_with_colored_rect(color, dtype);
                         } else {
-                            Color32::BLACK
+                            ui.label("Pixel: (-)");
                         }
-                    } else {
-                        Color32::BLACK
-                    };
-                    let rect_size = ui.available_height();
-                    ui.painter().rect_filled(
-                        egui::Rect::from_min_size(
-                            ui.next_widget_position() - egui::vec2(0.0, rect_size / 2.0),
-                            egui::vec2(rect_size, rect_size),
-                        ),
-                        0.0,
-                        color,
-                    );
-                    ui.add_space(rect_size + ui.spacing().item_spacing.x);
-                    ui.label(format!(" Color: {:?}", color));
+                    }
                 });
             });
 
