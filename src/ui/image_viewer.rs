@@ -7,6 +7,12 @@ use crate::model::{AppState, Image};
 use crate::ui::gl::ImageProgram;
 use crate::util::math_ext::vec2i;
 
+enum DragMode {
+    None,
+    Panning { last_pixel_pos: egui::Pos2 },
+    Marquee { start_image_pos: egui::Pos2 },
+}
+
 pub struct ImageViewer {
     gl_prog: Option<Arc<ImageProgram>>,
     gl_raw_tex: Option<GL::NativeTexture>,
@@ -14,7 +20,7 @@ pub struct ImageViewer {
     zoom_base: f32,
     pan: egui::Vec2,
     dragging: bool,
-    last_drag_pos: egui::Pos2,
+    drag_mode: DragMode,
     last_image_id: Option<u64>, // cache key to know when to re-upload texture
 }
 
@@ -27,7 +33,7 @@ impl ImageViewer {
             zoom_base: 2.0_f32.powf(1.0 / 4.0),
             pan: egui::Vec2::ZERO,
             dragging: false,
-            last_drag_pos: egui::Pos2::ZERO,
+            drag_mode: DragMode::None,
             last_image_id: None,
         }
     }
@@ -43,6 +49,7 @@ impl ImageViewer {
         // Determine if we need a (re)upload
         let mut need_update_texture = false;
         let new_id = image.id();
+        let spec = image.spec();
 
         if self.gl_raw_tex.is_none() || Some(new_id) != self.last_image_id {
             need_update_texture = true;
@@ -97,7 +104,6 @@ impl ImageViewer {
                     let local_pos = (pointer_pos - rect.min) * pixel_per_point;
                     let image_pos = (local_pos - self.pan) / self.zoom();
                     let pixel_pos = vec2i(image_pos.x as i32, image_pos.y as i32);
-                    let spec = image.spec();
                     // Check if coordinates are within image bounds
                     if pixel_pos.x >= 0 && pixel_pos.x < spec.width && pixel_pos.y >= 0 && pixel_pos.y < spec.height {
                         app_state.cursor_pos = Some(pixel_pos);
@@ -109,19 +115,44 @@ impl ImageViewer {
 
             if resp.drag_started() {
                 self.dragging = true;
-                self.last_drag_pos = resp.interact_pointer_pos().unwrap_or(self.last_drag_pos);
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    self.drag_mode = if ui.input(|i| i.modifiers.shift) {
+                        // Start marquee
+                        DragMode::Marquee {
+                            start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
+                        }
+                    } else {
+                        // Start panning
+                        DragMode::Panning {
+                            last_pixel_pos: pos * pixel_per_point,
+                        }
+                    };
+                }
             }
 
             if self.dragging {
                 if let Some(pos) = resp.interact_pointer_pos() {
-                    let delta = pos - self.last_drag_pos;
-                    self.last_drag_pos = pos;
-                    let dx = delta.x * pixel_per_point;
-                    let dy = delta.y * pixel_per_point;
-                    self.pan += egui::vec2(dx, dy);
+                    if let DragMode::Marquee { start_image_pos } = self.drag_mode {
+                        let image_pos = self.view_to_image_coords(pos, rect, pixel_per_point);
+                        let r = egui::Rect::from_two_pos(start_image_pos, image_pos);
+                        // app_state.marquee_rect = Some(r);
+                        app_state.set_marquee_rect(Some(r));
+                    } else if let DragMode::Panning {
+                        last_pixel_pos: last_pos,
+                    } = self.drag_mode
+                    {
+                        let pos = pos * pixel_per_point;
+                        let delta = pos - last_pos;
+                        self.drag_mode = DragMode::Panning { last_pixel_pos: pos };
+                        let dx = delta.x;
+                        let dy = delta.y;
+                        self.pan += egui::vec2(dx, dy);
+                    }
                 }
+
                 if resp.drag_stopped() {
                     self.dragging = false;
+                    self.drag_mode = DragMode::None;
                 }
             }
 
@@ -132,7 +163,6 @@ impl ImageViewer {
                 let tex_handle = self.gl_raw_tex.unwrap();
                 let scale = self.zoom() as f32;
                 let position = self.pan / egui::vec2(viewport_w_px, viewport_h_px) * 2.0;
-                let spec = image.spec();
 
                 let mut pixel_scale = egui::vec2(1.0, 1.0);
                 if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
@@ -158,6 +188,20 @@ impl ImageViewer {
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });
+
+                ui.painter().rect_stroke(
+                    app_state
+                        .marquee_rect
+                        .map(|r| {
+                            (r * (self.zoom() / pixel_per_point))
+                                .translate(self.pan / pixel_per_point + rect.min.to_vec2())
+                        })
+                        .unwrap_or(egui::Rect::NOTHING)
+                        .intersect(rect),
+                    0.0,
+                    (1.0, egui::Color32::from_gray(150)),
+                    egui::StrokeKind::Middle,
+                );
             }
         } else {
             ui.colored_label(egui::Color32::RED, "No texture uploaded");
@@ -171,6 +215,11 @@ impl ImageViewer {
 
     pub fn zoom(&self) -> f32 {
         self.zoom_base.powf(self.zoom_level)
+    }
+
+    pub fn view_to_image_coords(&self, view_pos: egui::Pos2, rect: egui::Rect, pixel_per_point: f32) -> egui::Pos2 {
+        let local_pos = (view_pos - rect.min) * pixel_per_point;
+        ((local_pos - self.pan) / self.zoom()).to_pos2()
     }
 }
 

@@ -32,6 +32,7 @@ data_type!(f32, 5);
 data_type!(f64, 6);
 data_type!(f16, 7);
 
+#[derive(Clone)]
 pub struct ImageSpec {
     pub width: i32,
     pub height: i32,
@@ -61,7 +62,7 @@ impl ImageSpec {
 
 pub trait Image {
     fn id(&self) -> u64;
-    fn spec(&self) -> &ImageSpec;
+    fn spec(&self) -> ImageSpec;
     fn data_ptr(&self) -> Result<&[u8]>;
     fn get_pixel_at(&self, x: i32, y: i32) -> Result<&[f32]> {
         let spec = self.spec();
@@ -149,8 +150,8 @@ impl Image for MatImage {
         self.id
     }
 
-    fn spec(&self) -> &ImageSpec {
-        &self.spec
+    fn spec(&self) -> ImageSpec {
+        self.spec.clone()
     }
 
     fn data_ptr(&self) -> Result<&[u8]> {
