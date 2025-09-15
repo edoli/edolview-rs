@@ -3,7 +3,7 @@ use eframe::egui;
 use eframe::glow::{self as GL, HasContext};
 use std::sync::Arc;
 
-use crate::model::{DataType, Image};
+use crate::model::{AppState, DataType, Image};
 use crate::ui::gl::{ImageProgram, ShaderParams};
 
 pub struct ImageViewer {
@@ -31,7 +31,15 @@ impl ImageViewer {
         }
     }
 
-    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, image: &impl Image, shader_params: ShaderParams) {
+    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, app_state: &mut AppState) {
+
+        let Some(image) = app_state.display.as_ref() else {
+          ui.centered_and_justified(|ui| {
+              ui.label("Drag & Drop an image file here.");
+          });
+          return;
+        };
+        
         // Determine if we need a (re)upload
         let mut need_update_texture = false;
         let new_id = image.id();
@@ -83,6 +91,9 @@ impl ImageViewer {
                         self.pan = self.pan * k + local * (1.0 - k);
                     }
                 }
+
+                let mouse_pos = ui.input(|i| i.pointer.hover_pos());
+
             }
 
             if resp.drag_started() {
@@ -118,7 +129,8 @@ impl ImageViewer {
                     // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
                     pixel_scale = egui::vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
                 }
-
+                
+                let shader_params = app_state.shader_params.clone();
                 ui.painter().add(egui::PaintCallback {
                     rect,
                     callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| unsafe {

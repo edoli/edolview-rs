@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use eframe::egui::{self, Color32};
 use rfd::FileDialog;
 
@@ -17,6 +19,16 @@ impl ViewerApp {
             state: AppState::empty(),
             viewer: ImageViewer::new(),
         }
+    }
+
+    #[inline]
+    pub fn with_path(mut self, path: Option<PathBuf>) -> Self {
+        if let Some(path) = path {
+            if let Err(e) = self.state.load_from_path(path) {
+                eprintln!("Failed to load image: {e}");
+            }
+        }
+        self
     }
 }
 
@@ -130,13 +142,7 @@ impl eframe::App for ViewerApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
-                if let Some(d) = &self.state.display {
-                    self.viewer.show_image(ui, frame, d, self.state.shader_params.clone());
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("Drag & Drop an image file here.");
-                    });
-                }
+                self.viewer.show_image(ui, frame, &mut self.state);
             });
     }
 }

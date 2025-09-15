@@ -9,6 +9,7 @@ pub struct AppState {
     pub path: Option<PathBuf>,
     pub display: Option<MatImage>,
     pub shader_params: ShaderParams,
+    pub cursor_pos: Option<(i32, i32)>,
 }
 
 impl AppState {
@@ -17,6 +18,7 @@ impl AppState {
             path: None,
             display: None,
             shader_params: ShaderParams::default(),
+            cursor_pos: None,
         }
     }
 

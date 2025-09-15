@@ -59,6 +59,18 @@ pub trait Image {
     fn id(&self) -> u64;
     fn spec(&self) -> &ImageSpec;
     fn data_ptr(&self) -> Result<&[u8]>;
+    fn get_pixel_at(&self, x: i32, y: i32) -> Result<&[u8]> {
+        let spec = self.spec();
+        if x < 0 || x >= spec.width || y < 0 || y >= spec.height {
+            return Err(color_eyre::eyre::eyre!("Coordinates out of bounds"));
+        }
+        let bytes_per_pixel = spec.bytes_per_pixel();
+        let row_bytes = (spec.width as usize) * bytes_per_pixel;
+        let start = (y as usize) * row_bytes + (x as usize) * bytes_per_pixel;
+        let end = start + bytes_per_pixel;
+        let data = self.data_ptr()?;
+        Ok(&data[start..end])
+    }
 }
 
 pub struct MatImage {

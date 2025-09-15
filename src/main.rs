@@ -35,15 +35,14 @@ fn parse_max_size(spec: &str) -> Result<(i32, i32)> {
 fn main() -> Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
-    let mut state = AppState::empty();
-    if let Some(p) = args.image.clone() {
-        if let Err(e) = state.load_from_path(p) {
-            eprintln!("Failed to load image: {e}");
-        }
-    }
+
     println!("{}", opencv::core::get_build_information()?);
     let native_options = eframe::NativeOptions::default();
-    if let Err(e) = eframe::run_native("edolview-rs", native_options, Box::new(|_cc| Ok(Box::new(ViewerApp::new())))) {
+    if let Err(e) = eframe::run_native(
+        "edolview-rs",
+        native_options,
+        Box::new(|_cc| Ok(Box::new(ViewerApp::new().with_path(args.image)))),
+    ) {
         return Err(eyre!("eframe initialization failed: {e}"));
     }
     Ok(())
