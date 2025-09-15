@@ -6,6 +6,7 @@ pub struct ScopedTimer<'a> {
 }
 
 impl<'a> ScopedTimer<'a> {
+    #[must_use]
     pub fn new(name: &'a str) -> Self {
         Self {
             name,
