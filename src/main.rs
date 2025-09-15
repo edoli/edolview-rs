@@ -58,12 +58,15 @@ impl ImageState {
             return Err(eyre!("Image does not exist: {:?}", path));
         }
 
-        // Read image using imread fails on paths with non-ASCII characters.
-        // let img = imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?;
+        let img = {
+            let _timer = util::timer::ScopedTimer::new("imdecode");
+            // Read image using imread fails on paths with non-ASCII characters.
+            // imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
 
-        let data = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
-        let data_mat = core::Mat::new_rows_cols_with_data(1, data.len() as i32, &data)?;
-        let img = imgcodecs::imdecode(&data_mat, imgcodecs::IMREAD_UNCHANGED)?;
+            let data = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
+            let data_mat = core::Mat::new_rows_cols_with_data(1, data.len() as i32, &data)?;
+            imgcodecs::imdecode(&data_mat, imgcodecs::IMREAD_UNCHANGED)?
+        };
 
         if img.empty() {
             return Err(eyre!("Failed to load image"));
@@ -159,7 +162,6 @@ impl eframe::App for ViewerApp {
                 if let Some(path) = f.path {
                     match self.state.load_from_path(path.clone()) {
                         Ok(_) => {
-                            self.viewer.reset_view();
                             break;
                         }
                         Err(e) => {
@@ -204,7 +206,7 @@ impl eframe::App for ViewerApp {
 
         egui::SidePanel::right("right").show(ctx, |ui| {
             ui.style_mut().spacing.slider_rail_height = 4.0;
-            
+
             let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
                 ui.add(
                     CustomSlider::new(value, min..=max)
@@ -258,6 +260,7 @@ fn main() -> Result<()> {
             eprintln!("Failed to load image: {e}");
         }
     }
+    println!("{}", opencv::core::get_build_information()?);
     let native_options = eframe::NativeOptions::default();
     if let Err(e) = eframe::run_native(
         "edolview-rs",
