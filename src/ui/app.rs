@@ -106,6 +106,44 @@ impl eframe::App for ViewerApp {
             });
         });
 
+        egui::TopBottomPanel::bottom("bottom")
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+
+                    ui.vertical(|ui| {
+
+                        if let Some(d) = &self.state.display {
+                            if let Ok(pixel) = d.get_pixel_at(
+                                self.state.cursor_pos.map_or(-1, |p| p.x),
+                                self.state.cursor_pos.map_or(-1, |p| p.y),
+                            ) {
+                                let color: Vec<f32> = pixel.iter().cloned().collect();
+                                let dtype = d.spec().dtype;
+                                ui.label_with_colored_rect(color.clone(), dtype);
+                                ui.label_with_colored_rect(color.clone(), dtype);
+                            } else {
+                                ui.label("Pixel: (-)");
+                                ui.label("Pixel: (-)");
+                            }
+                        }
+                    });
+                    if let Some(d) = &self.state.display {
+                        ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
+                    } else {
+                        ui.label("Image size: -");
+                    }
+                    ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
+                    ui.label(" | ");
+                    if let Some(cursor_pos) = self.state.cursor_pos {
+                        ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
+                    } else {
+                        ui.label("Cursor: (-, -)");
+                    }
+                    
+                    ui.label(" | ");
+                });
+            });
+
         egui::SidePanel::right("right").show(ctx, |ui| {
             ui.style_mut().spacing.slider_rail_height = 4.0;
 
@@ -127,39 +165,6 @@ impl eframe::App for ViewerApp {
             display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
             display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
         });
-
-        egui::TopBottomPanel::bottom("bottom")
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if let Some(d) = &self.state.display {
-                        ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
-                    } else {
-                        ui.label("Image size: -");
-                    }
-                    ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
-                    ui.label(" | ");
-                    if let Some(cursor_pos) = self.state.cursor_pos {
-                        ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
-                    } else {
-                        ui.label("Cursor: (-, -)");
-                    }
-                    
-                    ui.label(" | ");
-
-                    if let Some(d) = &self.state.display {
-                        if let Ok(pixel) = d.get_pixel_at(
-                            self.state.cursor_pos.map_or(-1, |p| p.x),
-                            self.state.cursor_pos.map_or(-1, |p| p.y),
-                        ) {
-                            let color: Vec<f32> = pixel.iter().cloned().collect();
-                            let dtype = d.spec().dtype;
-                            ui.label_with_colored_rect(color, dtype);
-                        } else {
-                            ui.label("Pixel: (-)");
-                        }
-                    }
-                });
-            });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
