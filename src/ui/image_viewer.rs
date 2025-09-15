@@ -134,8 +134,10 @@ impl ImageViewer {
                 if let Some(pos) = resp.interact_pointer_pos() {
                     if let DragMode::Marquee { start_image_pos } = self.drag_mode {
                         let image_pos = self.view_to_image_coords(pos, rect, pixel_per_point);
-                        let r = egui::Rect::from_two_pos(start_image_pos, image_pos);
+                        let mut r = egui::Rect::from_two_pos(start_image_pos, image_pos);
                         // app_state.marquee_rect = Some(r);
+                        r.min = r.min.floor();
+                        r.max = r.max.ceil();
                         app_state.set_marquee_rect(Some(r));
                     } else if let DragMode::Panning {
                         last_pixel_pos: last_pos,
