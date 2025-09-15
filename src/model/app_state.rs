@@ -3,13 +3,13 @@ use std::{fs, path::PathBuf};
 use color_eyre::eyre::{eyre, Result};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
 
-use crate::{model::MatImage, ui::gl::ShaderParams, util};
+use crate::{model::MatImage, ui::gl::ShaderParams, util::{self, math_ext::Vec2i}};
 
 pub struct AppState {
     pub path: Option<PathBuf>,
     pub display: Option<MatImage>,
     pub shader_params: ShaderParams,
-    pub cursor_pos: Option<(i32, i32)>,
+    pub cursor_pos: Option<Vec2i>,
 }
 
 impl AppState {

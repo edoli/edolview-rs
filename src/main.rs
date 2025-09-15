@@ -5,7 +5,7 @@ use color_eyre::eyre::{eyre, Result};
 use eframe::egui::{self};
 use std::path::PathBuf;
 
-use crate::{model::AppState, ui::ViewerApp};
+use crate::ui::ViewerApp;
 
 mod model;
 mod ui;

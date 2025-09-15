@@ -1,10 +1,11 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui;
+use eframe::egui::{self, Vec2b};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::Arc;
 
 use crate::model::{AppState, DataType, Image};
 use crate::ui::gl::{ImageProgram, ShaderParams};
+use crate::util::math_ext::vec2i;
 
 pub struct ImageViewer {
     gl_prog: Option<Arc<ImageProgram>>,
@@ -32,14 +33,13 @@ impl ImageViewer {
     }
 
     pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, app_state: &mut AppState) {
-
         let Some(image) = app_state.display.as_ref() else {
-          ui.centered_and_justified(|ui| {
-              ui.label("Drag & Drop an image file here.");
-          });
-          return;
+            ui.centered_and_justified(|ui| {
+                ui.label("Drag & Drop an image file here.");
+            });
+            return;
         };
-        
+
         // Determine if we need a (re)upload
         let mut need_update_texture = false;
         let new_id = image.id();
@@ -93,7 +93,18 @@ impl ImageViewer {
                 }
 
                 let mouse_pos = ui.input(|i| i.pointer.hover_pos());
-
+                if let Some(pointer_pos) = mouse_pos {
+                    let local_pos = (pointer_pos - rect.min) * pixel_per_point;
+                    let image_pos = (local_pos - self.pan) / self.zoom();
+                    let pixel_pos = vec2i(image_pos.x as i32, image_pos.y as i32);
+                    let spec = image.spec();
+                    // Check if coordinates are within image bounds
+                    if pixel_pos.x >= 0 && pixel_pos.x < spec.width && pixel_pos.y >= 0 && pixel_pos.y < spec.height {
+                        app_state.cursor_pos = Some(pixel_pos);
+                    } else {
+                        app_state.cursor_pos = None;
+                    }
+                }
             }
 
             if resp.drag_started() {
@@ -129,7 +140,7 @@ impl ImageViewer {
                     // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
                     pixel_scale = egui::vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
                 }
-                
+
                 let shader_params = app_state.shader_params.clone();
                 ui.painter().add(egui::PaintCallback {
                     rect,

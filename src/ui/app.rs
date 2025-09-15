@@ -128,16 +128,53 @@ impl eframe::App for ViewerApp {
             display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
         });
 
-        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(d) = &self.state.display {
-                    ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
-                } else {
-                    ui.label("Image size: -");
-                }
-                ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
+        egui::TopBottomPanel::bottom("bottom")
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if let Some(d) = &self.state.display {
+                        ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
+                    } else {
+                        ui.label("Image size: -");
+                    }
+                    ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
+                    ui.label(" | ");
+                    if let Some(cursor_pos) = self.state.cursor_pos {
+                        ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
+                    } else {
+                        ui.label("Cursor: (-, -)");
+                    }
+
+                    let color = if let Some(d) = &self.state.display {
+                        if let Ok(pixel) = d.get_pixel_at(
+                            self.state.cursor_pos.map_or(-1, |p| p.x),
+                            self.state.cursor_pos.map_or(-1, |p| p.y),
+                        ) {
+                            if d.spec().channels >= 3 {
+                                Color32::from_rgb(pixel[0], pixel[1], pixel[2])
+                            } else if d.spec().channels == 1 {
+                                Color32::from_gray(pixel[0])
+                            } else {
+                                Color32::BLACK
+                            }
+                        } else {
+                            Color32::BLACK
+                        }
+                    } else {
+                        Color32::BLACK
+                    };
+                    let rect_size = ui.available_height();
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(
+                            ui.next_widget_position() - egui::vec2(0.0, rect_size / 2.0),
+                            egui::vec2(rect_size, rect_size),
+                        ),
+                        0.0,
+                        color,
+                    );
+                    ui.add_space(rect_size + ui.spacing().item_spacing.x);
+                    ui.label(format!(" Color: {:?}", color));
+                });
             });
-        });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
