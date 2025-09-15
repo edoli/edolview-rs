@@ -113,18 +113,34 @@ impl eframe::App for ViewerApp {
                     ui.vertical(|ui| {
 
                         if let Some(d) = &self.state.display {
-                            if let Ok(pixel) = d.get_pixel_at(
+                            let spec = d.spec();
+                            let dtype = d.spec().dtype;
+
+                            let cursor_color = if let Ok(pixel) = d.get_pixel_at(
                                 self.state.cursor_pos.map_or(-1, |p| p.x),
                                 self.state.cursor_pos.map_or(-1, |p| p.y),
                             ) {
-                                let color: Vec<f32> = pixel.iter().cloned().collect();
-                                let dtype = d.spec().dtype;
-                                ui.label_with_colored_rect(color.clone(), dtype);
-                                ui.label_with_colored_rect(color.clone(), dtype);
+                                pixel.iter().cloned().collect()
                             } else {
-                                ui.label("Pixel: (-)");
-                                ui.label("Pixel: (-)");
-                            }
+                                vec![0.0; spec.channels as usize]
+                            };
+                            ui.label_with_colored_rect(cursor_color, dtype);
+
+                            let mean_color = if let Some(rect) = self.state.marquee_rect {
+                                if let Ok(mean) = d.mean_value_in_rect(opencv::core::Rect {
+                                    x: rect.min.x as i32,
+                                    y: rect.min.y as i32,
+                                    width: (rect.max.x - rect.min.x) as i32,
+                                    height: (rect.max.y - rect.min.y) as i32,
+                                }) {
+                                    mean.iter().map(|&v| v as f32).collect()
+                                } else {
+                                    vec![0.0; d.spec().channels as usize]
+                                }
+                            } else {
+                                vec![0.0; d.spec().channels as usize]
+                            };
+                            ui.label_with_colored_rect(mean_color, dtype);
                         }
                     });
                     if let Some(d) = &self.state.display {

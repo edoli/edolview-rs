@@ -96,6 +96,20 @@ impl MatImage {
             id: new_id(),
         }
     }
+
+    pub fn mean_value_in_rect(&self, rect: opencv::core::Rect) -> Result<Vec<f64>> {
+        let spec = self.spec();
+        if rect.x < 0 || rect.y < 0 || rect.x + rect.width > spec.width || rect.y + rect.height > spec.height {
+            return Err(eyre!("Rect out of bounds"));
+        }
+        let roi = core::Mat::roi(&self.mat, rect)?;
+        let mean = core::mean(&roi, &core::no_array())?;
+        let mut mean_vec = Vec::with_capacity(spec.channels as usize);
+        for i in 0..spec.channels as usize {
+            mean_vec.push(mean[i]);
+        }
+        Ok(mean_vec)
+    }
 }
 
 impl MatImage {
