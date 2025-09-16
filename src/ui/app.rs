@@ -177,7 +177,7 @@ impl eframe::App for ViewerApp {
                             ui.selectable_value(&mut self.state.channel_index, index, index.to_string());
                         }
                     })
-                    .hover_scroll(ui, &(-1..channels).collect(), &mut self.state.channel_index);
+                    .hover_scroll(ui, &(-1..channels).collect(), &mut self.state.channel_index, false);
 
                 if is_mono {
                     egui::ComboBox::from_id_salt("colormap_mono")
@@ -187,7 +187,7 @@ impl eframe::App for ViewerApp {
                                 ui.selectable_value(&mut self.state.colormap_mono, name.clone(), name);
                             }
                         })
-                        .hover_scroll(ui, &self.state.colormap_mono_list, &mut self.state.colormap_mono)
+                        .hover_scroll(ui, &self.state.colormap_mono_list, &mut self.state.colormap_mono, false)
                 } else {
                     egui::ComboBox::from_id_salt("colormap_rgb")
                         .selected_text(&self.state.colormap_rgb)
@@ -196,7 +196,7 @@ impl eframe::App for ViewerApp {
                                 ui.selectable_value(&mut self.state.colormap_rgb, name.clone(), name);
                             }
                         })
-                        .hover_scroll(ui, &self.state.colormap_rgb_list, &mut self.state.colormap_rgb)
+                        .hover_scroll(ui, &self.state.colormap_rgb_list, &mut self.state.colormap_rgb, false)
                 };
             });
 

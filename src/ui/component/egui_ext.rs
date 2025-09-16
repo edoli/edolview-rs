@@ -82,11 +82,11 @@ impl UiExt for Ui {
 }
 
 pub trait RespExt {
-    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T) -> Self;
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self;
 }
 
 impl<R> RespExt for InnerResponse<R> {
-    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T) -> Self {
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self {
         if self.response.hovered() {
             let scroll = ui.input(|i| i.raw_scroll_delta.y);
 
@@ -94,9 +94,9 @@ impl<R> RespExt for InnerResponse<R> {
                 if let Some(cur_idx) = values.iter().position(|n| n == current) {
                     let mut new_idx = cur_idx as isize + if scroll < 0.0 { 1 } else { -1 };
                     if new_idx < 0 {
-                        new_idx = 0;
+                        new_idx = if is_cycle { (values.len() - 1) as isize } else { 0 };
                     } else if new_idx as usize >= values.len() {
-                        new_idx = (values.len() - 1) as isize;
+                        new_idx = if is_cycle { 0 } else { (values.len() - 1) as isize };
                     }
                     if new_idx as usize != cur_idx {
                         if let Some(new_value) = values.get(new_idx as usize) {
