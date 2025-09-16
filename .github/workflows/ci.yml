@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # ----- Linux (Ubuntu) OpenCV deps -----
+      - name: Install OpenCV deps (Ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libopencv-dev
+          pkg-config --modversion opencv4 || true
+
+      # ----- macOS OpenCV -----
+      - name: Install OpenCV (macOS)
+        if: startsWith(runner.os, 'macOS')
+        run: |
+          brew update
+          brew install opencv
+          brew info opencv
+
+      # ----- Windows OpenCV via vcpkg -----
+      - name: Set up vcpkg (Windows)
+        if: startsWith(runner.os, 'Windows')
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 0c5b6b1e6e9a3b1a9e7d2b0f8e5c6b0f4a1d2c3b # Pin for reproducibility (update as needed)
+
+      - name: Install OpenCV (Windows)
+        if: startsWith(runner.os, 'Windows')
+        run: |
+          vcpkg.exe install opencv4[openexr]:x64-windows-static-md
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+
+      - name: Add vcpkg toolchain to cargo builds (Windows)
+        if: startsWith(runner.os, 'Windows')
+        shell: pwsh
+        run: |
+          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" | Out-File -FilePath $Env:GITHUB_ENV -Append
+          # Provide static linkage hints if necessary
+          echo "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $Env:GITHUB_ENV -Append
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests (if any)
+        run: cargo test --all --verbose --no-fail-fast
+
+      - name: Package release binary
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edolview-${{ runner.os }}
+          path: target/release/edolview-rs*
+          if-no-files-found: warn
