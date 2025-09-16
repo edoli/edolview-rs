@@ -15,6 +15,8 @@ pub struct AppState {
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Option<Rect>,
+    pub colormap_rgb: String,
+    pub colormap_mono: String,
 }
 
 impl AppState {
@@ -25,6 +27,8 @@ impl AppState {
             shader_params: ShaderParams::default(),
             cursor_pos: None,
             marquee_rect: None,
+            colormap_rgb: String::from("color"),
+            colormap_mono: String::from("gray"),
         }
     }
 

@@ -1,8 +1,7 @@
 use color_eyre::eyre::{eyre, Result};
-use color_eyre::owo_colors::OwoColorize;
 use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::model::{AppState, Image};
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
@@ -16,7 +15,7 @@ enum DragMode {
 
 pub struct ImageViewer {
     background_prog: Option<Arc<BackgroundProgram>>,
-    image_prog: Option<Arc<ImageProgram>>,
+    image_prog: Option<Arc<Mutex<ImageProgram>>>,
     gl_raw_tex: Option<GL::NativeTexture>,
     zoom_level: f32,
     zoom_base: f32,
@@ -85,7 +84,7 @@ impl ImageViewer {
             if self.image_prog.is_none() {
                 if let Some(gl) = frame.gl() {
                     if let Ok(p) = ImageProgram::new(gl) {
-                        self.image_prog = Some(Arc::new(p));
+                        self.image_prog = Some(Arc::new(Mutex::new(p)));
                     }
                 }
             }
@@ -181,6 +180,9 @@ impl ImageViewer {
 
                 let visuals = ui.visuals().clone();
                 let shader_params = app_state.shader_params.clone();
+                let colormap_rgb = app_state.colormap_rgb.clone();
+                let colormap_mono = app_state.colormap_mono.clone();
+
                 ui.painter().add(egui::PaintCallback {
                     rect,
                     callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| unsafe {
@@ -201,7 +203,18 @@ impl ImageViewer {
                             visuals.extreme_bg_color,
                             visuals.faint_bg_color,
                         );
-                        image_prog.draw(gl, tex_handle, viewport_size, image_size, scale, position, &shader_params);
+                        if let Ok(mut image_prog) = image_prog.lock() {
+                            image_prog.draw(
+                                gl,
+                                tex_handle,
+                                colormap_rgb.as_str(),
+                                viewport_size,
+                                image_size,
+                                scale,
+                                position,
+                                &shader_params,
+                            );
+                        }
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });

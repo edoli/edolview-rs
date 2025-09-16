@@ -11,6 +11,9 @@ pub struct ImageProgram {
     vbo: glow::Buffer,
     ebo: glow::Buffer,
 
+    shader_builder: ShaderBuilder,
+    last_color_map_name: String,
+
     u_viewport_size: glow::UniformLocation,
     u_image_size: glow::UniformLocation,
 
@@ -87,8 +90,11 @@ impl ImageProgram {
             if !gl.get_shader_compile_status(vs) {
                 return Err(eyre!(gl.get_shader_info_log(vs)));
             }
+
+            let shader_builder = ShaderBuilder::new();
+            let last_color_map_name = "color".to_string();
             let fs = gl.create_shader(glow::FRAGMENT_SHADER).unwrap();
-            gl.shader_source(fs, ShaderBuilder::new().build("color", false).as_str());
+            gl.shader_source(fs, shader_builder.build(last_color_map_name.as_str(), false).as_str());
             gl.compile_shader(fs);
             if !gl.get_shader_compile_status(fs) {
                 return Err(eyre!(gl.get_shader_info_log(fs)));
@@ -151,6 +157,8 @@ impl ImageProgram {
                 vao,
                 vbo,
                 ebo,
+                shader_builder,
+                last_color_map_name,
                 u_viewport_size,
                 u_image_size,
                 u_texture,
@@ -170,9 +178,10 @@ impl ImageProgram {
     }
 
     pub unsafe fn draw(
-        &self,
+        &mut self,
         gl: &glow::Context,
         tex_id: glow::NativeTexture,
+        colormap_name: &str,
         viewport_size: Vec2,
         image_size: Vec2,
         scale: f32,
@@ -180,6 +189,30 @@ impl ImageProgram {
         shader_params: &ShaderParams,
     ) {
         gl.use_program(Some(self.program));
+
+        if self.last_color_map_name != colormap_name {
+            let fs = gl.create_shader(glow::FRAGMENT_SHADER).unwrap();
+            let shader_source = self.shader_builder.build(colormap_name, false);
+            gl.shader_source(fs, shader_source.as_str());
+            gl.compile_shader(fs);
+            if !gl.get_shader_compile_status(fs) {
+                eprintln!("Failed to compile shader: {}", gl.get_shader_info_log(fs));
+            } else {
+                let new_program = gl.create_program().map_err(|e| eyre!(e)).unwrap();
+                gl.attach_shader(new_program, fs);
+                gl.link_program(new_program);
+                if !gl.get_program_link_status(new_program) {
+                    eprintln!("Failed to link shader program: {}", gl.get_program_info_log(new_program));
+                    gl.delete_program(new_program);
+                } else {
+                    gl.delete_program(self.program);
+                    self.program = new_program;
+                    self.last_color_map_name = colormap_name.to_string();
+                }
+            }
+            gl.delete_shader(fs);
+        }
+
         gl.enable(glow::BLEND);
         gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
         gl.active_texture(glow::TEXTURE0);
