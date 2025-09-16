@@ -46,8 +46,17 @@ jobs:
         if: startsWith(runner.os, 'Linux')
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libopencv-dev
+          sudo apt-get install -y --no-install-recommends pkg-config libopencv-dev clang libclang-dev llvm-dev
           pkg-config --modversion opencv4 || true
+
+      - name: Export libclang path (Ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        run: |
+          # Try common libclang locations and export the first that exists
+          for p in /usr/lib/llvm-*/lib/libclang.so /usr/lib/x86_64-linux-gnu/libclang.so*; do
+            if [ -f "$p" ]; then echo "LIBCLANG_PATH=$(dirname $p)" >> $GITHUB_ENV; break; fi
+          done
+          echo "Detected LIBCLANG_PATH=$LIBCLANG_PATH"
 
       # ----- macOS OpenCV -----
       - name: Install OpenCV (macOS)
@@ -58,11 +67,30 @@ jobs:
           brew info opencv
 
       # ----- Windows OpenCV via vcpkg -----
-      - name: Set up vcpkg (Windows)
+      - name: Cache vcpkg (Windows)
         if: startsWith(runner.os, 'Windows')
-        uses: lukka/run-vcpkg@v11
+        uses: actions/cache@v4
         with:
-          vcpkgGitCommitId: 0c5b6b1e6e9a3b1a9e7d2b0f8e5c6b0f4a1d2c3b # Pin for reproducibility (update as needed)
+          path: |
+            vcpkg/installed
+            vcpkg/downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Clone vcpkg (Windows)
+        if: startsWith(runner.os, 'Windows')
+        run: |
+          if (Test-Path vcpkg) { Write-Host "vcpkg directory already exists" } else { git clone https://github.com/microsoft/vcpkg.git -q }
+          cd vcpkg
+          git pull --ff-only
+        shell: pwsh
+
+      - name: Bootstrap vcpkg (Windows)
+        if: startsWith(runner.os, 'Windows')
+        run: |
+          .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+        shell: cmd
 
       - name: Install OpenCV (Windows)
         if: startsWith(runner.os, 'Windows')
