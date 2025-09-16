@@ -92,9 +92,18 @@ jobs:
               -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
               -DBUILD_SHARED_LIBS=OFF \
               -DBUILD_JPEG=ON -DBUILD_PNG=ON -DBUILD_TIFF=ON -DBUILD_WEBP=ON \
+              -DWITH_JPEG=ON -DWITH_PNG=ON -DWITH_TIFF=ON -DWITH_WEBP=ON -DWITH_OPENJPEG=ON \
+              -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_TBB=OFF -DWITH_GDCM=OFF -DWITH_GSTREAMER=OFF -DWITH_FFMPEG=OFF \
               ..
             cmake --build . --parallel $(nproc || echo 2)
             cmake --install .
+            # Create compatibility symlinks for libraries the Rust OpenCV crate expects with an extra 'lib' prefix
+            cd "$INSTALL_DIR/lib"
+            for base in png tiff webp openjp2 jpeg-turbo; do
+              if [ -f "lib$base.a" ] && [ ! -e "liblib$base.a" ]; then ln -s "lib$base.a" "liblib$base.a"; fi
+            done
+            # ittnotify/ipp are disabled; ensure no stale references
+            ls -1
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$INSTALL_DIR/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
