@@ -5,7 +5,10 @@ use rfd::FileDialog;
 
 use crate::{
     model::{AppState, Image},
-    ui::{component::{CustomSlider, egui_ext::UiExt}, ImageViewer},
+    ui::{
+        component::{egui_ext::UiExt, CustomSlider},
+        ImageViewer,
+    },
 };
 
 pub struct ViewerApp {
@@ -106,62 +109,90 @@ impl eframe::App for ViewerApp {
             });
         });
 
-        egui::TopBottomPanel::bottom("bottom")
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
+        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    if let Some(d) = &self.state.display {
+                        let spec = d.spec();
+                        let dtype = d.spec().dtype;
 
-                    ui.vertical(|ui| {
+                        let cursor_color = if let Ok(pixel) = d.get_pixel_at(
+                            self.state.cursor_pos.map_or(-1, |p| p.x),
+                            self.state.cursor_pos.map_or(-1, |p| p.y),
+                        ) {
+                            pixel.iter().cloned().collect()
+                        } else {
+                            vec![0.0; spec.channels as usize]
+                        };
+                        ui.label_with_colored_rect(cursor_color, dtype);
 
-                        if let Some(d) = &self.state.display {
-                            let spec = d.spec();
-                            let dtype = d.spec().dtype;
-
-                            let cursor_color = if let Ok(pixel) = d.get_pixel_at(
-                                self.state.cursor_pos.map_or(-1, |p| p.x),
-                                self.state.cursor_pos.map_or(-1, |p| p.y),
-                            ) {
-                                pixel.iter().cloned().collect()
-                            } else {
-                                vec![0.0; spec.channels as usize]
-                            };
-                            ui.label_with_colored_rect(cursor_color, dtype);
-
-                            let mean_color = if let Some(rect) = self.state.marquee_rect {
-                                if let Ok(mean) = d.mean_value_in_rect(opencv::core::Rect {
-                                    x: rect.min.x as i32,
-                                    y: rect.min.y as i32,
-                                    width: (rect.max.x - rect.min.x) as i32,
-                                    height: (rect.max.y - rect.min.y) as i32,
-                                }) {
-                                    mean.iter().map(|&v| v as f32).collect()
-                                } else {
-                                    vec![0.0; d.spec().channels as usize]
-                                }
+                        let mean_color = if let Some(rect) = self.state.marquee_rect {
+                            if let Ok(mean) = d.mean_value_in_rect(opencv::core::Rect {
+                                x: rect.min.x as i32,
+                                y: rect.min.y as i32,
+                                width: (rect.max.x - rect.min.x) as i32,
+                                height: (rect.max.y - rect.min.y) as i32,
+                            }) {
+                                mean.iter().map(|&v| v as f32).collect()
                             } else {
                                 vec![0.0; d.spec().channels as usize]
-                            };
-                            ui.label_with_colored_rect(mean_color, dtype);
-                        }
-                    });
-                    if let Some(d) = &self.state.display {
-                        ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
-                    } else {
-                        ui.label("Image size: -");
+                            }
+                        } else {
+                            vec![0.0; d.spec().channels as usize]
+                        };
+                        ui.label_with_colored_rect(mean_color, dtype);
                     }
-                    ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
-                    ui.label(" | ");
-                    if let Some(cursor_pos) = self.state.cursor_pos {
-                        ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
-                    } else {
-                        ui.label("Cursor: (-, -)");
-                    }
-                    
-                    ui.label(" | ");
                 });
+                if let Some(d) = &self.state.display {
+                    ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
+                } else {
+                    ui.label("Image size: -");
+                }
+                ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
+                ui.label(" | ");
+                if let Some(cursor_pos) = self.state.cursor_pos {
+                    ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
+                } else {
+                    ui.label("Cursor: (-, -)");
+                }
+
+                ui.label(" | ");
             });
+        });
 
         egui::SidePanel::right("right").show(ctx, |ui| {
             ui.style_mut().spacing.slider_rail_height = 4.0;
+
+            let combo_box = egui::ComboBox::from_label("Colormap")
+                .selected_text(&self.state.colormap_rgb)
+                .show_ui(ui, |ui| {
+                    for name in &self.state.colormap_rgb_list {
+                        ui.selectable_value(&mut self.state.colormap_rgb, name.clone(), name);
+                    }
+                });
+            // 지원: 콤보박스 위에서 마우스 휠로 항목 변경
+            if combo_box.response.hovered() {
+                let scroll = ui.input(|i| i.raw_scroll_delta.y);
+                if scroll.abs() > 0.0 {
+                    if let Some(cur_idx) =
+                        self.state.colormap_rgb_list.iter().position(|n| n == &self.state.colormap_rgb)
+                    {
+                        let mut new_idx = cur_idx as isize + if scroll < 0.0 { 1 } else { -1 };
+                        if new_idx < 0 {
+                            new_idx = 0;
+                        } else if new_idx as usize >= self.state.colormap_rgb_list.len() {
+                            new_idx = (self.state.colormap_rgb_list.len() - 1) as isize;
+                        }
+                        if new_idx as usize != cur_idx {
+                            if let Some(new_name) = self.state.colormap_rgb_list.get(new_idx as usize) {
+                                self.state.colormap_rgb = new_name.clone();
+                                // 필요 시 뷰 갱신
+                                ui.ctx().request_repaint();
+                            }
+                        }
+                    }
+                }
+            }
 
             let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
                 ui.add(
