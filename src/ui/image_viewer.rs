@@ -180,8 +180,14 @@ impl ImageViewer {
 
                 let visuals = ui.visuals().clone();
                 let shader_params = app_state.shader_params.clone();
-                let colormap_rgb = app_state.colormap_rgb.clone();
-                let colormap_mono = app_state.colormap_mono.clone();
+                let channel_index = app_state.channel_index;
+
+                let is_mono = channel_index != -1 || spec.channels == 1;
+                let colormap = if is_mono {
+                    app_state.colormap_mono.clone()
+                } else {
+                    app_state.colormap_rgb.clone()
+                };
 
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -207,9 +213,11 @@ impl ImageViewer {
                             image_prog.draw(
                                 gl,
                                 tex_handle,
-                                colormap_rgb.as_str(),
+                                colormap.as_str(),
                                 viewport_size,
                                 image_size,
+                                channel_index,
+                                is_mono,
                                 scale,
                                 position,
                                 &shader_params,

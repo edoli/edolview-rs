@@ -15,6 +15,8 @@ pub struct AppState {
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Option<Rect>,
+
+    pub channel_index: i32,
     pub colormap_rgb: String,
     pub colormap_mono: String,
     pub colormap_rgb_list: Vec<String>,
@@ -49,6 +51,7 @@ impl AppState {
             shader_params: ShaderParams::default(),
             cursor_pos: None,
             marquee_rect: None,
+            channel_index: -1,
             colormap_rgb: String::from("rgb"),
             colormap_mono: String::from("gray"),
             colormap_rgb_list: list_colormaps(&PathBuf::from("assets/colormap/rgb")),

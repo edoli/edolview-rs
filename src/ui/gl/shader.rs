@@ -13,11 +13,13 @@ pub struct ImageProgram {
 
     shader_builder: ShaderBuilder,
     last_color_map_name: String,
+    last_is_mono: bool,
 
     u_viewport_size: glow::UniformLocation,
     u_image_size: glow::UniformLocation,
 
     u_texture: glow::UniformLocation,
+    u_channel_index: glow::UniformLocation,
     u_scale: glow::UniformLocation,
     u_position: glow::UniformLocation,
 
@@ -86,6 +88,7 @@ unsafe fn compile_colormap_shader(
     gl: &glow::Context,
     shader_builder: &ShaderBuilder,
     colormap_name: &str,
+    is_mono: bool,
 ) -> Result<glow::Program> {
     let program = gl.create_program().map_err(|e| eyre!(e))?;
     let vs = gl.create_shader(glow::VERTEX_SHADER).unwrap();
@@ -96,7 +99,7 @@ unsafe fn compile_colormap_shader(
     }
 
     let fs = gl.create_shader(glow::FRAGMENT_SHADER).unwrap();
-    gl.shader_source(fs, shader_builder.build(colormap_name, false).as_str());
+    gl.shader_source(fs, shader_builder.build(colormap_name, is_mono).as_str());
     gl.compile_shader(fs);
     if !gl.get_shader_compile_status(fs) {
         return Err(eyre!(gl.get_shader_info_log(fs)));
@@ -119,8 +122,13 @@ impl ImageProgram {
     pub fn new(gl: &glow::Context) -> Result<Self> {
         unsafe {
             let last_color_map_name = "rgb".to_string();
+            let last_is_mono = false;
             let shader_builder = ShaderBuilder::new();
-            let program = compile_colormap_shader(gl, &shader_builder, last_color_map_name.as_str())?;
+            let program = compile_colormap_shader(gl, &shader_builder, last_color_map_name.as_str(), last_is_mono)
+                .map_err(|e| {
+                    eprintln!("Failed to compile colormap shader '{}': {e}", last_color_map_name);
+                    e
+                })?;
 
             #[rustfmt::skip]
             let vertices: [f32; 16] = [
@@ -151,6 +159,7 @@ impl ImageProgram {
             let u_image_size = gl.check_and_get_uniform_location(program, "u_image_size");
 
             let u_texture = gl.check_and_get_uniform_location(program, "u_texture");
+            let u_channel_index = gl.check_and_get_uniform_location(program, "u_channel_index");
             let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
             let u_position = gl.check_and_get_uniform_location(program, "u_position");
 
@@ -172,11 +181,13 @@ impl ImageProgram {
                 ebo,
                 shader_builder,
                 last_color_map_name,
+                last_is_mono,
                 u_viewport_size,
                 u_image_size,
                 u_texture,
                 u_scale,
                 u_position,
+                u_channel_index,
                 u_offset,
                 u_exposure,
                 u_gamma,
@@ -197,6 +208,7 @@ impl ImageProgram {
         self.u_image_size = gl.check_and_get_uniform_location(program, "u_image_size");
 
         self.u_texture = gl.check_and_get_uniform_location(program, "u_texture");
+        self.u_channel_index = gl.check_and_get_uniform_location(program, "u_channel_index");
         self.u_scale = gl.check_and_get_uniform_location(program, "u_scale");
         self.u_position = gl.check_and_get_uniform_location(program, "u_position");
 
@@ -220,16 +232,19 @@ impl ImageProgram {
         colormap_name: &str,
         viewport_size: Vec2,
         image_size: Vec2,
+        channel_index: i32,
+        is_mono: bool,
         scale: f32,
         position: Vec2,
         shader_params: &ShaderParams,
     ) {
-        if self.last_color_map_name != colormap_name {
-            if let Ok(new_program) = compile_colormap_shader(gl, &self.shader_builder, colormap_name) {
+        if self.last_color_map_name != colormap_name || self.last_is_mono != is_mono {
+            if let Ok(new_program) = compile_colormap_shader(gl, &self.shader_builder, colormap_name, is_mono) {
                 gl.delete_program(self.program);
                 self.program = new_program;
                 self.update_uniforms(gl);
                 self.last_color_map_name = colormap_name.to_string();
+                self.last_is_mono = is_mono;
             } else {
                 eprintln!("Failed to compile colormap shader: {}", colormap_name);
             }
@@ -245,6 +260,7 @@ impl ImageProgram {
         gl.uniform_2_f32v(Some(&self.u_image_size), image_size);
 
         gl.uniform_1_i32(Some(&self.u_texture), 0);
+        gl.uniform_1_i32(Some(&self.u_channel_index), channel_index);
         gl.uniform_1_f32(Some(&self.u_scale), scale);
         gl.uniform_2_f32v(Some(&self.u_position), position);
 

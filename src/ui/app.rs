@@ -6,7 +6,10 @@ use rfd::FileDialog;
 use crate::{
     model::{AppState, Image},
     ui::{
-        component::{egui_ext::UiExt, CustomSlider},
+        component::{
+            egui_ext::{RespExt, UiExt},
+            CustomSlider,
+        },
         ImageViewer,
     },
 };
@@ -163,36 +166,39 @@ impl eframe::App for ViewerApp {
         egui::SidePanel::right("right").show(ctx, |ui| {
             ui.style_mut().spacing.slider_rail_height = 4.0;
 
-            let combo_box = egui::ComboBox::from_label("Colormap")
-                .selected_text(&self.state.colormap_rgb)
-                .show_ui(ui, |ui| {
-                    for name in &self.state.colormap_rgb_list {
-                        ui.selectable_value(&mut self.state.colormap_rgb, name.clone(), name);
-                    }
-                });
-            // 지원: 콤보박스 위에서 마우스 휠로 항목 변경
-            if combo_box.response.hovered() {
-                let scroll = ui.input(|i| i.raw_scroll_delta.y);
-                if scroll.abs() > 0.0 {
-                    if let Some(cur_idx) =
-                        self.state.colormap_rgb_list.iter().position(|n| n == &self.state.colormap_rgb)
-                    {
-                        let mut new_idx = cur_idx as isize + if scroll < 0.0 { 1 } else { -1 };
-                        if new_idx < 0 {
-                            new_idx = 0;
-                        } else if new_idx as usize >= self.state.colormap_rgb_list.len() {
-                            new_idx = (self.state.colormap_rgb_list.len() - 1) as isize;
+            let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
+            let is_mono = self.state.channel_index != -1 || channels == 1;
+
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("channel_index")
+                    .selected_text(self.state.channel_index.to_string())
+                    .show_ui(ui, |ui| {
+                        for index in -1..channels {
+                            ui.selectable_value(&mut self.state.channel_index, index, index.to_string());
                         }
-                        if new_idx as usize != cur_idx {
-                            if let Some(new_name) = self.state.colormap_rgb_list.get(new_idx as usize) {
-                                self.state.colormap_rgb = new_name.clone();
-                                // 필요 시 뷰 갱신
-                                ui.ctx().request_repaint();
+                    })
+                    .hover_scroll(ui, &(-1..channels).collect(), &mut self.state.channel_index);
+
+                if is_mono {
+                    egui::ComboBox::from_id_salt("colormap_mono")
+                        .selected_text(&self.state.colormap_mono)
+                        .show_ui(ui, |ui| {
+                            for name in &self.state.colormap_mono_list {
+                                ui.selectable_value(&mut self.state.colormap_mono, name.clone(), name);
                             }
-                        }
-                    }
-                }
-            }
+                        })
+                        .hover_scroll(ui, &self.state.colormap_mono_list, &mut self.state.colormap_mono)
+                } else {
+                    egui::ComboBox::from_id_salt("colormap_rgb")
+                        .selected_text(&self.state.colormap_rgb)
+                        .show_ui(ui, |ui| {
+                            for name in &self.state.colormap_rgb_list {
+                                ui.selectable_value(&mut self.state.colormap_rgb, name.clone(), name);
+                            }
+                        })
+                        .hover_scroll(ui, &self.state.colormap_rgb_list, &mut self.state.colormap_rgb)
+                };
+            });
 
             let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
                 ui.add(

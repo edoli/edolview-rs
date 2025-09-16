@@ -4,10 +4,10 @@ out vec4 frag_color;
 
 in vec2 v_tex_coord;
 
-uniform sampler2D u_texture;
+uniform vec2 u_image_size;
 
-uniform int u_width;
-uniform int u_height;
+uniform sampler2D u_texture;
+uniform int u_channel_index;
 
 uniform float u_offset;
 uniform float u_exposure;
@@ -124,8 +124,8 @@ void main()
     tex.g *= u_g_scale;
     tex.b *= u_b_scale;
 
-    float image_x = v_tex_coord.x * float(u_width);
-    float image_y = v_tex_coord.y * float(u_height);
+    float image_x = v_tex_coord.x * float(u_image_size.x);
+    float image_y = v_tex_coord.y * float(u_image_size.y);
 
     if (u_is_reciprocal == 1) {
         float invMinV = 1.0 / u_min_v;
@@ -133,6 +133,18 @@ void main()
         tex = ((1.0 / tex) - invMaxV) / (invMinV - invMaxV);
     } else {
         tex = (tex - u_min_v) / (u_max_v - u_min_v);
+    }
+
+    if (u_channel_index == 1) {
+        tex.r = tex.g;
+    } else if (u_channel_index == 2) {
+        tex.r = tex.b;
+    } else if (u_channel_index == 3) {
+        tex.r = alpha;
+    }
+
+    if (u_channel_index != -1) {
+        alpha = 1.0;
     }
 
     %color_process%

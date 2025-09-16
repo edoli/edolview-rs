@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Label, Response, Ui, Widget, WidgetText};
+use eframe::egui::{self, Color32, InnerResponse, Label, Response, Ui, Widget, WidgetText};
 
 use crate::util::cv_ext::CvIntExt;
 
@@ -24,7 +24,7 @@ impl UiExt for Ui {
     }
 
     #[inline]
-    fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response {        
+    fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response {
         let color32 = if color.len() == 1 {
             Color32::from_gray((color[0] * 255.0) as u8)
         } else if color.len() == 2 {
@@ -76,7 +76,38 @@ impl UiExt for Ui {
             });
 
             ui.label(&color_text);
-        }).response
-        
+        })
+        .response
+    }
+}
+
+pub trait RespExt {
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T) -> Self;
+}
+
+impl<R> RespExt for InnerResponse<R> {
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T) -> Self {
+        if self.response.hovered() {
+            let scroll = ui.input(|i| i.raw_scroll_delta.y);
+
+            if scroll.abs() > 0.0 {
+                if let Some(cur_idx) = values.iter().position(|n| n == current) {
+                    let mut new_idx = cur_idx as isize + if scroll < 0.0 { 1 } else { -1 };
+                    if new_idx < 0 {
+                        new_idx = 0;
+                    } else if new_idx as usize >= values.len() {
+                        new_idx = (values.len() - 1) as isize;
+                    }
+                    if new_idx as usize != cur_idx {
+                        if let Some(new_value) = values.get(new_idx as usize) {
+                            *current = new_value.clone();
+                            // 필요 시 뷰 갱신
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                }
+            }
+        }
+        self
     }
 }
