@@ -1,10 +1,11 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui::{self};
+use color_eyre::owo_colors::OwoColorize;
+use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::Arc;
 
 use crate::model::{AppState, Image};
-use crate::ui::gl::ImageProgram;
+use crate::ui::gl::{BackgroundProgram, ImageProgram};
 use crate::util::math_ext::vec2i;
 
 enum DragMode {
@@ -14,7 +15,8 @@ enum DragMode {
 }
 
 pub struct ImageViewer {
-    gl_prog: Option<Arc<ImageProgram>>,
+    background_prog: Option<Arc<BackgroundProgram>>,
+    image_prog: Option<Arc<ImageProgram>>,
     gl_raw_tex: Option<GL::NativeTexture>,
     zoom_level: f32,
     zoom_base: f32,
@@ -27,7 +29,8 @@ pub struct ImageViewer {
 impl ImageViewer {
     pub fn new() -> Self {
         Self {
-            gl_prog: None,
+            background_prog: None,
+            image_prog: None,
             gl_raw_tex: None,
             zoom_level: 0.0,
             zoom_base: 2.0_f32.powf(1.0 / 4.0),
@@ -71,10 +74,18 @@ impl ImageViewer {
         }
 
         if self.gl_raw_tex.is_some() {
-            if self.gl_prog.is_none() {
+            if self.background_prog.is_none() {
+                if let Some(gl) = frame.gl() {
+                    if let Ok(p) = BackgroundProgram::new(gl) {
+                        self.background_prog = Some(Arc::new(p));
+                    }
+                }
+            }
+
+            if self.image_prog.is_none() {
                 if let Some(gl) = frame.gl() {
                     if let Ok(p) = ImageProgram::new(gl) {
-                        self.gl_prog = Some(Arc::new(p));
+                        self.image_prog = Some(Arc::new(p));
                     }
                 }
             }
@@ -158,21 +169,17 @@ impl ImageViewer {
                 }
             }
 
-            if let (Some(gl_prog), Some(_gl)) = (self.gl_prog.clone(), frame.gl()) {
-                let viewport_w_px = rect_pixels.width() as f32;
-                let viewport_h_px = rect_pixels.height() as f32;
+            if let (Some(background_prog), Some(image_prog), Some(_gl)) =
+                (self.background_prog.clone(), self.image_prog.clone(), frame.gl())
+            {
+                let viewport_size = vec2(rect_pixels.width() as f32, rect_pixels.height() as f32);
+                let image_size = vec2(spec.width as f32, spec.height as f32);
 
                 let tex_handle = self.gl_raw_tex.unwrap();
                 let scale = self.zoom() as f32;
-                let position = self.pan / egui::vec2(viewport_w_px, viewport_h_px) * 2.0;
+                let position = self.pan;
 
-                let mut pixel_scale = egui::vec2(1.0, 1.0);
-                if viewport_w_px > 0.0 && viewport_h_px > 0.0 {
-                    // image will be strectched when pixel_scale is 1.0.
-                    // To show 1:1 pixels, set pixel_scale to (spec.width/viewport_w, spec.height/viewport_h)
-                    pixel_scale = egui::vec2(spec.width as f32 / viewport_w_px, spec.height as f32 / viewport_h_px);
-                }
-
+                let visuals = ui.visuals().clone();
                 let shader_params = app_state.shader_params.clone();
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -186,7 +193,15 @@ impl ImageViewer {
                         let y = screen_h - y_top;
                         let width = rect_pixels.width().round() as i32;
                         gl.viewport(x, y, width, height);
-                        gl_prog.draw(gl, tex_handle, scale, position, pixel_scale, &shader_params);
+                        background_prog.draw(
+                            gl,
+                            viewport_size,
+                            position,
+                            16.0,
+                            visuals.extreme_bg_color,
+                            visuals.faint_bg_color,
+                        );
+                        image_prog.draw(gl, tex_handle, viewport_size, image_size, scale, position, &shader_params);
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
                 });

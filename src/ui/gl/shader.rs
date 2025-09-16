@@ -3,7 +3,7 @@ use eframe::egui::Vec2;
 use egui_glow::glow; // Re-exported glow
 use glow::HasContext;
 
-use crate::ui::gl::{ShaderBuilder};
+use crate::ui::gl::{gl_ext::GlExt, ShaderBuilder};
 
 pub struct ImageProgram {
     pub program: glow::Program,
@@ -11,10 +11,12 @@ pub struct ImageProgram {
     vbo: glow::Buffer,
     ebo: glow::Buffer,
 
+    u_viewport_size: glow::UniformLocation,
+    u_image_size: glow::UniformLocation,
+
     u_texture: glow::UniformLocation,
     u_scale: glow::UniformLocation,
     u_position: glow::UniformLocation,
-    u_pixel_scale: glow::UniformLocation,
 
     u_exposure: glow::UniformLocation,
     u_offset: glow::UniformLocation,
@@ -56,17 +58,6 @@ impl Default for ShaderParams {
     }
 }
 
-trait GlExt {
-    unsafe fn check_and_get_uniform_location(&self, program: glow::Program, name: &str) -> glow::UniformLocation;
-}
-
-impl GlExt for glow::Context {
-    unsafe fn check_and_get_uniform_location(&self, program: glow::Program, name: &str) -> glow::UniformLocation {
-        self.get_uniform_location(program, name)
-            .expect(&format!("Failed to get uniform location for {}", name))
-    }
-}
-
 impl ImageProgram {
     pub fn new(gl: &glow::Context) -> Result<Self> {
         unsafe {
@@ -76,15 +67,16 @@ impl ImageProgram {
 
                 out vec2 v_tex_coord;
 
+                uniform vec2 u_viewport_size;
+                uniform vec2 u_image_size;
                 uniform float u_scale;
-                uniform vec2  u_position;
-                uniform vec2  u_pixel_scale;
+                uniform vec2 u_position;
 
                 void main(){
                     v_tex_coord = a_tex_coord;
-                    vec2 pos = a_pos * u_pixel_scale * 2.0 * u_scale;
-                    pos.x = pos.x + u_position.x - 1.0;
-                    pos.y = -(pos.y + u_position.y - 1.0);
+                    vec2 pos = (a_pos * u_image_size * 2.0 * u_scale) / u_viewport_size;
+                    pos.x = pos.x + u_position.x / u_viewport_size.x * 2.0 - 1.0;
+                    pos.y = -(pos.y + u_position.y / u_viewport_size.y * 2.0 - 1.0);
                     gl_Position = vec4(pos, 0.0, 1.0);
                 }
             "#;
@@ -137,10 +129,12 @@ impl ImageProgram {
             gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 2 * 4);
             gl.bind_vertex_array(None);
 
+            let u_viewport_size = gl.check_and_get_uniform_location(program, "u_viewport_size");
+            let u_image_size = gl.check_and_get_uniform_location(program, "u_image_size");
+
             let u_texture = gl.check_and_get_uniform_location(program, "u_texture");
             let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
             let u_position = gl.check_and_get_uniform_location(program, "u_position");
-            let u_pixel_scale = gl.check_and_get_uniform_location(program, "u_pixel_scale");
 
             let u_offset = gl.check_and_get_uniform_location(program, "u_offset");
             let u_exposure = gl.check_and_get_uniform_location(program, "u_exposure");
@@ -157,10 +151,11 @@ impl ImageProgram {
                 vao,
                 vbo,
                 ebo,
+                u_viewport_size,
+                u_image_size,
                 u_texture,
                 u_scale,
                 u_position,
-                u_pixel_scale,
                 u_offset,
                 u_exposure,
                 u_gamma,
@@ -178,9 +173,10 @@ impl ImageProgram {
         &self,
         gl: &glow::Context,
         tex_id: glow::NativeTexture,
+        viewport_size: Vec2,
+        image_size: Vec2,
         scale: f32,
         position: Vec2,
-        pixel_scale: Vec2,
         shader_params: &ShaderParams,
     ) {
         gl.use_program(Some(self.program));
@@ -189,10 +185,12 @@ impl ImageProgram {
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
 
+        gl.uniform_2_f32v(Some(&self.u_viewport_size), viewport_size);
+        gl.uniform_2_f32v(Some(&self.u_image_size), image_size);
+
         gl.uniform_1_i32(Some(&self.u_texture), 0);
         gl.uniform_1_f32(Some(&self.u_scale), scale);
-        gl.uniform_2_f32(Some(&self.u_position), position.x, position.y);
-        gl.uniform_2_f32(Some(&self.u_pixel_scale), pixel_scale.x, pixel_scale.y);
+        gl.uniform_2_f32v(Some(&self.u_position), position);
 
         gl.uniform_1_f32(Some(&self.u_exposure), shader_params.exposure);
         gl.uniform_1_f32(Some(&self.u_offset), shader_params.offset);
