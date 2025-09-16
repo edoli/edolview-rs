@@ -58,20 +58,26 @@ jobs:
         run: |
           set -e
           OPENCV_VERSION=${OPENCV_VERSION}
-          SRC_DIR="$HOME/opencv-$OPENCV_VERSION"
-          CONTRIB_DIR="$HOME/opencv_contrib-$OPENCV_VERSION"
-          INSTALL_DIR="$HOME/opencv-install"
+          WORKDIR="$GITHUB_WORKSPACE/.opencv"
+          SRC_DIR="$WORKDIR/opencv-$OPENCV_VERSION"
+          CONTRIB_DIR="$WORKDIR/opencv_contrib-$OPENCV_VERSION"
+          INSTALL_DIR="$WORKDIR/install"
+          mkdir -p "$WORKDIR"
           if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
             echo "OpenCV already installed at $INSTALL_DIR";
           else
+            cd "$WORKDIR"
             if [ ! -d "$SRC_DIR" ]; then
-              curl -L -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
+              echo "Downloading OpenCV $OPENCV_VERSION sources"
+              curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
               unzip -q opencv.zip
             fi
             if [ ! -d "$CONTRIB_DIR" ]; then
-              curl -L -o opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/refs/tags/${OPENCV_VERSION}.zip
+              echo "Downloading OpenCV contrib $OPENCV_VERSION sources"
+              curl -sSL -o opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/refs/tags/${OPENCV_VERSION}.zip
               unzip -q opencv_contrib.zip
             fi
+            test -f "$SRC_DIR/CMakeLists.txt" || { echo "CMakeLists.txt not found in $SRC_DIR"; ls -al "$WORKDIR"; exit 1; }
             mkdir -p "$SRC_DIR/build"
             cd "$SRC_DIR/build"
             cmake -G "Unix Makefiles" \
@@ -83,7 +89,7 @@ jobs:
               -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
               ..
-            cmake --build . --parallel 2
+            cmake --build . --parallel $(nproc || echo 2)
             cmake --install .
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
@@ -107,8 +113,13 @@ jobs:
         if: startsWith(runner.os, 'macOS')
         run: |
           brew update
-          brew install opencv
-          brew info opencv
+          brew install opencv llvm
+          brew info opencv | head -n 20
+          # Export libclang path for subsequent steps
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          echo "LIBCLANG_PATH=$LLVM_PREFIX/lib" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$LLVM_PREFIX/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PATH=$LLVM_PREFIX/bin:$PATH" >> $GITHUB_ENV
 
       # ----- Windows OpenCV via vcpkg -----
       - name: Cache vcpkg (Windows)
