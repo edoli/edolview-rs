@@ -22,6 +22,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: 1
+      OPENCV_LINK_STATIC: 1
+      PKG_CONFIG_ALL_STATIC: 1
 
     steps:
       - name: Checkout
@@ -88,6 +90,8 @@ jobs:
               -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
               -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DBUILD_JPEG=ON -DBUILD_PNG=ON -DBUILD_TIFF=ON -DBUILD_WEBP=ON \
               ..
             cmake --build . --parallel $(nproc || echo 2)
             cmake --install .
@@ -109,17 +113,58 @@ jobs:
           echo "Detected LIBCLANG_PATH=$LIBCLANG_PATH"
 
       # ----- macOS OpenCV -----
-      - name: Install OpenCV (macOS)
+      - name: Build OpenCV 4.11.0 (macOS static)
         if: startsWith(runner.os, 'macOS')
+        env:
+          OPENCV_VERSION: 4.11.0
         run: |
+          set -e
           brew update
-          brew install opencv llvm
-          brew info opencv | head -n 20
-          # Export libclang path for subsequent steps
+          brew install cmake llvm libjpeg libpng libtiff webp openexr
           LLVM_PREFIX="$(brew --prefix llvm)"
           echo "LIBCLANG_PATH=$LLVM_PREFIX/lib" >> $GITHUB_ENV
           echo "DYLD_LIBRARY_PATH=$LLVM_PREFIX/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "PATH=$LLVM_PREFIX/bin:$PATH" >> $GITHUB_ENV
+          OPENCV_VERSION=${OPENCV_VERSION}
+          WORKDIR="$GITHUB_WORKSPACE/.opencv"
+          SRC_DIR="$WORKDIR/opencv-$OPENCV_VERSION"
+          CONTRIB_DIR="$WORKDIR/opencv_contrib-$OPENCV_VERSION"
+          INSTALL_DIR="$WORKDIR/install"
+          mkdir -p "$WORKDIR"
+          if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
+            echo "OpenCV already installed at $INSTALL_DIR";
+          else
+            cd "$WORKDIR"
+            if [ ! -d "$SRC_DIR" ]; then
+              curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
+              unzip -q opencv.zip
+            fi
+            if [ ! -d "$CONTRIB_DIR" ]; then
+              curl -sSL -o opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/refs/tags/${OPENCV_VERSION}.zip
+              unzip -q opencv_contrib.zip
+            fi
+            test -f "$SRC_DIR/CMakeLists.txt" || { echo "Missing CMakeLists.txt for macOS"; ls -al "$WORKDIR"; exit 1; }
+            mkdir -p "$SRC_DIR/build"
+            cd "$SRC_DIR/build"
+            cmake -G "Unix Makefiles" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+              -DBUILD_LIST=core,imgproc,imgcodecs,highgui,photo \
+              -DWITH_OPENEXR=ON \
+              -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+              -DOPENCV_GENERATE_PKGCONFIG=ON \
+              -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DBUILD_JPEG=ON -DBUILD_PNG=ON -DBUILD_TIFF=ON -DBUILD_WEBP=ON \
+              ..
+            cmake --build . --parallel 3
+            cmake --install .
+          fi
+          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "OpenCV_DIR=$INSTALL_DIR/lib/cmake/opencv4" >> $GITHUB_ENV
+          echo "OPENCV_LINK_PATHS=$INSTALL_DIR/lib" >> $GITHUB_ENV
+          echo "OPENCV_INCLUDE_PATHS=$INSTALL_DIR/include/opencv4" >> $GITHUB_ENV
+          pkg-config --modversion opencv4 || true
 
       # ----- Windows OpenCV via vcpkg -----
       - name: Cache vcpkg (Windows)
@@ -150,7 +195,7 @@ jobs:
       - name: Install OpenCV (Windows)
         if: startsWith(runner.os, 'Windows')
         run: |
-          vcpkg.exe install opencv4[openexr]:x64-windows-static-md
+          vcpkg.exe install llvm opencv4[openexr]:x64-windows-static-md
         env:
           VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
 
@@ -161,6 +206,22 @@ jobs:
           echo "VCPKG_ROOT=$Env:VCPKG_ROOT" | Out-File -FilePath $Env:GITHUB_ENV -Append
           # Provide static linkage hints if necessary
           echo "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $Env:GITHUB_ENV -Append
+          $triplet = "x64-windows-static-md"
+          $opencvCmake = Join-Path $Env:VCPKG_ROOT "installed/$triplet/share/opencv/OpenCVConfig.cmake"
+          if (Test-Path $opencvCmake) {
+            $opencvDir = Split-Path $opencvCmake
+            echo "OpenCV_DIR=$opencvDir" | Out-File -FilePath $Env:GITHUB_ENV -Append
+            $libPath = Join-Path $Env:VCPKG_ROOT "installed/$triplet/lib"
+            $binPath = Join-Path $Env:VCPKG_ROOT "installed/$triplet/bin"
+            $includePath = Join-Path $Env:VCPKG_ROOT "installed/$triplet/include"
+            echo "OPENCV_LINK_PATHS=$libPath" | Out-File -FilePath $Env:GITHUB_ENV -Append
+            echo "OPENCV_INCLUDE_PATHS=$includePath" | Out-File -FilePath $Env:GITHUB_ENV -Append
+            echo "CMAKE_PREFIX_PATH=$opencvDir;$Env:CMAKE_PREFIX_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
+            echo "PKG_CONFIG_PATH=$Env:VCPKG_ROOT/installed/$triplet/lib/pkgconfig;$Env:PKG_CONFIG_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
+            echo "PATH=$binPath;$Env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
+          } else {
+            Write-Host "OpenCVConfig.cmake not found at $opencvCmake"; Get-ChildItem -Recurse -Filter OpenCVConfig.cmake -Path $Env:VCPKG_ROOT\installed | Select-Object -First 20 | Format-List;
+          }
 
       - name: Build
         run: cargo build --verbose
