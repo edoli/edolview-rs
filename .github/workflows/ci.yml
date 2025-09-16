@@ -46,7 +46,51 @@ jobs:
         if: startsWith(runner.os, 'Linux')
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libopencv-dev clang libclang-dev llvm-dev
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git curl unzip pkg-config \
+            clang libclang-dev llvm-dev \
+            libjpeg-dev libpng-dev libtiff-dev libwebp-dev libopenexr-dev
+
+      - name: Build OpenCV 4.11.0 (Ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        env:
+          OPENCV_VERSION: 4.11.0
+        run: |
+          set -e
+          OPENCV_VERSION=${OPENCV_VERSION}
+          SRC_DIR="$HOME/opencv-$OPENCV_VERSION"
+          CONTRIB_DIR="$HOME/opencv_contrib-$OPENCV_VERSION"
+          INSTALL_DIR="$HOME/opencv-install"
+          if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
+            echo "OpenCV already installed at $INSTALL_DIR";
+          else
+            if [ ! -d "$SRC_DIR" ]; then
+              curl -L -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
+              unzip -q opencv.zip
+            fi
+            if [ ! -d "$CONTRIB_DIR" ]; then
+              curl -L -o opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/refs/tags/${OPENCV_VERSION}.zip
+              unzip -q opencv_contrib.zip
+            fi
+            mkdir -p "$SRC_DIR/build"
+            cd "$SRC_DIR/build"
+            cmake -G "Unix Makefiles" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+              -DBUILD_LIST=core,imgproc,imgcodecs,highgui,photo \
+              -DWITH_OPENEXR=ON \
+              -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+              -DOPENCV_GENERATE_PKGCONFIG=ON \
+              -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
+              ..
+            cmake --build . --parallel 2
+            cmake --install .
+          fi
+          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$INSTALL_DIR/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "OpenCV_DIR=$INSTALL_DIR/lib/cmake/opencv4" >> $GITHUB_ENV
+          echo "OPENCV_LINK_PATHS=$INSTALL_DIR/lib" >> $GITHUB_ENV
+          echo "OPENCV_INCLUDE_PATHS=$INSTALL_DIR/include/opencv4" >> $GITHUB_ENV
           pkg-config --modversion opencv4 || true
 
       - name: Export libclang path (Ubuntu)
