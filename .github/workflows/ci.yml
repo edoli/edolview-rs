@@ -227,13 +227,22 @@ jobs:
       - name: Package release binary
         run: cargo build --release
 
+      - name: Copy release binary to root
+        run: |
+          set -e
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp target/release/edolview-rs.exe ./ || echo "Windows release binary not found"
+          else
+            cp target/release/edolview-rs ./ || echo "Unix release binary not found"
+          fi
+          ls -al edolview-rs* || true
+        shell: bash
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: edolview-${{ runner.os }}
           path: |
+            edolview-rs*
             assets/**
-            target/release/edolview-rs*
-            !target/release/edolview_rs.pdb
-            !target/release/edolview-rs.d
           if-no-files-found: warn
