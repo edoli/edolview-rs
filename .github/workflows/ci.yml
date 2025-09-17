@@ -62,6 +62,15 @@ jobs:
           restore-keys: |
             opencv-${{ runner.os }}-
 
+      - name: Cache OpenCV install (Windows)
+        if: startsWith(runner.os, 'Windows')
+        uses: actions/cache@v4
+        with:
+          path: .opencv/install
+          key: opencv-${{ runner.os }}-4.12.0
+          restore-keys: |
+            opencv-${{ runner.os }}-
+
       # ----- Linux (Ubuntu) OpenCV deps -----
       - name: Install OpenCV deps (Ubuntu)
         if: startsWith(runner.os, 'Linux')
@@ -102,7 +111,7 @@ jobs:
               -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DBUILD_SHARED_LIBS=OFF \
               ..
-            cmake --build . --parallel 2
+            cmake --build . --parallel $(nproc || echo 2)
             cmake --install .
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
@@ -155,7 +164,7 @@ jobs:
               -DWITH_LAPACK=OFF \
               -DWITH_OPENCL=OFF \
               ..
-            cmake --build . --parallel 2
+            cmake --build . --parallel $(sysctl -n hw.ncpu || echo 2)
             cmake --install .
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
@@ -167,55 +176,61 @@ jobs:
           export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
           pkg-config --modversion opencv4 || true
 
-      # ----- Windows OpenCV via vcpkg -----
-      - name: Cache vcpkg (Windows)
-        if: startsWith(runner.os, 'Windows')
-        uses: actions/cache@v4
-        with:
-          path: |
-            vcpkg/installed
-          key: vcpkg-${{ runner.os }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}
-
-      - name: Clone vcpkg (Windows)
-        if: startsWith(runner.os, 'Windows')
-        run: |
-          if (Test-Path vcpkg) { Write-Host "vcpkg directory already exists" } else { git clone https://github.com/microsoft/vcpkg.git -q }
-          cd vcpkg
-          git pull --ff-only
-        shell: pwsh
-
-      - name: Bootstrap vcpkg (Windows)
-        if: startsWith(runner.os, 'Windows')
-        run: |
-          .\vcpkg\bootstrap-vcpkg.bat
-        shell: cmd
-
-      - name: Install OpenCV and LLVM (Windows)
+      # ----- Windows OpenCV source build (similar to Ubuntu/macOS) -----
+      - name: Install build deps (Windows)
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
-          winget install --id LLVM.LLVM -e --silent --accept-package-agreements --accept-source-agreements --no-upgrade
-
-          $triplet = "x64-windows-static-md"
-          $opencvHeader = "vcpkg/installed/$triplet/lib/opencv_core4.lib"
-
-          if (Test-Path $opencvHeader) {
-            Write-Host "OpenCV already present in cache ($opencvHeader). Skipping vcpkg install."
-          } else {
-            Write-Host "OpenCV not found in cache. Installing via vcpkg...";
-            .\vcpkg\vcpkg.exe install opencv4[openexr]:$triplet
+          choco install -y --no-progress llvm cmake ninja git curl unzip
+          $llvmBin = "C:\Program Files\LLVM\bin"
+          if (Test-Path $llvmBin) {
+            echo "PATH=$llvmBin;$env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
+            echo "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $Env:GITHUB_ENV -Append
           }
 
-          .\vcpkg\vcpkg.exe integrate install
-
-      - name: Add llvm toolchain to cargo builds (Windows)
+      - name: Build OpenCV 4.12.0 (Windows static)
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
+        env:
+          OPENCV_VERSION: 4.12.0
         run: |
-          $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
-          "PATH=$env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
+          $workdir = Join-Path $env:GITHUB_WORKSPACE '.opencv'
+            $installDir = Join-Path $workdir 'install'
+          $srcDir = Join-Path $workdir "opencv-$env:OPENCV_VERSION"
+          New-Item -ItemType Directory -Force -Path $workdir | Out-Null
+          if (Test-Path (Join-Path $installDir 'lib/cmake/opencv4')) {
+            Write-Host "OpenCV already installed at $installDir"
+          } else {
+            if (-not (Test-Path $srcDir)) {
+              Write-Host "Downloading OpenCV $env:OPENCV_VERSION sources"
+              $zipPath = Join-Path $workdir 'opencv.zip'
+              curl -L -o $zipPath "https://github.com/opencv/opencv/archive/refs/tags/$env:OPENCV_VERSION.zip"
+              unzip -q $zipPath -d $workdir
+            }
+            if (-not (Test-Path (Join-Path $srcDir 'CMakeLists.txt'))) {
+              Write-Host "CMakeLists.txt not found in $srcDir"; Get-ChildItem $workdir; exit 1
+            }
+            $buildDir = Join-Path $srcDir 'build'
+            New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+            Push-Location $buildDir
+            cmake -G "Ninja" `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DCMAKE_INSTALL_PREFIX="$installDir" `
+              -DBUILD_LIST=core,imgproc,imgcodecs `
+              -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF `
+              -DOPENCV_GENERATE_PKGCONFIG=ON `
+              -DBUILD_SHARED_LIBS=OFF `
+              ..
+            cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} 
+            cmake --install .
+            Pop-Location
+          }
+          Add-Content -Path $Env:GITHUB_ENV -Value "PKG_CONFIG_PATH=$installDir/lib/pkgconfig;$Env:PKG_CONFIG_PATH"
+          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_PKGCONFIG=1"
+          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_STATIC=1"
+          Add-Content -Path $Env:GITHUB_ENV -Value "PKG_CONFIG_ALL_STATIC=1"
+          # Windows: provide hint for pkg-config (if used by build script)
+          Write-Host "Listing installed OpenCV files:"; Get-ChildItem -Recurse -Filter opencv*.cmake (Join-Path $installDir 'lib') | Select-Object -First 20 | ForEach-Object { $_.FullName }
 
       - name: Build
         run: cargo build --verbose
