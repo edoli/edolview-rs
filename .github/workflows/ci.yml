@@ -174,7 +174,6 @@ jobs:
         with:
           path: |
             vcpkg/installed
-            vcpkg/downloads
           key: vcpkg-${{ runner.os }}
           restore-keys: |
             vcpkg-${{ runner.os }}
@@ -190,7 +189,7 @@ jobs:
       - name: Bootstrap vcpkg (Windows)
         if: startsWith(runner.os, 'Windows')
         run: |
-          .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          .\vcpkg\bootstrap-vcpkg.bat
         shell: cmd
 
       - name: Install OpenCV and LLVM (Windows)
@@ -206,10 +205,10 @@ jobs:
             Write-Host "OpenCV already present in cache ($opencvHeader). Skipping vcpkg install."
           } else {
             Write-Host "OpenCV not found in cache. Installing via vcpkg...";
-            vcpkg.exe install opencv4[openexr]:$triplet
+            .\vcpkg\vcpkg.exe install opencv4[openexr]:$triplet
           }
 
-          vcpkg.exe integrate install
+          .\vcpkg\vcpkg.exe integrate install
 
       - name: Add llvm toolchain to cargo builds (Windows)
         if: startsWith(runner.os, 'Windows')
