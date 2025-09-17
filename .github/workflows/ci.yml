@@ -83,7 +83,7 @@ jobs:
               -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DBUILD_SHARED_LIBS=OFF \
               ..
-            cmake --build . --parallel $(nproc || echo 2)
+            cmake --build . --parallel 2
             cmake --install .
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
@@ -173,12 +173,23 @@ jobs:
 
       - name: Install OpenCV and LLVM (Windows)
         if: startsWith(runner.os, 'Windows')
+        shell: pwsh
         run: |
           winget install --id LLVM.LLVM -e --silent --accept-package-agreements --accept-source-agreements
-          vcpkg.exe install opencv4[openexr]:x64-windows-static-md
-          vcpkg.exe integrate install
 
-      - name: Add vcpkg toolchain to cargo builds (Windows)
+          $triplet = "x64-windows-static-md"
+          $opencvHeader = Join-Path "vcpkg" "installed/$triplet/include/opencv4/opencv2/core.hpp"
+
+          if (Test-Path $opencvHeader) {
+            Write-Host "OpenCV already present in cache ($opencvHeader). Skipping vcpkg install."
+          } else {
+            Write-Host "OpenCV not found in cache. Installing via vcpkg...";
+            .\vcpkg.exe install opencv4[openexr]:$triplet
+          }
+
+          .\vcpkg.exe integrate install
+
+      - name: Add llvm toolchain to cargo builds (Windows)
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
