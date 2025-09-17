@@ -99,6 +99,7 @@ jobs:
           OPENCV_VERSION: 4.11.0
         run: |
           set -e
+          # Basic deps
           brew update
           brew install cmake llvm libjpeg libpng libtiff webp openexr
           LLVM_PREFIX="$(brew --prefix llvm)"
@@ -108,8 +109,8 @@ jobs:
           OPENCV_VERSION=${OPENCV_VERSION}
           WORKDIR="$GITHUB_WORKSPACE/.opencv"
           SRC_DIR="$WORKDIR/opencv-$OPENCV_VERSION"
-          CONTRIB_DIR="$WORKDIR/opencv_contrib-$OPENCV_VERSION"
           INSTALL_DIR="$WORKDIR/install"
+          # Cache check
           mkdir -p "$WORKDIR"
           if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
             echo "OpenCV already installed at $INSTALL_DIR";
@@ -119,30 +120,27 @@ jobs:
               curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
               unzip -q opencv.zip
             fi
-            if [ ! -d "$CONTRIB_DIR" ]; then
-              curl -sSL -o opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/refs/tags/${OPENCV_VERSION}.zip
-              unzip -q opencv_contrib.zip
-            fi
             test -f "$SRC_DIR/CMakeLists.txt" || { echo "Missing CMakeLists.txt for macOS"; ls -al "$WORKDIR"; exit 1; }
             mkdir -p "$SRC_DIR/build"
             cd "$SRC_DIR/build"
             cmake -G "Unix Makefiles" \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-              -DBUILD_LIST=core,imgproc,imgcodecs,highgui,photo \
-              -DWITH_OPENEXR=ON \
+              -DBUILD_LIST=core,imgproc,imgcodecs \
               -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
-              -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
+              -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DBUILD_SHARED_LIBS=OFF \
-              -DBUILD_JPEG=ON -DBUILD_PNG=ON -DBUILD_TIFF=ON -DBUILD_WEBP=ON \
               ..
-            cmake --build . --parallel 3
+            cmake --build . --parallel 2
             cmake --install .
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           echo "OpenCV_DIR=$INSTALL_DIR/lib/cmake/opencv4" >> $GITHUB_ENV
           echo "OPENCV_LINK_PATHS=$INSTALL_DIR/lib" >> $GITHUB_ENV
           echo "OPENCV_INCLUDE_PATHS=$INSTALL_DIR/include/opencv4" >> $GITHUB_ENV
+          echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
+          echo "OPENCV_LINK_STATIC=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALL_STATIC=1" >> $GITHUB_ENV
           pkg-config --modversion opencv4 || true
 
       # ----- Windows OpenCV via vcpkg -----
