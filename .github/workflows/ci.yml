@@ -152,6 +152,8 @@ jobs:
               -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
               -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DBUILD_SHARED_LIBS=OFF \
+              -DWITH_LAPACK=OFF \
+              -DWITH_OPENCL=OFF \
               ..
             cmake --build . --parallel 2
             cmake --install .
