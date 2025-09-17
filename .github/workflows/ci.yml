@@ -51,7 +51,38 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake git curl unzip pkg-config \
             clang libclang-dev llvm-dev \
-            libjpeg-dev libpng-dev libtiff-dev libwebp-dev libopenexr-dev
+            libjpeg-dev libpng-dev libtiff-dev libwebp-dev libopenjp2-7-dev libopenexr-dev
+
+      - name: Prepare codec static symlinks (Ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        run: |
+          set -e
+          COMP_DIR="$GITHUB_WORKSPACE/.opencv/codec_compat"
+          mkdir -p "$COMP_DIR"
+          # Map expected crate names (-llib<name>) to actual system static libs
+          # Create liblib<name>.a symlink pointing to real lib<actual>.a
+          create_link() {
+            local want="$1"; shift; local candidates="$@"; local found="";
+            for c in $candidates; do
+              if [ -f "$c" ]; then found="$c"; break; fi
+            done
+            if [ -n "$found" ]; then
+              local base=$(basename "$found")
+              local target="liblib$want.a"
+              ln -sf "$found" "$COMP_DIR/$target"
+              echo "Created compat $target -> $found"
+            else
+              echo "WARN: no static library found for $want (candidates: $candidates)" >&2
+            fi
+          }
+          create_link jpeg-turbo \
+            /usr/lib/x86_64-linux-gnu/libjpeg.a /usr/lib/x86_64-linux-gnu/libturbojpeg.a
+          create_link png /usr/lib/x86_64-linux-gnu/libpng.a
+            
+          create_link tiff /usr/lib/x86_64-linux-gnu/libtiff.a
+          create_link webp /usr/lib/x86_64-linux-gnu/libwebp.a
+          create_link openjp2 /usr/lib/x86_64-linux-gnu/libopenjp2.a
+          echo "OPENCV_LINK_PATHS=$COMP_DIR:$OPENCV_LINK_PATHS" >> $GITHUB_ENV
 
       - name: Build OpenCV 4.11.0 (Ubuntu)
         if: startsWith(runner.os, 'Linux')
@@ -161,7 +192,6 @@ jobs:
               -DBUILD_LIST=core,imgproc,imgcodecs,highgui,photo \
               -DWITH_OPENEXR=ON \
               -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
-              -DOPENCV_GENERATE_PKGCONFIG=ON \
               -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
               -DBUILD_SHARED_LIBS=OFF \
               -DBUILD_JPEG=ON -DBUILD_PNG=ON -DBUILD_TIFF=ON -DBUILD_WEBP=ON \
@@ -205,32 +235,21 @@ jobs:
         if: startsWith(runner.os, 'Windows')
         run: |
           vcpkg.exe install llvm opencv4[openexr]:x64-windows-static-md
-        env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
 
       - name: Add vcpkg toolchain to cargo builds (Windows)
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
-          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" | Out-File -FilePath $Env:GITHUB_ENV -Append
-          # Provide static linkage hints if necessary
-          echo "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $Env:GITHUB_ENV -Append
-          $triplet = "x64-windows-static-md"
-          $opencvCmake = Join-Path $Env:VCPKG_ROOT "installed/$triplet/share/opencv/OpenCVConfig.cmake"
-          if (Test-Path $opencvCmake) {
-            $opencvDir = Split-Path $opencvCmake
-            echo "OpenCV_DIR=$opencvDir" | Out-File -FilePath $Env:GITHUB_ENV -Append
-            $libPath = Join-Path $Env:VCPKG_ROOT "installed/$triplet/lib"
-            $binPath = Join-Path $Env:VCPKG_ROOT "installed/$triplet/bin"
-            $includePath = Join-Path $Env:VCPKG_ROOT "installed/$triplet/include"
-            echo "OPENCV_LINK_PATHS=$libPath" | Out-File -FilePath $Env:GITHUB_ENV -Append
-            echo "OPENCV_INCLUDE_PATHS=$includePath" | Out-File -FilePath $Env:GITHUB_ENV -Append
-            echo "CMAKE_PREFIX_PATH=$opencvDir;$Env:CMAKE_PREFIX_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
-            echo "PKG_CONFIG_PATH=$Env:VCPKG_ROOT/installed/$triplet/lib/pkgconfig;$Env:PKG_CONFIG_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
-            echo "PATH=$binPath;$Env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
-          } else {
-            Write-Host "OpenCVConfig.cmake not found at $opencvCmake"; Get-ChildItem -Recurse -Filter OpenCVConfig.cmake -Path $Env:VCPKG_ROOT\installed | Select-Object -First 20 | Format-List;
-          }
+          $env:VCPKG_ROOT = Join-Path $Env:GITHUB_WORKSPACE 'vcpkg'
+          $env:LLVM_CONFIG_PATH = Join-Path $env:VCPKG_ROOT 'installed/x64-windows/tools/llvm/llvm-config.exe'
+          if (-not (Test-Path $env:LLVM_CONFIG_PATH)) { Write-Host "WARN: llvm-config.exe not found at $env:LLVM_CONFIG_PATH" }
+          $env:LIBCLANG_PATH = Join-Path $env:VCPKG_ROOT 'installed/x64-windows/bin'
+          if (-not (Test-Path $env:LIBCLANG_PATH)) { Write-Host "WARN: libclang bin dir not found at $env:LIBCLANG_PATH" }
+
+          # Persist for subsequent steps
+            "VCPKG_ROOT=$env:VCPKG_ROOT" | Out-File -FilePath $Env:GITHUB_ENV -Append
+          if ($env:LLVM_CONFIG_PATH) { "LLVM_CONFIG_PATH=$env:LLVM_CONFIG_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append }
+          if ($env:LIBCLANG_PATH) { "LIBCLANG_PATH=$env:LIBCLANG_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append }
 
       - name: Build
         run: cargo build --verbose
