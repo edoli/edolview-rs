@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, Color32, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -40,6 +40,7 @@ impl ViewerApp {
 
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        ctx.set_visuals(Visuals::dark());
         // ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
 
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
