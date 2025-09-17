@@ -136,9 +136,6 @@ jobs:
             cmake --install .
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          echo "OpenCV_DIR=$INSTALL_DIR/lib/cmake/opencv4" >> $GITHUB_ENV
-          echo "OPENCV_LINK_PATHS=$INSTALL_DIR/lib" >> $GITHUB_ENV
-          echo "OPENCV_INCLUDE_PATHS=$INSTALL_DIR/include/opencv4" >> $GITHUB_ENV
           echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
           echo "OPENCV_LINK_STATIC=1" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALL_STATIC=1" >> $GITHUB_ENV
