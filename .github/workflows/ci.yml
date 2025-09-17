@@ -75,7 +75,7 @@ jobs:
             test -f "$SRC_DIR/CMakeLists.txt" || { echo "CMakeLists.txt not found in $SRC_DIR"; ls -al "$WORKDIR"; exit 1; }
             mkdir -p "$SRC_DIR/build"
             cd "$SRC_DIR/build"
-            cmake -G "Unix Makefiles" \
+            cmake \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
               -DBUILD_LIST=core,imgproc,imgcodecs \
@@ -123,7 +123,7 @@ jobs:
             test -f "$SRC_DIR/CMakeLists.txt" || { echo "Missing CMakeLists.txt for macOS"; ls -al "$WORKDIR"; exit 1; }
             mkdir -p "$SRC_DIR/build"
             cd "$SRC_DIR/build"
-            cmake -G "Unix Makefiles" \
+            cmake \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
