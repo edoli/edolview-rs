@@ -231,25 +231,19 @@ jobs:
           .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
         shell: cmd
 
-      - name: Install OpenCV (Windows)
+      - name: Install OpenCV and LLVM (Windows)
         if: startsWith(runner.os, 'Windows')
         run: |
-          vcpkg.exe install llvm opencv4[openexr]:x64-windows-static-md
+          winget install --id LLVM.LLVM -e --silent --accept-package-agreements --accept-source-agreements
+          vcpkg.exe install opencv4[openexr]:x64-windows-static-md
+          vcpkg.exe integrate install
 
       - name: Add vcpkg toolchain to cargo builds (Windows)
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
-          $env:VCPKG_ROOT = Join-Path $Env:GITHUB_WORKSPACE 'vcpkg'
-          $env:LLVM_CONFIG_PATH = Join-Path $env:VCPKG_ROOT 'installed/x64-windows/tools/llvm/llvm-config.exe'
-          if (-not (Test-Path $env:LLVM_CONFIG_PATH)) { Write-Host "WARN: llvm-config.exe not found at $env:LLVM_CONFIG_PATH" }
-          $env:LIBCLANG_PATH = Join-Path $env:VCPKG_ROOT 'installed/x64-windows/bin'
-          if (-not (Test-Path $env:LIBCLANG_PATH)) { Write-Host "WARN: libclang bin dir not found at $env:LIBCLANG_PATH" }
-
-          # Persist for subsequent steps
-            "VCPKG_ROOT=$env:VCPKG_ROOT" | Out-File -FilePath $Env:GITHUB_ENV -Append
-          if ($env:LLVM_CONFIG_PATH) { "LLVM_CONFIG_PATH=$env:LLVM_CONFIG_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append }
-          if ($env:LIBCLANG_PATH) { "LIBCLANG_PATH=$env:LIBCLANG_PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append }
+          $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
+          "PATH=$env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
 
       - name: Build
         run: cargo build --verbose
