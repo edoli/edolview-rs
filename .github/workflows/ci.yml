@@ -43,6 +43,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # ----- Cache OpenCV install directories -----
+      - name: Cache OpenCV install (Ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        uses: actions/cache@v4
+        with:
+          path: .opencv/install
+          key: opencv-${{ runner.os }}-4.11.0
+          restore-keys: |
+            opencv-${{ runner.os }}-
+
+      - name: Cache OpenCV install (macOS)
+        if: startsWith(runner.os, 'macOS')
+        uses: actions/cache@v4
+        with:
+          path: .opencv/install
+          key: opencv-${{ runner.os }}-4.12.0
+          restore-keys: |
+            opencv-${{ runner.os }}-
+
       # ----- Linux (Ubuntu) OpenCV deps -----
       - name: Install OpenCV deps (Ubuntu)
         if: startsWith(runner.os, 'Linux')
