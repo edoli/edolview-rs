@@ -50,39 +50,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake git curl unzip pkg-config \
-            clang libclang-dev llvm-dev \
-            libjpeg-dev libpng-dev libtiff-dev libwebp-dev libopenjp2-7-dev libopenexr-dev
-
-      - name: Prepare codec static symlinks (Ubuntu)
-        if: startsWith(runner.os, 'Linux')
-        run: |
-          set -e
-          COMP_DIR="$GITHUB_WORKSPACE/.opencv/codec_compat"
-          mkdir -p "$COMP_DIR"
-          # Map expected crate names (-llib<name>) to actual system static libs
-          # Create liblib<name>.a symlink pointing to real lib<actual>.a
-          create_link() {
-            local want="$1"; shift; local candidates="$@"; local found="";
-            for c in $candidates; do
-              if [ -f "$c" ]; then found="$c"; break; fi
-            done
-            if [ -n "$found" ]; then
-              local base=$(basename "$found")
-              local target="liblib$want.a"
-              ln -sf "$found" "$COMP_DIR/$target"
-              echo "Created compat $target -> $found"
-            else
-              echo "WARN: no static library found for $want (candidates: $candidates)" >&2
-            fi
-          }
-          create_link jpeg-turbo \
-            /usr/lib/x86_64-linux-gnu/libjpeg.a /usr/lib/x86_64-linux-gnu/libturbojpeg.a
-          create_link png /usr/lib/x86_64-linux-gnu/libpng.a
-            
-          create_link tiff /usr/lib/x86_64-linux-gnu/libtiff.a
-          create_link webp /usr/lib/x86_64-linux-gnu/libwebp.a
-          create_link openjp2 /usr/lib/x86_64-linux-gnu/libopenjp2.a
-          echo "OPENCV_LINK_PATHS=$COMP_DIR:$OPENCV_LINK_PATHS" >> $GITHUB_ENV
+            clang libclang-dev llvm-dev
 
       - name: Build OpenCV 4.11.0 (Ubuntu)
         if: startsWith(runner.os, 'Linux')
@@ -93,7 +61,6 @@ jobs:
           OPENCV_VERSION=${OPENCV_VERSION}
           WORKDIR="$GITHUB_WORKSPACE/.opencv"
           SRC_DIR="$WORKDIR/opencv-$OPENCV_VERSION"
-          CONTRIB_DIR="$WORKDIR/opencv_contrib-$OPENCV_VERSION"
           INSTALL_DIR="$WORKDIR/install"
           mkdir -p "$WORKDIR"
           if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
@@ -105,52 +72,25 @@ jobs:
               curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
               unzip -q opencv.zip
             fi
-            if [ ! -d "$CONTRIB_DIR" ]; then
-              echo "Downloading OpenCV contrib $OPENCV_VERSION sources"
-              curl -sSL -o opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/refs/tags/${OPENCV_VERSION}.zip
-              unzip -q opencv_contrib.zip
-            fi
             test -f "$SRC_DIR/CMakeLists.txt" || { echo "CMakeLists.txt not found in $SRC_DIR"; ls -al "$WORKDIR"; exit 1; }
             mkdir -p "$SRC_DIR/build"
             cd "$SRC_DIR/build"
             cmake -G "Unix Makefiles" \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-              -DBUILD_LIST=core,imgproc,imgcodecs,highgui,photo \
-              -DWITH_OPENEXR=ON \
+              -DBUILD_LIST=core,imgproc,imgcodecs \
               -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
               -DOPENCV_GENERATE_PKGCONFIG=ON \
-              -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB_DIR/modules" \
               -DBUILD_SHARED_LIBS=OFF \
-              -DBUILD_JPEG=ON -DBUILD_PNG=ON -DBUILD_TIFF=ON -DBUILD_WEBP=ON \
-              -DWITH_JPEG=ON -DWITH_PNG=ON -DWITH_TIFF=ON -DWITH_WEBP=ON -DWITH_OPENJPEG=ON \
-              -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_TBB=OFF -DWITH_GDCM=OFF -DWITH_GSTREAMER=OFF -DWITH_FFMPEG=OFF \
               ..
             cmake --build . --parallel $(nproc || echo 2)
             cmake --install .
-            # Create compatibility symlinks for libraries the Rust OpenCV crate expects with an extra 'lib' prefix
-            cd "$INSTALL_DIR/lib"
-            for base in png tiff webp openjp2 jpeg-turbo; do
-              if [ -f "lib$base.a" ] && [ ! -e "liblib$base.a" ]; then ln -s "lib$base.a" "liblib$base.a"; fi
-            done
-            # ittnotify/ipp are disabled; ensure no stale references
-            ls -1
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$INSTALL_DIR/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "OpenCV_DIR=$INSTALL_DIR/lib/cmake/opencv4" >> $GITHUB_ENV
-          echo "OPENCV_LINK_PATHS=$INSTALL_DIR/lib" >> $GITHUB_ENV
-          echo "OPENCV_INCLUDE_PATHS=$INSTALL_DIR/include/opencv4" >> $GITHUB_ENV
+          echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
+          echo "OPENCV_LINK_STATIC=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALL_STATIC=1" >> $GITHUB_ENV
           pkg-config --modversion opencv4 || true
-
-      - name: Export libclang path (Ubuntu)
-        if: startsWith(runner.os, 'Linux')
-        run: |
-          # Try common libclang locations and export the first that exists
-          for p in /usr/lib/llvm-*/lib/libclang.so /usr/lib/x86_64-linux-gnu/libclang.so*; do
-            if [ -f "$p" ]; then echo "LIBCLANG_PATH=$(dirname $p)" >> $GITHUB_ENV; break; fi
-          done
-          echo "Detected LIBCLANG_PATH=$LIBCLANG_PATH"
 
       # ----- macOS OpenCV -----
       - name: Build OpenCV 4.11.0 (macOS static)
