@@ -170,10 +170,10 @@ jobs:
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
-          winget install --id LLVM.LLVM -e --silent --accept-package-agreements --accept-source-agreements
+          winget install --id LLVM.LLVM -e --silent --accept-package-agreements --accept-source-agreements --no-upgrade
 
           $triplet = "x64-windows-static-md"
-          $opencvHeader = Join-Path "vcpkg/installed/$triplet/lib/opencv_core4.lib"
+          $opencvHeader = "vcpkg/installed/$triplet/lib/opencv_core4.lib"
 
           if (Test-Path $opencvHeader) {
             Write-Host "OpenCV already present in cache ($opencvHeader). Skipping vcpkg install."
