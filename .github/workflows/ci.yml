@@ -151,9 +151,9 @@ jobs:
           path: |
             vcpkg/installed
             vcpkg/downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-${{ runner.os }}
 
       - name: Clone vcpkg (Windows)
         if: startsWith(runner.os, 'Windows')
@@ -182,10 +182,10 @@ jobs:
             Write-Host "OpenCV already present in cache ($opencvHeader). Skipping vcpkg install."
           } else {
             Write-Host "OpenCV not found in cache. Installing via vcpkg...";
-            .\vcpkg.exe install opencv4[openexr]:$triplet
+            vcpkg.exe install opencv4[openexr]:$triplet
           }
 
-          .\vcpkg.exe integrate install
+          vcpkg.exe integrate install
 
       - name: Add llvm toolchain to cargo builds (Windows)
         if: startsWith(runner.os, 'Windows')
