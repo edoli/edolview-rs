@@ -213,13 +213,15 @@ jobs:
             $buildDir = Join-Path $srcDir 'build'
             New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
             Push-Location $buildDir
-            cmake -G "Ninja" `
-              -DCMAKE_BUILD_TYPE=Release `
-              -DCMAKE_INSTALL_PREFIX="$installDir" `
-              -DBUILD_LIST=core,imgproc,imgcodecs `
-              -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF `
-              -DOPENCV_GENERATE_PKGCONFIG=ON `
-              -DBUILD_SHARED_LIBS=OFF `
+            cmake `
+              "-DCMAKE_BUILD_TYPE=Release" `
+              "-DCMAKE_INSTALL_PREFIX=$installDir" `
+              "-DBUILD_LIST=core,imgproc,imgcodecs" `
+              "-DBUILD_TESTS=OFF" `
+              "-DBUILD_PERF_TESTS=OFF" `
+              "-DBUILD_EXAMPLES=OFF" `
+              "-DOPENCV_GENERATE_PKGCONFIG=ON" `
+              "-DBUILD_SHARED_LIBS=OFF" `
               ..
             cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} 
             cmake --install .
@@ -229,8 +231,8 @@ jobs:
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_PKGCONFIG=1"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_STATIC=1"
           Add-Content -Path $Env:GITHUB_ENV -Value "PKG_CONFIG_ALL_STATIC=1"
-          # Windows: provide hint for pkg-config (if used by build script)
-          Write-Host "Listing installed OpenCV files:"; Get-ChildItem -Recurse -Filter opencv*.cmake (Join-Path $installDir 'lib') | Select-Object -First 20 | ForEach-Object { $_.FullName }
+
+          pkg-config --modversion opencv4
 
       - name: Build
         run: cargo build --verbose
