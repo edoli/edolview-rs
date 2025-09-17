@@ -231,5 +231,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: edolview-${{ runner.os }}
-          path: target/release/edolview-rs*
+          path: |
+            assets/**
+            target/release/edolview-rs*
+            !target/release/edolview_rs.pdb
+            !target/release/edolview-rs.d
           if-no-files-found: warn
