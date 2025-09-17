@@ -220,19 +220,14 @@ jobs:
               "-DBUILD_TESTS=OFF" `
               "-DBUILD_PERF_TESTS=OFF" `
               "-DBUILD_EXAMPLES=OFF" `
-              "-DOPENCV_GENERATE_PKGCONFIG=ON" `
               "-DBUILD_SHARED_LIBS=OFF" `
               ..
-            cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} 
-            cmake --install .
+            cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} --config Release
+            cmake --install . --config Release
             Pop-Location
           }
-          Add-Content -Path $Env:GITHUB_ENV -Value "PKG_CONFIG_PATH=$installDir/lib/pkgconfig;$Env:PKG_CONFIG_PATH"
-          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_PKGCONFIG=1"
+          Add-Content -Path $Env:GITHUB_ENV -Value "OpenCV_DIR=$installDir"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_STATIC=1"
-          Add-Content -Path $Env:GITHUB_ENV -Value "PKG_CONFIG_ALL_STATIC=1"
-
-          pkg-config --modversion opencv4
 
       - name: Build
         run: cargo build --verbose
