@@ -34,8 +34,6 @@ fn parse_max_size(spec: &str) -> Result<(i32, i32)> {
 }
 
 fn main() -> Result<()> {
-    std::env::set_var("OPENCV_IO_ENABLE_OPENEXR", "1");
-    
     color_eyre::install()?;
     let args = Args::parse();
 
