@@ -214,7 +214,7 @@ jobs:
             New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
             Push-Location $buildDir
             cmake `
-              "-G=ninja" `
+              "-G=Ninja" `
               "-DCMAKE_BUILD_TYPE=Release" `
               "-DCMAKE_INSTALL_PREFIX=$installDir" `
               "-DBUILD_LIST=core,imgproc,imgcodecs" `
