@@ -221,6 +221,7 @@ jobs:
               "-DBUILD_PERF_TESTS=OFF" `
               "-DBUILD_EXAMPLES=OFF" `
               "-DBUILD_SHARED_LIBS=OFF" `
+              "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL" `
               ..
             cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} --config Release
             cmake --install . --config Release
@@ -230,7 +231,7 @@ jobs:
           $libPath = "$installDir\x64\vc17\staticlib"
           $libs = Get-ChildItem -Path $libPath -Filter *.lib | ForEach-Object { $_.BaseName }
           $libsJoined = $libs -join ","
-          
+
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_LIBS=$libsJoined"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_PATHS=$libPath"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_INCLUDE_PATHS=$installDir\include"
