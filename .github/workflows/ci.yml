@@ -235,7 +235,6 @@ jobs:
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_INCLUDE_PATHS=$installDir\include"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_STATIC=1"
           
-          Get-Content -Path $Env:GITHUB_ENV
 
       - name: Build
         run: cargo build --verbose
