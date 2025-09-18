@@ -229,8 +229,9 @@ jobs:
 
           $libPath = "$installDir\x64\vc17\staticlib"
           $libs = Get-ChildItem -Path $libPath -Filter *.lib | ForEach-Object { $_.BaseName }
-
-          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_LIBS=($libs -join ',')"
+          $libsJoined = $libs -join ","
+          
+          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_LIBS=$libsJoined"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_PATHS=$libPath"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_INCLUDE_PATHS=$installDir\include"
           Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_STATIC=1"
