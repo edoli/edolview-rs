@@ -37,6 +37,11 @@ fn main() -> Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
+    #[cfg(target_os = "linux")]
+    {
+        std::env::remove_var("WAYLAND_DISPLAY");
+    }
+
     println!("{}", opencv::core::get_build_information()?);
     let native_options = eframe::NativeOptions::default();
     if let Err(e) = eframe::run_native(
