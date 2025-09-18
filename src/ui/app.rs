@@ -164,11 +164,22 @@ impl eframe::App for ViewerApp {
             });
         });
 
-        egui::SidePanel::right("right").show(ctx, |ui| {
+        egui::SidePanel::right("right").resizable(true).show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.heading("Right Panel");
+            });
             ui.style_mut().spacing.slider_rail_height = 4.0;
 
             let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
             let is_mono = self.state.channel_index != -1 || channels == 1;
+
+            ui.columns(3, |columns| {
+                columns[0].text_edit_t(&mut self.state.display_min_value);
+                if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
+                    std::mem::swap(&mut self.state.display_min_value, &mut self.state.display_max_value);
+                }
+                columns[2].text_edit_t(&mut self.state.display_max_value);
+            });
 
             let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
                 ui.add(
@@ -187,7 +198,6 @@ impl eframe::App for ViewerApp {
             display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
             display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
             display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
-
 
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("channel_index").combo_i32(

@@ -21,6 +21,9 @@ pub struct AppState {
     pub colormap_mono: String,
     pub colormap_rgb_list: Vec<String>,
     pub colormap_mono_list: Vec<String>,
+
+    pub display_min_value: f32,
+    pub display_max_value: f32,
 }
 
 fn list_colormaps(dir: &PathBuf) -> Vec<String> {
@@ -56,6 +59,8 @@ impl AppState {
             colormap_mono: String::from("gray"),
             colormap_rgb_list: list_colormaps(&PathBuf::from("assets/colormap/rgb")),
             colormap_mono_list: list_colormaps(&PathBuf::from("assets/colormap/mono")),
+            display_min_value: 0.0,
+            display_max_value: 1.0,
         }
     }
 

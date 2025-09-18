@@ -15,6 +15,8 @@ impl Join for Vec<f32> {
 pub trait UiExt {
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
+    fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
+    fn with_weights(&mut self, widget_with_weights: Vec<(f32, Box<dyn FnOnce(&mut Ui)>)>);
 }
 
 impl UiExt for Ui {
@@ -79,6 +81,32 @@ impl UiExt for Ui {
         })
         .response
     }
+
+    fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response {
+        let mut text = value.to_string();
+        let resp = self.text_edit_singleline(&mut text);
+        if resp.changed() {
+            if let Ok(v) = text.parse::<T>() {
+                *value = v;
+            }
+        }
+        resp
+    }
+
+    #[inline]
+    fn with_weights(&mut self, widget_with_weights: Vec<(f32, Box<dyn FnOnce(&mut Ui)>)>) {
+        let total_weight: f32 = widget_with_weights.iter().map(|(w, _)| *w).sum();
+        let total_width =
+            self.available_width() - self.style().spacing.item_spacing.x * (widget_with_weights.len() - 1) as f32;
+        let height = self.style().spacing.interact_size.y;
+
+        for (weight, f) in widget_with_weights {
+            let width = total_width * (weight / total_weight);
+            self.allocate_ui(egui::vec2(width, height), |ui| {
+                f(ui);
+            });
+        }
+    }
 }
 
 pub trait RespExt {
@@ -127,7 +155,7 @@ impl ComboBoxExt for ComboBox {
             })
             .hover_scroll(ui, list, selected_text, false)
     }
-    
+
     fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &Vec<i32>) -> InnerResponse<Option<()>> {
         self.selected_text(selected_text.to_string())
             .show_ui(ui, |ui| {
