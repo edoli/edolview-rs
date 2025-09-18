@@ -170,6 +170,25 @@ impl eframe::App for ViewerApp {
             let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
             let is_mono = self.state.channel_index != -1 || channels == 1;
 
+            let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
+                ui.add(
+                    CustomSlider::new(value, min..=max)
+                        .text(text)
+                        .step_by(0.01)
+                        .smart_aim(false)
+                        .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
+                        .trailing_fill(true)
+                        .trailing_start(0.0)
+                        .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
+                        .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
+                );
+            };
+
+            display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
+            display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
+            display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
+
+
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("channel_index").combo_i32(
                     ui,
@@ -191,24 +210,6 @@ impl eframe::App for ViewerApp {
                     )
                 };
             });
-
-            let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
-                ui.add(
-                    CustomSlider::new(value, min..=max)
-                        .text(text)
-                        .step_by(0.01)
-                        .smart_aim(false)
-                        .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
-                        .trailing_fill(true)
-                        .trailing_start(0.0)
-                        .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
-                        .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
-                );
-            };
-
-            display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
-            display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
-            display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
         });
 
         egui::CentralPanel::default()
