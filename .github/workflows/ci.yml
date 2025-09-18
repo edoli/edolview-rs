@@ -221,6 +221,16 @@ jobs:
               "-DBUILD_PERF_TESTS=OFF" `
               "-DBUILD_EXAMPLES=OFF" `
               "-DBUILD_SHARED_LIBS=OFF" `
+              "-DBUILD_JAVA=OFF" `
+              "-DBUILD_PACKAGE=OFF" `
+              "-DWITH_ADE=OFF" `
+              "-DWITH_FFMPEG=OFF" `
+              "-DWITH_GSTREAMER=OFF" `
+              "-DWITH_IPP=OFF" `
+              "-DWITH_ITT=OFF" `
+              "-DWITH_LAPACK=OFF" `
+              "-DWITH_OPENCL=OFF" `
+              "-DWITH_PROTOBUF=OFF" `
               "-DBUILD_WITH_STATIC_CRT=OFF" `
               ..
             cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} --config Release
