@@ -67,9 +67,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .opencv/install
-          key: opencv-${{ runner.os }}-4.12.0
+          key: opencv4-${{ runner.os }}-4.12.0
           restore-keys: |
-            opencv-${{ runner.os }}-
+            opencv4-${{ runner.os }}-
 
       # ----- Linux (Ubuntu) OpenCV deps -----
       - name: Install OpenCV deps (Ubuntu)
@@ -231,6 +231,7 @@ jobs:
               "-DWITH_LAPACK=OFF" `
               "-DWITH_OPENCL=OFF" `
               "-DWITH_PROTOBUF=OFF" `
+              "-DOPENCV_IO_FORCE_OPENEXR=ON" `
               "-DBUILD_WITH_STATIC_CRT=OFF" `
               ..
             cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} --config Release
