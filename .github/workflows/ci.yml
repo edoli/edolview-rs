@@ -195,10 +195,10 @@ jobs:
           OPENCV_VERSION: 4.12.0
         run: |
           $workdir = Join-Path $env:GITHUB_WORKSPACE '.opencv'
-            $installDir = Join-Path $workdir 'install'
+          $installDir = Join-Path $workdir 'install'
           $srcDir = Join-Path $workdir "opencv-$env:OPENCV_VERSION"
           New-Item -ItemType Directory -Force -Path $workdir | Out-Null
-          if (Test-Path (Join-Path $installDir 'lib/cmake/opencv4')) {
+          if (Test-Path (Join-Path $installDir 'x64/vc17/staticlib/OpenCVConfig.cmake')) {
             Write-Host "OpenCV already installed at $installDir"
           } else {
             if (-not (Test-Path $srcDir)) {
