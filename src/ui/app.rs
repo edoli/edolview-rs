@@ -7,7 +7,7 @@ use crate::{
     model::{AppState, Image},
     ui::{
         component::{
-            egui_ext::{RespExt, UiExt},
+            egui_ext::{ComboBoxExt, UiExt},
             CustomSlider,
         },
         ImageViewer,
@@ -171,33 +171,24 @@ impl eframe::App for ViewerApp {
             let is_mono = self.state.channel_index != -1 || channels == 1;
 
             ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("channel_index")
-                    .selected_text(self.state.channel_index.to_string())
-                    .show_ui(ui, |ui| {
-                        for index in -1..channels {
-                            ui.selectable_value(&mut self.state.channel_index, index, index.to_string());
-                        }
-                    })
-                    .hover_scroll(ui, &(-1..channels).collect(), &mut self.state.channel_index, false);
+                egui::ComboBox::from_id_salt("channel_index").combo_i32(
+                    ui,
+                    &mut self.state.channel_index,
+                    &(-1..channels).collect(),
+                );
 
                 if is_mono {
-                    egui::ComboBox::from_id_salt("colormap_mono")
-                        .selected_text(&self.state.colormap_mono)
-                        .show_ui(ui, |ui| {
-                            for name in &self.state.colormap_mono_list {
-                                ui.selectable_value(&mut self.state.colormap_mono, name.clone(), name);
-                            }
-                        })
-                        .hover_scroll(ui, &self.state.colormap_mono_list, &mut self.state.colormap_mono, false)
+                    egui::ComboBox::from_id_salt("colormap_mono").combo(
+                        ui,
+                        &mut self.state.colormap_mono,
+                        &self.state.colormap_mono_list,
+                    )
                 } else {
-                    egui::ComboBox::from_id_salt("colormap_rgb")
-                        .selected_text(&self.state.colormap_rgb)
-                        .show_ui(ui, |ui| {
-                            for name in &self.state.colormap_rgb_list {
-                                ui.selectable_value(&mut self.state.colormap_rgb, name.clone(), name);
-                            }
-                        })
-                        .hover_scroll(ui, &self.state.colormap_rgb_list, &mut self.state.colormap_rgb, false)
+                    egui::ComboBox::from_id_salt("colormap_rgb").combo(
+                        ui,
+                        &mut self.state.colormap_rgb,
+                        &self.state.colormap_rgb_list,
+                    )
                 };
             });
 

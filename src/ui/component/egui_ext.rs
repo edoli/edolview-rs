@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, InnerResponse, Label, Response, Ui, Widget, WidgetText};
+use eframe::egui::{self, Color32, ComboBox, InnerResponse, Label, Response, Ui, Widget, WidgetText};
 
 use crate::util::cv_ext::CvIntExt;
 
@@ -109,5 +109,32 @@ impl<R> RespExt for InnerResponse<R> {
             }
         }
         self
+    }
+}
+
+pub trait ComboBoxExt {
+    fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &Vec<String>) -> InnerResponse<Option<()>>;
+    fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &Vec<i32>) -> InnerResponse<Option<()>>;
+}
+
+impl ComboBoxExt for ComboBox {
+    fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &Vec<String>) -> InnerResponse<Option<()>> {
+        self.selected_text(selected_text.as_str())
+            .show_ui(ui, |ui| {
+                for name in list {
+                    ui.selectable_value(selected_text, name.clone(), name);
+                }
+            })
+            .hover_scroll(ui, list, selected_text, false)
+    }
+    
+    fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &Vec<i32>) -> InnerResponse<Option<()>> {
+        self.selected_text(selected_text.to_string())
+            .show_ui(ui, |ui| {
+                for index in list {
+                    ui.selectable_value(selected_text, *index, index.to_string());
+                }
+            })
+            .hover_scroll(ui, list, selected_text, false)
     }
 }
