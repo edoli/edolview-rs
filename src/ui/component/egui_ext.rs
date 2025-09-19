@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, ComboBox, InnerResponse, Label, Response, Ui, Widget, WidgetText};
+use eframe::egui::{self, Color32, ComboBox, InnerResponse, Label, Rangef, Response, Ui, Widget, WidgetText};
 
 use crate::util::cv_ext::CvIntExt;
 
@@ -12,11 +12,86 @@ impl Join for Vec<f32> {
     }
 }
 
+#[derive(Clone, Debug, Copy)]
+pub enum Size {
+    /// Absolute size in points, with a given range of allowed sizes to resize within.
+    Absolute { initial: f32, range: Rangef },
+
+    /// Relative size relative to all available space.
+    Relative { fraction: f32, range: Rangef },
+
+    /// Multiple remainders each get the same space.
+    Remainder { weight: f32, range: Rangef },
+}
+
+impl Size {
+    pub fn exact(initial: f32) -> Self {
+        Self::Absolute {
+            initial,
+            range: Rangef::new(initial, initial),
+        }
+    }
+
+    pub fn initial(initial: f32) -> Self {
+        Self::Absolute {
+            initial,
+            range: Rangef::new(0.0, f32::INFINITY),
+        }
+    }
+
+    pub fn relative(fraction: f32) -> Self {
+        Self::Relative {
+            fraction,
+            range: Rangef::new(0.0, f32::INFINITY),
+        }
+    }
+
+    pub fn remainder(weight: f32) -> Self {
+        Self::Remainder {
+            weight,
+            range: Rangef::new(0.0, f32::INFINITY),
+        }
+    }
+
+    #[inline]
+    pub fn at_least(mut self, minimum: f32) -> Self {
+        self.range_mut().min = minimum;
+        self
+    }
+
+    /// Won't grow above this size (in points).
+    #[inline]
+    pub fn at_most(mut self, maximum: f32) -> Self {
+        self.range_mut().max = maximum;
+        self
+    }
+
+    #[inline]
+    pub fn with_range(mut self, range: Rangef) -> Self {
+        *self.range_mut() = range;
+        self
+    }
+
+    pub fn range(self) -> Rangef {
+        match self {
+            Self::Absolute { range, .. } | Self::Relative { range, .. } | Self::Remainder { range, .. } => range,
+        }
+    }
+
+    pub fn range_mut(&mut self) -> &mut Rangef {
+        match self {
+            Self::Absolute { range, .. } | Self::Relative { range, .. } | Self::Remainder { range, .. } => range,
+        }
+    }
+}
+
 pub trait UiExt {
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
-    fn with_weights(&mut self, widget_with_weights: Vec<(f32, Box<dyn FnOnce(&mut Ui)>)>);
+    fn calc_sizes(&self, sizes: &[Size]) -> Vec<f32>;
+    fn columns_sized<R>(&mut self, sizes: &[Size], add_contents: impl FnOnce(&mut [Self]) -> R) -> R;
+    fn columns_sized_dyn<'c, R>(&mut self, sizes: &[Size], add_contents: Box<dyn FnOnce(&mut [Self]) -> R + 'c>) -> R where Self: Sized;
 }
 
 impl UiExt for Ui {
@@ -93,19 +168,112 @@ impl UiExt for Ui {
         resp
     }
 
-    #[inline]
-    fn with_weights(&mut self, widget_with_weights: Vec<(f32, Box<dyn FnOnce(&mut Ui)>)>) {
-        let total_weight: f32 = widget_with_weights.iter().map(|(w, _)| *w).sum();
-        let total_width =
-            self.available_width() - self.style().spacing.item_spacing.x * (widget_with_weights.len() - 1) as f32;
-        let height = self.style().spacing.interact_size.y;
+    fn calc_sizes(&self, sizes: &[Size]) -> Vec<f32> {
+        let total_width = self.available_width();
+        let spacing = self.spacing().item_spacing.x;
 
-        for (weight, f) in widget_with_weights {
-            let width = total_width * (weight / total_weight);
-            self.allocate_ui(egui::vec2(width, height), |ui| {
-                f(ui);
-            });
+        let mut results = vec![0.0; sizes.len()];
+
+        let mut total_absolute = 0.0;
+        let mut total_relative_fraction = 0.0;
+        let mut total_remainders = 0.0;
+
+        for (i, size) in sizes.iter().enumerate() {
+            match size {
+                Size::Absolute { initial, range } => {
+                    let clamped = initial.clamp(range.min, range.max);
+                    results[i] = clamped;
+                    total_absolute += clamped;
+                }
+                Size::Relative { fraction, range: _ } => {
+                    total_relative_fraction += *fraction;
+                }
+                Size::Remainder { weight, range: _ } => {
+                    total_remainders += *weight;
+                }
+            }
         }
+
+        let remaining_space = (total_width - total_absolute).max(0.0);
+
+        if total_relative_fraction > 0.0 {
+            for (i, size) in sizes.iter().enumerate() {
+                if let Size::Relative { fraction, range } = size {
+                    let allocated = (fraction / total_relative_fraction) * remaining_space;
+                    let clamped = allocated.clamp(range.min, range.max);
+                    results[i] = clamped;
+                }
+            }
+        }
+
+        let used_space: f32 = results.iter().sum();
+        let remaining_for_remainders = (total_width - used_space - spacing * (sizes.len() - 1) as f32).max(0.0);
+        if total_remainders > 0.0 {
+            let per_remainder = remaining_for_remainders / total_remainders;
+            for (i, size) in sizes.iter().enumerate() {
+                if let Size::Remainder { weight, range } = size {
+                    let clamped = (per_remainder * weight).clamp(range.min, range.max);
+                    results[i] = clamped;
+                }
+            }
+        }
+
+        results
+    }
+
+    
+    #[inline]
+    fn columns_sized<R>(
+        &mut self,
+        sizes: &[Size],
+        add_contents: impl FnOnce(&mut [Self]) -> R,
+    ) -> R {
+        self.columns_sized_dyn(sizes, Box::new(add_contents))
+    }
+
+    fn columns_sized_dyn<'c, R>(
+        &mut self,
+        sizes: &[Size],
+        add_contents: Box<dyn FnOnce(&mut [Self]) -> R + 'c>,
+    ) -> R {
+        let spacing = self.spacing().item_spacing.x;
+        let actual_sizes = self.calc_sizes(sizes);
+        let top_left = self.cursor().min;
+        let mut current_left = 0.0;
+
+        let mut columns: Vec<Self> = (0..actual_sizes.len())
+            .map(|col_idx| {
+                let pos = top_left + egui::vec2(current_left, 0.0);
+                let cell_size = actual_sizes[col_idx];
+                let child_rect = egui::Rect::from_min_max(
+                    pos,
+                    egui::pos2(pos.x + cell_size, self.max_rect().right_bottom().y),
+                );
+                current_left += cell_size + spacing;
+
+                let mut column_ui = self.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(child_rect)
+                        .layout(egui::Layout::top_down_justified(egui::Align::Center)),
+                );
+                column_ui.set_width(cell_size);
+                column_ui
+            })
+            .collect();
+
+        let result = add_contents(&mut columns[..]);
+
+        let mut max_height = 0.0;
+        for column in &columns {
+            max_height = column.min_size().y.max(max_height);
+        }
+
+        // Make sure we fit everything next frame:
+        let total_required_width = current_left - spacing; // remove last spacing
+
+        let size = egui::vec2(self.available_width().max(total_required_width), max_height);
+        self.advance_cursor_after_rect(egui::Rect::from_min_size(top_left, size));
+        result
     }
 }
 
