@@ -159,7 +159,7 @@ impl UiExt for Ui {
 
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response {
         let mut text = value.to_string();
-        let resp = self.text_edit_singleline(&mut text);
+        let resp = egui::TextEdit::singleline(&mut text).ui(self);
         if resp.changed() {
             if let Ok(v) = text.parse::<T>() {
                 *value = v;
@@ -277,11 +277,29 @@ impl UiExt for Ui {
     }
 }
 
-pub trait RespExt {
+pub trait ResponseExt {
+    fn on_enter<'c>(self, lost_focus: bool, f: impl FnMut() + 'c) -> Self;
+    
+}
+
+impl ResponseExt for Response {
+    fn on_enter<'c>(self, lost_focus: bool, mut f: impl FnMut() + 'c) -> Self {
+        if self.lost_focus() && self.ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            f();
+            if !lost_focus {
+                self.request_focus();
+            }
+        }
+        self
+    }
+    
+}
+
+pub trait InnerRespExt {
     fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self;
 }
 
-impl<R> RespExt for InnerResponse<R> {
+impl<R> InnerRespExt for InnerResponse<R> {
     fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self {
         if self.response.hovered() {
             let scroll = ui.input(|i| i.raw_scroll_delta.y);
