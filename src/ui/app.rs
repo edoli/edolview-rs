@@ -186,6 +186,7 @@ impl eframe::App for ViewerApp {
                 });
 
                 let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
+                    ui.spacing_mut().slider_width = ui.available_width() - 128.0;
                     ui.add(
                         CustomSlider::new(value, min..=max)
                             .text(text)
@@ -204,12 +205,15 @@ impl eframe::App for ViewerApp {
                 display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
 
                 ui.horizontal(|ui| {
+                    let sizes = ui.calc_sizes(&[Size::exact(50.0), Size::remainder(1.0)]);
+                    ui.spacing_mut().combo_width = sizes[0];
                     egui::ComboBox::from_id_salt("channel_index").combo_i32(
                         ui,
                         &mut self.state.channel_index,
                         &(-1..channels).collect(),
                     );
-
+                    
+                    ui.spacing_mut().combo_width = sizes[1];
                     if is_mono {
                         egui::ComboBox::from_id_salt("colormap_mono").combo(
                             ui,
