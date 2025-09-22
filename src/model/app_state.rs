@@ -20,6 +20,17 @@ pub struct AppState {
     pub colormap_mono: String,
     pub colormap_rgb_list: Vec<String>,
     pub colormap_mono_list: Vec<String>,
+
+    pub is_show_background: bool,
+    pub is_show_pixel_tooltip: bool,
+    pub is_show_pixel_value: bool,
+    pub is_show_crosshair: bool,
+    pub is_show_sidebar: bool,
+    pub is_show_statusbar: bool,
+
+    pub is_server_running: bool,
+    pub is_server_receiving: bool,
+    pub image_server_port: u16,
 }
 
 fn list_colormaps(dir: &PathBuf) -> Vec<String> {
@@ -55,6 +66,15 @@ impl AppState {
             colormap_mono: String::from("gray"),
             colormap_rgb_list: list_colormaps(&PathBuf::from("assets/colormap/rgb")),
             colormap_mono_list: list_colormaps(&PathBuf::from("assets/colormap/mono")),
+            is_show_background: true,
+            is_show_pixel_tooltip: true,
+            is_show_pixel_value: true,
+            is_show_crosshair: false,
+            is_show_sidebar: true,
+            is_show_statusbar: true,
+            is_server_running: false,
+            is_server_receiving: false,
+            image_server_port: 21734,
         }
     }
 
