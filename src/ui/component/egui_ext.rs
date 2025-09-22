@@ -91,6 +91,7 @@ pub trait UiExt {
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
     fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(&mut self, display_value: &mut String, value: &mut T) -> Response;
+    fn text_edit_value_capture<T: std::fmt::Display + std::str::FromStr + PartialEq + Clone>(&mut self, display_value: &mut String, value: &mut T, last_value: &mut T) -> Response;
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N];
     fn columns_sized<R, const N: usize>(
         &mut self,
@@ -207,6 +208,15 @@ impl UiExt for Ui {
         }
 
         resp
+    }
+
+    fn text_edit_value_capture<T: std::fmt::Display + std::str::FromStr + PartialEq + Clone>(&mut self, display_value: &mut String, value: &mut T, last_value: &mut T) -> Response {
+        if value != last_value {
+            *display_value = format!("{}", value);
+            last_value.clone_from(value);
+        }
+
+        self.text_edit_value(display_value, value)
     }
 
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N] {

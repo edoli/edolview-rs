@@ -5,7 +5,7 @@ use eframe::egui::{self, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
-    model::{AppState, Image},
+    model::{AppState, Image, Recti},
     ui::{
         component::{
             egui_ext::{ComboBoxExt, Size, UiExt},
@@ -20,7 +20,8 @@ pub struct ViewerApp {
     viewer: ImageViewer,
     tmp_min_v: String,
     tmp_max_v: String,
-    tmp_marquee_rect: String,
+    tmp_marquee_rect: Recti,
+    marquee_rect_text: String,
 }
 
 impl ViewerApp {
@@ -35,7 +36,8 @@ impl ViewerApp {
 
             tmp_min_v: shader_params.min_v.to_string().into(),
             tmp_max_v: shader_params.max_v.to_string().into(),
-            tmp_marquee_rect: marquee_rect.to_string().into(),
+            tmp_marquee_rect: marquee_rect.clone(),
+            marquee_rect_text: marquee_rect.to_string().into(),
         }
     }
 
@@ -166,7 +168,7 @@ impl eframe::App for ViewerApp {
 
                 ui.label(" | ");
 
-                ui.text_edit_value(&mut self.tmp_marquee_rect, &mut self.state.marquee_rect);
+                ui.text_edit_value_capture(&mut self.marquee_rect_text, &mut self.state.marquee_rect, &mut self.tmp_marquee_rect);
             });
         });
 
