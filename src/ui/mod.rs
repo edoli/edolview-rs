@@ -1,8 +1,9 @@
-pub mod gl;
 pub mod component;
+pub mod gl;
+pub mod icon;
 
-mod image_viewer;
 mod app;
+mod image_viewer;
 
-pub use image_viewer::ImageViewer;
 pub use app::ViewerApp;
+pub use image_viewer::ImageViewer;

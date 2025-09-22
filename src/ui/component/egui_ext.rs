@@ -1,5 +1,4 @@
-
-use eframe::egui::{self, Color32, ComboBox, InnerResponse, Label, Rangef, Response, Ui, Widget, WidgetText};
+use eframe::egui::{self, Color32, ComboBox, Image, InnerResponse, Label, Rangef, Response, Ui, Widget, WidgetText};
 
 use crate::util::cv_ext::CvIntExt;
 
@@ -90,8 +89,18 @@ pub trait UiExt {
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
-    fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(&mut self, display_value: &mut String, value: &mut T) -> Response;
-    fn text_edit_value_capture<T: std::fmt::Display + std::str::FromStr + PartialEq + Clone>(&mut self, display_value: &mut String, value: &mut T, last_value: &mut T) -> Response;
+    fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(
+        &mut self,
+        display_value: &mut String,
+        value: &mut T,
+    ) -> Response;
+    fn text_edit_value_capture<T: std::fmt::Display + std::str::FromStr + PartialEq + Clone>(
+        &mut self,
+        display_value: &mut String,
+        value: &mut T,
+        last_value: &mut T,
+    ) -> Response;
+    fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>) -> Response;
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N];
     fn columns_sized<R, const N: usize>(
         &mut self,
@@ -181,7 +190,11 @@ impl UiExt for Ui {
         resp
     }
 
-    fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(&mut self, display_value: &mut String, value: &mut T) -> Response {
+    fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(
+        &mut self,
+        display_value: &mut String,
+        value: &mut T,
+    ) -> Response {
         let resp = egui::TextEdit::singleline(display_value).ui(self);
 
         // Track whether parsing failed this frame (trigger a short visual flash)
@@ -202,7 +215,7 @@ impl UiExt for Ui {
 
         // TODO: animate the color flash instead of just showing it for one frame
         if parse_failed {
-            let color = Color32::from_rgba_premultiplied(255, 64, 64,  64);
+            let color = Color32::from_rgba_premultiplied(255, 64, 64, 64);
             self.painter().rect_filled(resp.rect, 4.0, color);
             self.ctx().request_repaint();
         }
@@ -210,13 +223,34 @@ impl UiExt for Ui {
         resp
     }
 
-    fn text_edit_value_capture<T: std::fmt::Display + std::str::FromStr + PartialEq + Clone>(&mut self, display_value: &mut String, value: &mut T, last_value: &mut T) -> Response {
+    fn text_edit_value_capture<T: std::fmt::Display + std::str::FromStr + PartialEq + Clone>(
+        &mut self,
+        display_value: &mut String,
+        value: &mut T,
+        last_value: &mut T,
+    ) -> Response {
         if value != last_value {
             *display_value = format!("{}", value);
             last_value.clone_from(value);
         }
 
         self.text_edit_value(display_value, value)
+    }
+
+    fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>) -> Response {
+        let tint_color = if *selected {
+            self.style().visuals.selection.bg_fill
+        } else {
+            self.style().visuals.text_color()
+        };
+        let image_button = egui::ImageButton::new(icon.into().tint(tint_color));
+
+        let resp = self.add(image_button);
+        if resp.clicked() {
+            *selected = !*selected;
+        }
+
+        resp
     }
 
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N] {

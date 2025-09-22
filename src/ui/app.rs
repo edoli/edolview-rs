@@ -1,16 +1,18 @@
 use core::f32;
-use std::path::PathBuf;
+use std::{cell::OnceCell, path::PathBuf};
 
 use eframe::egui::{self, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
     model::{AppState, Image, Recti},
+    res,
     ui::{
         component::{
             egui_ext::{ComboBoxExt, Size, UiExt},
             CustomSlider,
         },
+        icon::{self, IconExt},
         ImageViewer,
     },
     util::math_ext::vec2i,
@@ -24,6 +26,8 @@ pub struct ViewerApp {
     tmp_max_v: String,
     tmp_marquee_rect: Recti,
     marquee_rect_text: String,
+
+    show_background_icon: OnceCell<egui::TextureHandle>,
 }
 
 impl ViewerApp {
@@ -42,6 +46,8 @@ impl ViewerApp {
             tmp_max_v: shader_params.max_v.to_string().into(),
             tmp_marquee_rect: marquee_rect.clone(),
             marquee_rect_text: marquee_rect.to_string().into(),
+
+            show_background_icon: OnceCell::new(),
         }
     }
 
@@ -59,6 +65,10 @@ impl ViewerApp {
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.set_visuals(Visuals::dark());
+
+        let show_background_icon = self
+            .show_background_icon
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_background", res::icons::SHOW_BACKGROUND));
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
@@ -148,7 +158,7 @@ impl eframe::App for ViewerApp {
                     self.viewer.reset_view();
                 }
 
-                ui.toggle_value(&mut self.state.is_show_background, "Show Background");
+                ui.toggle_icon(&mut self.state.is_show_background, show_background_icon.to_icon(ui));
                 ui.toggle_value(&mut self.state.is_show_pixel_value, "Show Pixel Value");
                 ui.toggle_value(&mut self.state.is_show_crosshair, "Show Crosshair");
             });
