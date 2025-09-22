@@ -147,11 +147,8 @@ impl eframe::App for ViewerApp {
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();
                 }
-                if let Some(p) = &self.state.path {
-                    ui.label(format!("{}", p.display()));
-                } else {
-                    ui.label("(no image)");
-                }
+
+                ui.toggle_value(&mut self.state.is_show_background, "Show Background");
             });
         });
 

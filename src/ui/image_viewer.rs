@@ -184,6 +184,7 @@ impl ImageViewer {
                 } else {
                     app_state.colormap_rgb.clone()
                 };
+                let is_show_background = app_state.is_show_background;
 
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -197,14 +198,18 @@ impl ImageViewer {
                         let y = screen_h - y_top;
                         let width = rect_pixels.width().round() as i32;
                         gl.viewport(x, y, width, height);
-                        background_prog.draw(
-                            gl,
-                            viewport_size,
-                            position,
-                            16.0,
-                            visuals.extreme_bg_color,
-                            visuals.faint_bg_color,
-                        );
+
+                        if is_show_background {
+                            background_prog.draw(
+                                gl,
+                                viewport_size,
+                                position,
+                                16.0,
+                                visuals.extreme_bg_color,
+                                visuals.faint_bg_color,
+                            );
+                        }
+                        
                         if let Ok(mut image_prog) = image_prog.lock() {
                             image_prog.draw(
                                 gl,
