@@ -8,7 +8,7 @@ use crate::{
     model::{AppState, Image},
     ui::{
         component::{
-            egui_ext::{ComboBoxExt, ResponseExt, Size, UiExt},
+            egui_ext::{ComboBoxExt, Size, UiExt},
             CustomSlider,
         },
         ImageViewer,
