@@ -7,7 +7,7 @@ use eframe::egui::{SliderClamping, SliderOrientation};
 use crate::egui::{
     Color32, DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect,
     Response, Sense, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, emath,
-    epaint, lerp, pos2, remap, remap_clamp, style, style::HandleShape, vec2, Slider
+    epaint, lerp, pos2, remap, remap_clamp, style, style::HandleShape, vec2
 };
 
 /// The minus character: <https://www.compart.com/en/unicode/U+2212>
@@ -730,15 +730,6 @@ impl CustomSlider<'_> {
             });
         }
 
-        #[cfg(feature = "accesskit")]
-        {
-            use accesskit::Action;
-            ui.input(|input| {
-                decrement += input.num_accesskit_action_requests(response.id, Action::Decrement);
-                increment += input.num_accesskit_action_requests(response.id, Action::Increment);
-            });
-        }
-
         let kb_step = increment as f32 - decrement as f32;
 
         if kb_step != 0.0 {
@@ -771,18 +762,6 @@ impl CustomSlider<'_> {
                 };
             }
             self.set_value(new_value);
-        }
-
-        #[cfg(feature = "accesskit")]
-        {
-            use accesskit::{Action, ActionData};
-            ui.input(|input| {
-                for request in input.accesskit_action_requests(response.id, Action::SetValue) {
-                    if let Some(ActionData::NumericValue(new_value)) = request.data {
-                        self.set_value(new_value);
-                    }
-                }
-            });
         }
 
         // Paint it:
@@ -1015,29 +994,6 @@ impl CustomSlider<'_> {
             response.mark_changed();
         }
         response.widget_info(|| WidgetInfo::slider(ui.is_enabled(), value, self.text.text()));
-
-        #[cfg(feature = "accesskit")]
-        ui.ctx().accesskit_node_builder(response.id, |builder| {
-            use accesskit::Action;
-            builder.set_min_numeric_value(*self.range.start());
-            builder.set_max_numeric_value(*self.range.end());
-            if let Some(step) = self.step {
-                builder.set_numeric_value_step(step);
-            }
-            builder.add_action(Action::SetValue);
-
-            let clamp_range = if self.clamping == SliderClamping::Never {
-                f64::NEG_INFINITY..=f64::INFINITY
-            } else {
-                self.range()
-            };
-            if value < *clamp_range.end() {
-                builder.add_action(Action::Increment);
-            }
-            if value > *clamp_range.start() {
-                builder.add_action(Action::Decrement);
-            }
-        });
 
         let slider_response = response.clone();
 
