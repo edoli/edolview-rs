@@ -186,19 +186,13 @@ impl eframe::App for ViewerApp {
                 let is_mono = self.state.channel_index != -1 || channels == 1;
 
                 ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
-                    columns[0].text_edit_t(&mut self.tmp_min_v).on_enter(false, || {
-                        self.state.shader_params.min_v = self.tmp_min_v.parse().unwrap_or(self.state.shader_params.min_v);
-                        self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
-                    });
+                    columns[0].text_edit_value(&mut self.tmp_min_v, &mut self.state.shader_params.min_v);
                     if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
                         std::mem::swap(&mut self.state.shader_params.min_v, &mut self.state.shader_params.max_v);
                         self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
                         self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
                     }
-                    columns[2].text_edit_t(&mut self.tmp_max_v).on_enter(false, || {
-                        self.state.shader_params.max_v = self.tmp_max_v.parse().unwrap_or(self.state.shader_params.max_v);
-                        self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
-                    });
+                    columns[2].text_edit_value(&mut self.tmp_max_v, &mut self.state.shader_params.max_v);
                 });
 
                 let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {

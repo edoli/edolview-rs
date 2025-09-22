@@ -89,6 +89,7 @@ pub trait UiExt {
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
+    fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(&mut self, display_value: &mut String, value: &mut T) -> Response;
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N];
     fn columns_sized<R, const N: usize>(
         &mut self,
@@ -175,6 +176,35 @@ impl UiExt for Ui {
                 *value = v;
             }
         }
+        resp
+    }
+
+    fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(&mut self, display_value: &mut String, value: &mut T) -> Response {
+        let resp = egui::TextEdit::singleline(display_value).ui(self);
+
+        // Track whether parsing failed this frame (trigger a short visual flash)
+        let mut parse_failed = false;
+        resp.on_enter(false, || {
+            match display_value.parse::<T>() {
+                Ok(v) => {
+                    *value = v;
+                    // Normalize the text to the parsed value on success
+                }
+                Err(_) => {
+                    // Keep the user's text; flag an error to flash the field
+                    parse_failed = true;
+                }
+            }
+            *display_value = format!("{}", value);
+        });
+
+        // TODO: animate the color flash instead of just showing it for one frame
+        if parse_failed {
+            let color = Color32::from_rgba_premultiplied(255, 64, 64,  64);
+            self.painter().rect_filled(resp.rect, 4.0, color);
+            self.ctx().request_repaint();
+        }
+
         resp
     }
 
@@ -284,12 +314,11 @@ impl UiExt for Ui {
 }
 
 pub trait ResponseExt {
-    fn on_enter<'c>(self, lost_focus: bool, f: impl FnMut() + 'c) -> Self;
-    
+    fn on_enter<'c>(&self, lost_focus: bool, f: impl FnMut() + 'c) -> &Self;
 }
 
 impl ResponseExt for Response {
-    fn on_enter<'c>(self, lost_focus: bool, mut f: impl FnMut() + 'c) -> Self {
+    fn on_enter<'c>(&self, lost_focus: bool, mut f: impl FnMut() + 'c) -> &Self {
         if self.lost_focus() && self.ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             f();
             if !lost_focus {
@@ -298,7 +327,6 @@ impl ResponseExt for Response {
         }
         self
     }
-    
 }
 
 pub trait InnerRespExt {
