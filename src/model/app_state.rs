@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 
 use color_eyre::eyre::Result;
-use eframe::egui::{pos2, vec2, Rect};
 
 use crate::{
-    model::{Image, MatImage},
+    model::{Image, MatImage, Recti},
     ui::gl::ShaderParams,
-    util::math_ext::Vec2i,
+    util::math_ext::{vec2i, Vec2i},
 };
 
 pub struct AppState {
@@ -14,7 +13,7 @@ pub struct AppState {
     pub display: Option<MatImage>,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
-    pub marquee_rect: Option<Rect>,
+    pub marquee_rect: Recti,
 
     pub channel_index: i32,
     pub colormap_rgb: String,
@@ -50,7 +49,7 @@ impl AppState {
             display: None,
             shader_params: ShaderParams::default(),
             cursor_pos: None,
-            marquee_rect: None,
+            marquee_rect: Recti::ZERO,
             channel_index: -1,
             colormap_rgb: String::from("rgb"),
             colormap_mono: String::from("gray"),
@@ -65,21 +64,15 @@ impl AppState {
         Ok(())
     }
 
-    pub fn set_marquee_rect(&mut self, rect: Option<Rect>) {
+    pub fn set_marquee_rect(&mut self, rect: Recti) {
         // check marquee rect exceed image bounds
         if let Some(d) = &self.display {
-            if let Some(r) = rect {
-                let spec = d.spec();
-                let img_rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(spec.width as f32, spec.height as f32));
-                let r = r.intersect(img_rect);
-                self.marquee_rect = Some(r);
-                return;
-            } else {
-                self.marquee_rect = None;
-                return;
-            }
+            let spec = d.spec();
+            let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+            let r = rect.intersect(img_rect);
+            self.marquee_rect = r;
         } else {
-            self.marquee_rect = None;
+            self.marquee_rect = Recti::ZERO;
         }
     }
 }

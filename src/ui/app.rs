@@ -20,11 +20,13 @@ pub struct ViewerApp {
     viewer: ImageViewer,
     tmp_min_v: String,
     tmp_max_v: String,
+    tmp_marquee_rect: String,
 }
 
 impl ViewerApp {
     pub fn new() -> Self {
         let state = AppState::empty();
+        let marquee_rect = state.marquee_rect.clone();
         let shader_params = state.shader_params.clone();
 
         Self {
@@ -33,6 +35,7 @@ impl ViewerApp {
 
             tmp_min_v: shader_params.min_v.to_string().into(),
             tmp_max_v: shader_params.max_v.to_string().into(),
+            tmp_marquee_rect: marquee_rect.to_string().into(),
         }
     }
 
@@ -139,17 +142,9 @@ impl eframe::App for ViewerApp {
                         };
                         ui.label_with_colored_rect(cursor_color, dtype);
 
-                        let mean_color = if let Some(rect) = self.state.marquee_rect {
-                            if let Ok(mean) = d.mean_value_in_rect(opencv::core::Rect {
-                                x: rect.min.x as i32,
-                                y: rect.min.y as i32,
-                                width: (rect.max.x - rect.min.x) as i32,
-                                height: (rect.max.y - rect.min.y) as i32,
-                            }) {
-                                mean.iter().map(|&v| v as f32).collect()
-                            } else {
-                                vec![0.0; d.spec().channels as usize]
-                            }
+                        let rect = self.state.marquee_rect;
+                        let mean_color = if let Ok(mean) = d.mean_value_in_rect(rect.to_cv_rect()) {
+                            mean.iter().map(|&v| v as f32).collect()
                         } else {
                             vec![0.0; d.spec().channels as usize]
                         };
@@ -170,6 +165,8 @@ impl eframe::App for ViewerApp {
                 }
 
                 ui.label(" | ");
+
+                ui.text_edit_value(&mut self.tmp_marquee_rect, &mut self.state.marquee_rect);
             });
         });
 
@@ -215,7 +212,6 @@ impl eframe::App for ViewerApp {
                 display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
 
                 ui.horizontal(|ui| {
-                    
                     let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
                     ui.spacing_mut().combo_width = sizes[0];
                     egui::ComboBox::from_id_salt("channel_index").combo_i32(

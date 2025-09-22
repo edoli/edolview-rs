@@ -5,6 +5,9 @@ pub struct Vec2i {
 }
 
 impl Vec2i {
+    pub const ZERO: Self = Self { x: 0, y: 0 };
+    pub const ONE: Self = Self { x: 1, y: 1 };
+
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
@@ -17,16 +20,40 @@ impl Vec2i {
         Self { x: 1, y: 1 }
     }
 
+    #[inline(always)]
     pub fn dot(self, other: Self) -> i32 {
         self.x * other.x + self.y * other.y
     }
 
+    #[inline(always)]
     pub fn length_squared(self) -> i32 {
         self.x * self.x + self.y * self.y
     }
 
+    #[inline(always)]
     pub fn length(self) -> f32 {
         (self.length_squared() as f32).sqrt()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn min(self, other: Self) -> Self {
+        vec2i(self.x.min(other.x), self.y.min(other.y))
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn max(self, other: Self) -> Self {
+        vec2i(self.x.max(other.x), self.y.max(other.y))
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn clamp(self, min: Self, max: Self) -> Self {
+        Self {
+            x: self.x.clamp(min.x, max.x),
+            y: self.y.clamp(min.y, max.y),
+        }
     }
 }
 

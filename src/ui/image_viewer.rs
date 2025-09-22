@@ -3,7 +3,7 @@ use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::{Arc, Mutex};
 
-use crate::model::{AppState, Image};
+use crate::model::{AppState, Image, Recti};
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
 use crate::util::math_ext::vec2i;
 
@@ -144,11 +144,7 @@ impl ImageViewer {
                 if let Some(pos) = resp.interact_pointer_pos() {
                     if let DragMode::Marquee { start_image_pos } = self.drag_mode {
                         let image_pos = self.view_to_image_coords(pos, rect, pixel_per_point);
-                        let mut r = egui::Rect::from_two_pos(start_image_pos, image_pos);
-                        // app_state.marquee_rect = Some(r);
-                        r.min = r.min.floor();
-                        r.max = r.max.ceil();
-                        app_state.set_marquee_rect(Some(r));
+                        app_state.set_marquee_rect(Recti::bound_two_pos(start_image_pos, image_pos));
                     } else if let DragMode::Panning {
                         last_pixel_pos: last_pos,
                     } = self.drag_mode
@@ -227,15 +223,11 @@ impl ImageViewer {
                     })),
                 });
 
+                let selection_rect = (app_state.marquee_rect.to_rect() * (self.zoom() / pixel_per_point))
+                    .translate(self.pan / pixel_per_point + rect.min.to_vec2())
+                    .intersect(rect);
                 ui.painter().rect_stroke(
-                    app_state
-                        .marquee_rect
-                        .map(|r| {
-                            (r * (self.zoom() / pixel_per_point))
-                                .translate(self.pan / pixel_per_point + rect.min.to_vec2())
-                        })
-                        .unwrap_or(egui::Rect::NOTHING)
-                        .intersect(rect),
+                    selection_rect,
                     0.0,
                     (1.0, egui::Color32::from_gray(150)),
                     egui::StrokeKind::Middle,
