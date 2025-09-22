@@ -19,6 +19,7 @@ use crate::{
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
+    last_path: Option<PathBuf>,
     tmp_min_v: String,
     tmp_max_v: String,
     tmp_marquee_rect: Recti,
@@ -34,6 +35,8 @@ impl ViewerApp {
         Self {
             state,
             viewer: ImageViewer::new(),
+
+            last_path: None,
 
             tmp_min_v: shader_params.min_v.to_string().into(),
             tmp_max_v: shader_params.max_v.to_string().into(),
@@ -56,7 +59,15 @@ impl ViewerApp {
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.set_visuals(Visuals::dark());
-        // ctx.send_viewport_cmd(egui::ViewportCommand::Title("Test".to_owned()));
+
+        if self.state.path != self.last_path {
+            self.last_path = self.state.path.clone();
+            if let Some(p) = &self.state.path {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} - edolview", p.display()).to_owned()));
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title("edolview".to_owned()));
+            }
+        }
 
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
             let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
