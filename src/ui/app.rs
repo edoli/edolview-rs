@@ -130,48 +130,59 @@ impl eframe::App for ViewerApp {
         });
 
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    if let Some(d) = &self.state.display {
-                        let spec = d.spec();
-                        let dtype = d.spec().dtype;
+            ui.columns_sized(
+                [
+                    Size::exact(320.0),
+                    Size::exact(160.0),
+                    Size::remainder(1.0),
+                    Size::exact(64.0),
+                ],
+                |columns| {
+                    columns[0].vertical(|ui| {
+                        if let Some(d) = &self.state.display {
+                            let spec = d.spec();
+                            let dtype = d.spec().dtype;
 
-                        let cursor_color = if let Ok(pixel) = d.get_pixel_at(
-                            self.state.cursor_pos.map_or(-1, |p| p.x),
-                            self.state.cursor_pos.map_or(-1, |p| p.y),
-                        ) {
-                            pixel.iter().cloned().collect()
+                            let cursor_color = if let Ok(pixel) = d.get_pixel_at(
+                                self.state.cursor_pos.map_or(-1, |p| p.x),
+                                self.state.cursor_pos.map_or(-1, |p| p.y),
+                            ) {
+                                pixel.iter().cloned().collect()
+                            } else {
+                                vec![0.0; spec.channels as usize]
+                            };
+                            ui.label_with_colored_rect(cursor_color, dtype);
+
+                            let rect = self.state.marquee_rect;
+                            let mean_color = if let Ok(mean) = d.mean_value_in_rect(rect.to_cv_rect()) {
+                                mean.iter().map(|&v| v as f32).collect()
+                            } else {
+                                vec![0.0; d.spec().channels as usize]
+                            };
+                            ui.label_with_colored_rect(mean_color, dtype);
+                        }
+                    });
+
+                    columns[1].vertical(|ui| {
+                        if let Some(cursor_pos) = self.state.cursor_pos {
+                            ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
                         } else {
-                            vec![0.0; spec.channels as usize]
-                        };
-                        ui.label_with_colored_rect(cursor_color, dtype);
+                            ui.label("Cursor: (-, -)");
+                        }
+                        
+                        ui.text_edit_value_capture(
+                            &mut self.marquee_rect_text,
+                            &mut self.state.marquee_rect,
+                            &mut self.tmp_marquee_rect,
+                        );
+                    });
 
-                        let rect = self.state.marquee_rect;
-                        let mean_color = if let Ok(mean) = d.mean_value_in_rect(rect.to_cv_rect()) {
-                            mean.iter().map(|&v| v as f32).collect()
-                        } else {
-                            vec![0.0; d.spec().channels as usize]
-                        };
-                        ui.label_with_colored_rect(mean_color, dtype);
-                    }
-                });
-                if let Some(d) = &self.state.display {
-                    ui.label(format!("Image size: {}x{}", d.spec().width, d.spec().height));
-                } else {
-                    ui.label("Image size: -");
-                }
-                ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
-                ui.label(" | ");
-                if let Some(cursor_pos) = self.state.cursor_pos {
-                    ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
-                } else {
-                    ui.label("Cursor: (-, -)");
-                }
-
-                ui.label(" | ");
-
-                ui.text_edit_value_capture(&mut self.marquee_rect_text, &mut self.state.marquee_rect, &mut self.tmp_marquee_rect);
-            });
+                    columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
+                        ui.label("Zoom:");
+                        ui.label(format!("{:.2}x", self.viewer.zoom()));
+                    });
+                },
+            );
         });
 
         egui::SidePanel::right("right")
