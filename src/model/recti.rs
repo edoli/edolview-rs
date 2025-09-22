@@ -59,13 +59,21 @@ impl Recti {
         Self { min: point, max: point }
     }
 
+    #[inline(always)]
+    pub fn validate(self) -> Self {
+        Self {
+            min: vec2i(self.min.x.min(self.max.x), self.min.y.min(self.max.y)),
+            max: vec2i(self.min.x.max(self.max.x), self.min.y.max(self.max.y)),
+        }
+    }
+
     #[must_use]
     #[inline]
     pub fn intersects(self, other: Self) -> bool {
         self.min.x <= other.max.x && other.min.x <= self.max.x && self.min.y <= other.max.y && other.min.y <= self.max.y
     }
 
-        #[inline(always)]
+    #[inline(always)]
     #[must_use]
     pub fn union(self, other: Self) -> Self {
         Self {
@@ -83,7 +91,7 @@ impl Recti {
         }
     }
 
-        #[inline(always)]
+    #[inline(always)]
     pub fn size(&self) -> Vec2i {
         self.max - self.min
     }
@@ -97,7 +105,7 @@ impl Recti {
     pub fn height(&self) -> i32 {
         self.max.y - self.min.y
     }
-    
+
     #[inline(always)]
     pub fn area(&self) -> i32 {
         self.width() * self.height()
@@ -167,7 +175,7 @@ impl std::str::FromStr for Recti {
         }
 
         // Format 2: (x, y, width, height) — parentheses optional
-    let inner = s.trim_matches(|c: char| c == '(' || c == ')' || c == '[' || c == ']' || c.is_whitespace());
+        let inner = s.trim_matches(|c: char| c == '(' || c == ')' || c == '[' || c == ']' || c.is_whitespace());
         let parts: Vec<&str> = inner
             .split(|c: char| c == ',' || c.is_whitespace())
             .filter(|t| !t.is_empty())

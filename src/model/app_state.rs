@@ -69,8 +69,18 @@ impl AppState {
         if let Some(d) = &self.display {
             let spec = d.spec();
             let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
-            let r = rect.intersect(img_rect);
+            let r = rect.validate().intersect(img_rect);
             self.marquee_rect = r;
+        } else {
+            self.marquee_rect = Recti::ZERO;
+        }
+    }
+
+    pub fn validate_marquee_rect(&mut self) {
+        if let Some(d) = &self.display {
+            let spec = d.spec();
+            let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+            self.marquee_rect = self.marquee_rect.validate().intersect(img_rect);
         } else {
             self.marquee_rect = Recti::ZERO;
         }

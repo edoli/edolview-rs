@@ -95,6 +95,8 @@ impl eframe::App for ViewerApp {
             }
         }
 
+        self.state.validate_marquee_rect();
+
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
