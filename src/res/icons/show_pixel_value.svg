@@ -1,0 +1,25 @@
+<!-- pixel-rgb-stroked.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+     viewBox="0 0 24 24" aria-hidden="true">
+  <!-- 프레임 -->
+  <rect x="1" y="1" width="22" height="22" rx="2" fill="none"
+        stroke="#fff" stroke-width="1.5"/>
+  <!-- 격자 -->
+  <path d="M4 1v22M20 1v22M1 4h22M1 20h22" fill="none"
+        stroke="#fff" stroke-width="1" stroke-linecap="round"/>
+
+  <!-- 중앙 RGB: 단선 스트로크 글자 -->
+  <g fill="none" stroke="#fff" stroke-width="1.4"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- R (x:5~10, y:8~16) -->
+    <path d="M5 16V8H8c1.3 0 2.3 0.9 2.3 2s-1 2-2.3 2H5 M8 12l2 4"/>
+
+    <!-- G (원형 스트로크 + 안쪽 획)  중심(12,12), r=3 -->
+    <path d="M15 12a3 3 0 1 1-3-3 M15 12M14 12h-2"/>
+
+    <!-- B (x:15~19, y:8~16) -->
+    <path d="M15 8v8
+             M15 8h2c1.1 0 2 .8 2 2s-.9 2-2 2h-2
+             M15 12h2c1.2 0 2 0.8 2 2s-.8 2-2 2h-2"/>
+  </g>
+</svg>

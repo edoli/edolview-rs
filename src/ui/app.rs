@@ -28,6 +28,8 @@ pub struct ViewerApp {
     marquee_rect_text: String,
 
     show_background_icon: OnceCell<egui::TextureHandle>,
+    show_pixel_value_icon: OnceCell<egui::TextureHandle>,
+    show_crosshair_icon: OnceCell<egui::TextureHandle>,
 }
 
 impl ViewerApp {
@@ -48,6 +50,8 @@ impl ViewerApp {
             marquee_rect_text: marquee_rect.to_string().into(),
 
             show_background_icon: OnceCell::new(),
+            show_pixel_value_icon: OnceCell::new(),
+            show_crosshair_icon: OnceCell::new(),
         }
     }
 
@@ -69,6 +73,12 @@ impl eframe::App for ViewerApp {
         let show_background_icon = self
             .show_background_icon
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_background", res::icons::SHOW_BACKGROUND));
+        let show_pixel_value_icon = self
+            .show_pixel_value_icon
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_pixel_value", res::icons::SHOW_PIXEL_VALUE));
+        let show_crosshair_icon = self
+            .show_crosshair_icon
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_crosshair", res::icons::SHOW_CROSSHAIR));
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
@@ -159,8 +169,8 @@ impl eframe::App for ViewerApp {
                 }
 
                 ui.toggle_icon(&mut self.state.is_show_background, show_background_icon.to_icon(ui));
-                ui.toggle_value(&mut self.state.is_show_pixel_value, "Show Pixel Value");
-                ui.toggle_value(&mut self.state.is_show_crosshair, "Show Crosshair");
+                ui.toggle_icon(&mut self.state.is_show_pixel_value, show_pixel_value_icon.to_icon(ui));
+                ui.toggle_icon(&mut self.state.is_show_crosshair, show_crosshair_icon.to_icon(ui));
             });
         });
 

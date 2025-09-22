@@ -1,0 +1,11 @@
+<!-- crosshair-simple.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+     viewBox="0 0 24 24" aria-hidden="true">
+  <!-- 십자선 -->
+  <line x1="1" y1="12" x2="23" y2="12"
+        stroke="#fff" stroke-width="1.5"
+        stroke-linecap="round"/>
+  <line x1="12" y1="1" x2="12" y2="23"
+        stroke="#fff" stroke-width="1.5"
+        stroke-linecap="round"/>
+</svg>
