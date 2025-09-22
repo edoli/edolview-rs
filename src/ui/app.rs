@@ -13,6 +13,7 @@ use crate::{
         },
         ImageViewer,
     },
+    util::math_ext::vec2i,
 };
 
 pub struct ViewerApp {
@@ -60,6 +61,20 @@ impl eframe::App for ViewerApp {
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
             let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
+        }
+
+        if !ctx.wants_keyboard_input() {
+            ctx.input(|i| {
+                if i.key_pressed(egui::Key::A) && i.modifiers.ctrl {
+                    if let Some(d) = &self.state.display {
+                        let spec = d.spec();
+                        let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+                        self.state.marquee_rect = img_rect;
+                        self.tmp_marquee_rect = img_rect;
+                        self.marquee_rect_text = img_rect.to_string().into();
+                    }
+                }
+            });
         }
 
         // Handle drag & drop events (files) at the start of frame
@@ -169,7 +184,7 @@ impl eframe::App for ViewerApp {
                         } else {
                             ui.label("Cursor: (-, -)");
                         }
-                        
+
                         ui.text_edit_value_capture(
                             &mut self.marquee_rect_text,
                             &mut self.state.marquee_rect,
