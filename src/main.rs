@@ -3,7 +3,7 @@
 
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui::{self};
+use eframe::egui::{self, ViewportBuilder};
 use std::path::PathBuf;
 
 use crate::ui::ViewerApp;
@@ -43,7 +43,13 @@ fn main() -> Result<()> {
     }
 
     println!("{}", opencv::core::get_build_information()?);
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions {
+        viewport: ViewportBuilder::default()
+        .with_title("edolview-rs")
+        .with_inner_size(egui::vec2(1280.0, 720.0)),
+        ..Default::default()
+    };
+
     if let Err(e) = eframe::run_native(
         "edolview-rs",
         native_options,
