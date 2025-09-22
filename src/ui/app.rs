@@ -185,7 +185,7 @@ impl eframe::App for ViewerApp {
                 let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
                 let is_mono = self.state.channel_index != -1 || channels == 1;
 
-                ui.columns_sized(&[Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
+                ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
                     columns[0].text_edit_t(&mut self.tmp_min_v).on_enter(false, || {
                         self.state.shader_params.min_v = self.tmp_min_v.parse().unwrap_or(self.state.shader_params.min_v);
                         self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
@@ -221,7 +221,8 @@ impl eframe::App for ViewerApp {
                 display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
 
                 ui.horizontal(|ui| {
-                    let sizes = ui.calc_sizes(&[Size::exact(50.0), Size::remainder(1.0)]);
+                    
+                    let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
                     ui.spacing_mut().combo_width = sizes[0];
                     egui::ComboBox::from_id_salt("channel_index").combo_i32(
                         ui,

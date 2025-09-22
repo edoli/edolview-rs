@@ -89,9 +89,19 @@ pub trait UiExt {
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
-    fn calc_sizes(&self, sizes: &[Size]) -> Vec<f32>;
-    fn columns_sized<R>(&mut self, sizes: &[Size], add_contents: impl FnOnce(&mut [Self]) -> R) -> R;
-    fn columns_sized_dyn<'c, R>(&mut self, sizes: &[Size], add_contents: Box<dyn FnOnce(&mut [Self]) -> R + 'c>) -> R where Self: Sized;
+    fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N];
+    fn columns_sized<R, const N: usize>(
+        &mut self,
+        sizes: [Size; N],
+        add_contents: impl FnOnce(&mut [Self; N]) -> R,
+    ) -> R;
+    fn columns_sized_dyn<'c, R, const N: usize>(
+        &mut self,
+        sizes: [Size; N],
+        add_contents: Box<dyn FnOnce(&mut [Self; N]) -> R + 'c>,
+    ) -> R
+    where
+        Self: Sized;
 }
 
 impl UiExt for Ui {
@@ -168,11 +178,11 @@ impl UiExt for Ui {
         resp
     }
 
-    fn calc_sizes(&self, sizes: &[Size]) -> Vec<f32> {
+    fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N] {
         let total_width = self.available_width();
         let spacing = self.spacing().item_spacing.x;
 
-        let mut results = vec![0.0; sizes.len()];
+        let mut results = [0.0f32; N];
 
         let mut total_absolute = 0.0;
         let mut total_relative_fraction = 0.0;
@@ -208,6 +218,7 @@ impl UiExt for Ui {
 
         let used_space: f32 = results.iter().sum();
         let remaining_for_remainders = (total_width - used_space - spacing * (sizes.len() - 1) as f32).max(0.0);
+
         if total_remainders > 0.0 {
             let per_remainder = remaining_for_remainders / total_remainders;
             for (i, size) in sizes.iter().enumerate() {
@@ -221,47 +232,42 @@ impl UiExt for Ui {
         results
     }
 
-    
     #[inline]
-    fn columns_sized<R>(
+    fn columns_sized<R, const N: usize>(
         &mut self,
-        sizes: &[Size],
-        add_contents: impl FnOnce(&mut [Self]) -> R,
+        sizes: [Size; N],
+        add_contents: impl FnOnce(&mut [Self; N]) -> R,
     ) -> R {
         self.columns_sized_dyn(sizes, Box::new(add_contents))
     }
 
-    fn columns_sized_dyn<'c, R>(
+    fn columns_sized_dyn<'c, R, const N: usize>(
         &mut self,
-        sizes: &[Size],
-        add_contents: Box<dyn FnOnce(&mut [Self]) -> R + 'c>,
+        sizes: [Size; N],
+        add_contents: Box<dyn FnOnce(&mut [Self; N]) -> R + 'c>,
     ) -> R {
         let spacing = self.spacing().item_spacing.x;
         let actual_sizes = self.calc_sizes(sizes);
         let top_left = self.cursor().min;
         let mut current_left = 0.0;
 
-        let mut columns: Vec<Self> = (0..actual_sizes.len())
-            .map(|col_idx| {
-                let pos = top_left + egui::vec2(current_left, 0.0);
-                let cell_size = actual_sizes[col_idx];
-                let child_rect = egui::Rect::from_min_max(
-                    pos,
-                    egui::pos2(pos.x + cell_size, self.max_rect().right_bottom().y),
-                );
-                current_left += cell_size + spacing;
+        let mut columns: [Self; N] = std::array::from_fn(|col_idx| {
+            let pos = top_left + egui::vec2(current_left, 0.0);
+            let cell_size = actual_sizes[col_idx];
+            let child_rect =
+                egui::Rect::from_min_max(pos, egui::pos2(pos.x + cell_size, self.max_rect().right_bottom().y));
+            current_left += cell_size + spacing;
 
-                let mut column_ui = self.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(child_rect)
-                        .layout(egui::Layout::top_down_justified(egui::Align::Center)),
-                );
-                column_ui.set_width(cell_size);
-                column_ui
-            })
-            .collect();
+            let mut column_ui = self.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(child_rect)
+                    .layout(egui::Layout::top_down_justified(egui::Align::Center)),
+            );
+            column_ui.set_width(cell_size);
+            column_ui
+        });
 
-        let result = add_contents(&mut columns[..]);
+        let result = add_contents(&mut columns);
 
         let mut max_height = 0.0;
         for column in &columns {
