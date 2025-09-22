@@ -237,6 +237,71 @@ impl ImageViewer {
                     (1.0, egui::Color32::from_gray(150)),
                     egui::StrokeKind::Middle,
                 );
+
+                // Draw per-pixel values when zoomed-in sufficiently and enabled
+                if app_state.is_show_pixel_value && self.zoom() > 64.0 {
+                    let painter = ui.painter();
+
+                    // Compute visible image coordinate bounds
+                    let top_left_img = self.view_to_image_coords(rect.min, rect, pixel_per_point);
+                    let bottom_right_img = self.view_to_image_coords(rect.max, rect, pixel_per_point);
+
+                    let mut start_x = top_left_img.x.floor() as i32;
+                    let mut start_y = top_left_img.y.floor() as i32;
+                    let mut end_x = bottom_right_img.x.ceil() as i32;
+                    let mut end_y = bottom_right_img.y.ceil() as i32;
+
+                    // Clamp to image bounds
+                    start_x = start_x.max(0);
+                    start_y = start_y.max(0);
+                    end_x = end_x.min(spec.width);
+                    end_y = end_y.min(spec.height);
+
+                    // Determine font size relative to on-screen pixel size
+                    let font_size = 16.0 / pixel_per_point;
+                    let spacing = font_size * 0.1;
+                    let font_id = egui::FontId::monospace(font_size);
+
+                    if let Some(img) = app_state.display.as_ref() {
+                        for j in start_y..end_y {
+                            for i in start_x..end_x {
+                                if let Ok(vals) = img.get_pixel_at(i, j) {
+                                    let num_c = vals.len();
+
+                                    // Center of the image pixel in points
+                                    let center_px = egui::vec2(
+                                        (i as f32 + 0.5) * self.zoom(),
+                                        (j as f32 + 0.5) * self.zoom(),
+                                    );
+                                    let center_pt = rect.min + (self.pan + center_px) / pixel_per_point;
+
+                                    // Arrange channel lines vertically centered within the pixel cell
+                                    let total_h = (num_c as f32) * font_size;
+                                    for (c_idx, v) in vals.iter().enumerate() {
+                                        let y_offset = -total_h * 0.5 + (font_size + spacing) * (c_idx as f32 + 0.5);
+                                        let pos = egui::pos2(center_pt.x, center_pt.y + y_offset);
+
+                                        let color = match c_idx {
+                                            0 => egui::Color32::RED,
+                                            1 => egui::Color32::GREEN,
+                                            2 => egui::Color32::BLUE,
+                                            _ => egui::Color32::GRAY,
+                                        };
+
+                                        let text = format!("{:.4}", v);
+                                        painter.text(
+                                            pos,
+                                            egui::Align2::CENTER_CENTER,
+                                            text,
+                                            font_id.clone(),
+                                            color,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } else {
             ui.colored_label(egui::Color32::RED, "No texture uploaded");
