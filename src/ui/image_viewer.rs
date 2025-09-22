@@ -228,6 +228,7 @@ impl ImageViewer {
                     })),
                 });
 
+                // Draw marquee rectangle
                 let selection_rect = (app_state.marquee_rect.to_rect() * (self.zoom() / pixel_per_point))
                     .translate(self.pan / pixel_per_point + rect.min.to_vec2())
                     .intersect(rect);
@@ -237,6 +238,31 @@ impl ImageViewer {
                     (1.0, egui::Color32::from_gray(150)),
                     egui::StrokeKind::Middle,
                 );
+
+                // Draw crosshair
+                if app_state.is_show_crosshair {
+                    if let Some(cursor_px) = app_state.cursor_pos {
+                        // Center of the hovered image pixel in view points
+                        let center_px = egui::vec2(
+                            (cursor_px.x as f32 + 0.5) * self.zoom(),
+                            (cursor_px.y as f32 + 0.5) * self.zoom(),
+                        );
+                        let center_pt = rect.min + (self.pan + center_px) / pixel_per_point;
+
+                        // Draw a subtle shadow then a bright line for visibility
+                        let painter = ui.painter();
+                        let shadow = egui::Stroke { width: 3.0, color: egui::Color32::from_black_alpha(80) };
+                        let line = egui::Stroke { width: 1.0, color: egui::Color32::from_white_alpha(220) };
+
+                        let h1 = [egui::pos2(rect.left(), center_pt.y), egui::pos2(rect.right(), center_pt.y)];
+                        let v1 = [egui::pos2(center_pt.x, rect.top()), egui::pos2(center_pt.x, rect.bottom())];
+
+                        painter.line_segment(h1, shadow);
+                        painter.line_segment(v1, shadow);
+                        painter.line_segment(h1, line);
+                        painter.line_segment(v1, line);
+                    }
+                };
 
                 // Draw per-pixel values when zoomed-in sufficiently and enabled
                 if app_state.is_show_pixel_value && self.zoom() > 64.0 {

@@ -150,6 +150,7 @@ impl eframe::App for ViewerApp {
 
                 ui.toggle_value(&mut self.state.is_show_background, "Show Background");
                 ui.toggle_value(&mut self.state.is_show_pixel_value, "Show Pixel Value");
+                ui.toggle_value(&mut self.state.is_show_crosshair, "Show Crosshair");
             });
         });
 
