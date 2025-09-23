@@ -204,9 +204,7 @@ impl ImageViewer {
                         let pos = pos * pixel_per_point;
                         let delta = pos - last_pos;
                         self.drag_mode = DragMode::Panning { last_pixel_pos: pos };
-                        let dx = delta.x;
-                        let dy = delta.y;
-                        self.pan += egui::vec2(dx, dy);
+                        self.pan += egui::vec2(delta.x, delta.y);
                     } else if let DragMode::Resizing { handle, start_rect } = self.drag_mode {
                         // Determine the fixed (opposite) corner from the start_rect
                         let (ax, ay) = match handle {
