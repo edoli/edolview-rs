@@ -168,7 +168,7 @@ impl eframe::App for ViewerApp {
                     self.viewer.reset_view();
                 }
 
-                if ui.button("Fit Selection").on_hover_text("Fit marquee to view with integer zoom").clicked() {
+                if ui.button("Fit Selection").on_hover_text("Fit marquee to view").clicked() {
                     let rect = self.state.marquee_rect.validate();
                     self.viewer.fit_rect(rect);
                 }
@@ -177,9 +177,21 @@ impl eframe::App for ViewerApp {
                     self.viewer.center_rect(rect);
                 }
 
-                ui.toggle_icon(&mut self.state.is_show_background, show_background_icon.to_icon(ui));
-                ui.toggle_icon(&mut self.state.is_show_pixel_value, show_pixel_value_icon.to_icon(ui));
-                ui.toggle_icon(&mut self.state.is_show_crosshair, show_crosshair_icon.to_icon(ui));
+                ui.toggle_icon(
+                    &mut self.state.is_show_background,
+                    show_background_icon.to_icon(ui),
+                    "Show Background",
+                );
+                ui.toggle_icon(
+                    &mut self.state.is_show_pixel_value,
+                    show_pixel_value_icon.to_icon(ui),
+                    "Show Pixel Value",
+                );
+                ui.toggle_icon(
+                    &mut self.state.is_show_crosshair,
+                    show_crosshair_icon.to_icon(ui),
+                    "Show Crosshair",
+                );
             });
         });
 

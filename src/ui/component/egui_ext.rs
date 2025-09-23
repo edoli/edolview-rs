@@ -90,7 +90,7 @@ pub trait UiExt {
         value: &mut T,
         last_value: &mut T,
     ) -> Response;
-    fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>) -> Response;
+    fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>, name: &str) -> Response;
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N];
     fn columns_sized<R, const N: usize>(
         &mut self,
@@ -201,7 +201,7 @@ impl UiExt for Ui {
         self.text_edit_value(display_value, value)
     }
 
-    fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>) -> Response {
+    fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>, name: &str) -> Response {
         let tint_color = if *selected {
             self.style().visuals.selection.bg_fill
         } else {
@@ -209,7 +209,7 @@ impl UiExt for Ui {
         };
         let image_button = egui::ImageButton::new(icon.into().tint(tint_color));
 
-        let resp = self.add(image_button);
+        let resp = self.add(image_button).on_hover_text(name);
         if resp.clicked() {
             *selected = !*selected;
         }
