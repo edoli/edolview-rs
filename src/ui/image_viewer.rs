@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::model::{AppState, Image, Recti};
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
+use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
 
 enum DragMode {
@@ -159,16 +160,18 @@ impl ImageViewer {
                 self.dragging = true;
                 if let Some(pos) = resp.interact_pointer_pos() {
                     // If a marquee exists and a corner handle is grabbed, start resizing
-                    let handle_under_mouse = if app_state.marquee_rect.width() > 0
-                        && app_state.marquee_rect.height() > 0
-                    {
-                        hit_test_handles(selection_rect_view, pos)
-                    } else {
-                        None
-                    };
+                    let handle_under_mouse =
+                        if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
+                            hit_test_handles(selection_rect_view, pos)
+                        } else {
+                            None
+                        };
 
                     self.drag_mode = if let Some(handle) = handle_under_mouse {
-                        DragMode::Resizing { handle, start_rect: app_state.marquee_rect }
+                        DragMode::Resizing {
+                            handle,
+                            start_rect: app_state.marquee_rect,
+                        }
                     } else if ui.input(|i| i.modifiers.shift) {
                         // Start marquee creation
                         DragMode::Marquee {
@@ -186,7 +189,11 @@ impl ImageViewer {
             if self.dragging {
                 if let Some(pos) = resp.interact_pointer_pos() {
                     if let DragMode::Marquee { start_image_pos } = self.drag_mode {
-                        let image_pos = self.view_to_image_coords(pos, rect, pixel_per_point);
+                        // If Ctrl pressed, constrain to square relative to start
+                        let is_ctrl = ui.input(|i| i.modifiers.ctrl);
+                        let image_pos = self
+                            .view_to_image_coords(pos, rect, pixel_per_point)
+                            .cond_map(is_ctrl, |image_pos| enforce_square_from_anchor(start_image_pos, image_pos));
                         app_state.set_marquee_rect(Recti::bound_two_pos(start_image_pos, image_pos));
                     } else if let DragMode::Panning {
                         last_pixel_pos: last_pos,
@@ -199,9 +206,6 @@ impl ImageViewer {
                         let dy = delta.y;
                         self.pan += egui::vec2(dx, dy);
                     } else if let DragMode::Resizing { handle, start_rect } = self.drag_mode {
-                        // Convert current pointer to image coordinates
-                        let img_pos = self.view_to_image_coords(pos, rect, pixel_per_point);
-
                         // Determine the fixed (opposite) corner from the start_rect
                         let (ax, ay) = match handle {
                             ResizeHandle::TopLeft => (start_rect.max.x as f32, start_rect.max.y as f32),
@@ -210,7 +214,13 @@ impl ImageViewer {
                             ResizeHandle::BottomRight => (start_rect.min.x as f32, start_rect.min.y as f32),
                         };
                         let anchor = egui::pos2(ax, ay);
-                        app_state.set_marquee_rect(Recti::bound_two_pos(anchor, img_pos));
+
+                        // If Ctrl pressed, constrain to square relative to anchor
+                        let is_ctrl = ui.input(|i| i.modifiers.ctrl);
+                        let image_pos = self
+                            .view_to_image_coords(pos, rect, pixel_per_point)
+                            .cond_map(is_ctrl, |image_pos| enforce_square_from_anchor(anchor, image_pos));
+                        app_state.set_marquee_rect(Recti::bound_two_pos(anchor, image_pos));
                     }
                 }
 
@@ -298,10 +308,10 @@ impl ImageViewer {
                     let painter = ui.painter();
                     let handle_size = 8.0; // in points
                     let corners = [
-                        selection_rect.min,                                                     // TL
-                        egui::pos2(selection_rect.max.x, selection_rect.min.y),                // TR
-                        egui::pos2(selection_rect.min.x, selection_rect.max.y),                // BL
-                        selection_rect.max,                                                     // BR
+                        selection_rect.min,                                     // TL
+                        egui::pos2(selection_rect.max.x, selection_rect.min.y), // TR
+                        egui::pos2(selection_rect.min.x, selection_rect.max.y), // BL
+                        selection_rect.max,                                     // BR
                     ];
                     for &c in &corners {
                         let r = egui::Rect::from_center_size(c, egui::vec2(handle_size, handle_size));
@@ -535,4 +545,18 @@ fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<R
         }
     }
     None
+}
+
+fn enforce_square_from_anchor(anchor: egui::Pos2, free: egui::Pos2) -> egui::Pos2 {
+    let dx = free.x - anchor.x;
+    let dy = free.y - anchor.y;
+    let adx = dx.abs();
+    let ady = dy.abs();
+    if adx == 0.0 && ady == 0.0 {
+        return free;
+    }
+    let side = adx.max(ady);
+    let sx = if dx >= 0.0 { 1.0 } else { -1.0 };
+    let sy = if dy >= 0.0 { 1.0 } else { -1.0 };
+    egui::pos2(anchor.x + sx * side, anchor.y + sy * side)
 }
