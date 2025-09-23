@@ -188,6 +188,10 @@ impl eframe::App for ViewerApp {
                     self.viewer.center_rect(rect);
                 }
 
+                ui.separator();
+                ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size").on_hover_text(
+                    "When enabled, Ctrl+C copies marquee at image pixel size (ignores zoom).",
+                );
                 ui.toggle_icon(
                     &mut self.state.is_show_background,
                     show_background_icon.to_icon(ui),

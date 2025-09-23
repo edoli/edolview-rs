@@ -31,6 +31,9 @@ pub struct AppState {
     pub is_server_running: bool,
     pub is_server_receiving: bool,
     pub image_server_port: u16,
+
+    // Copy behavior: when true, Ctrl+C copies marquee at original pixel size regardless of zoom.
+    pub copy_use_original_size: bool,
 }
 
 fn list_colormaps(dir: &PathBuf) -> Vec<String> {
@@ -75,6 +78,7 @@ impl AppState {
             is_server_running: false,
             is_server_receiving: false,
             image_server_port: 21734,
+            copy_use_original_size: true,
         }
     }
 

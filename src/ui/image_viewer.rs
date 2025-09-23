@@ -231,15 +231,15 @@ impl ImageViewer {
             }
 
             // Queue a Ctrl+C copy operation to perform inside GL callback
-            let mut copy_request: Option<(i32, i32, egui::Vec2)> = None;
+            let mut copy_request: Option<(i32, i32, egui::Vec2, f32)> = None;
             if self.copy_requested {
                 let sel = app_state.marquee_rect;
                 if sel.width() > 0 && sel.height() > 0 {
-                    let scale = self.zoom();
-                    let out_w = (sel.width() as f32 * scale).round().max(1.0) as i32;
-                    let out_h = (sel.height() as f32 * scale).round().max(1.0) as i32;
-                    let position = egui::vec2(-(sel.min.x as f32) * scale, -(sel.min.y as f32) * scale);
-                    copy_request = Some((out_w, out_h, position));
+                    let scale_for_copy = if app_state.copy_use_original_size { 1.0 } else { self.zoom() };
+                    let out_w = (sel.width() as f32 * scale_for_copy).round().max(1.0) as i32;
+                    let out_h = (sel.height() as f32 * scale_for_copy).round().max(1.0) as i32;
+                    let position = egui::vec2(-(sel.min.x as f32) * scale_for_copy, -(sel.min.y as f32) * scale_for_copy);
+                    copy_request = Some((out_w, out_h, position, scale_for_copy));
                 }
                 self.copy_requested = false;
             }
@@ -306,7 +306,7 @@ impl ImageViewer {
                         }
 
                         // If a copy was requested, render to an offscreen FBO and place on clipboard
-                        if let Some((out_w, out_h, crop_pos)) = copy_request {
+                        if let Some((out_w, out_h, crop_pos, copy_scale)) = copy_request {
                             // Create offscreen target
                             let fbo = gl.create_framebuffer().unwrap();
                             gl.bind_framebuffer(GL::FRAMEBUFFER, Some(fbo));
@@ -349,7 +349,7 @@ impl ImageViewer {
                                         image_size,
                                         channel_index,
                                         is_mono,
-                                        scale,
+                                        copy_scale,
                                         crop_pos,
                                         &shader_params,
                                     );
@@ -390,7 +390,7 @@ impl ImageViewer {
                             gl.bind_framebuffer(GL::FRAMEBUFFER, None);
                             gl.delete_framebuffer(fbo);
                             gl.delete_texture(tex);
-                            
+
                             // Restore viewport to screen
                             gl.viewport(0, 0, screen_w, screen_h);
                             gl.enable(GL::SCISSOR_TEST);
