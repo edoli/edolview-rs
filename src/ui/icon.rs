@@ -15,13 +15,13 @@ pub fn load_svg_icon_texture(ctx: &egui::Context, name: impl Into<String>, svg_b
 }
 
 pub trait IconExt {
-    fn to_icon<'c>(&self, ui: &egui::Ui) -> egui::Image<'c>;
+    fn to_icon<'c>(&self, ctx: &egui::Context) -> egui::Image<'c>;
 }
 
 impl IconExt for egui::TextureHandle {
-    fn to_icon<'c>(&self, ui: &egui::Ui) -> egui::Image<'c> {
+    fn to_icon<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         let size = self.size_vec2();
-        egui::Image::from(self).fit_to_exact_size(size / ui.pixels_per_point())
+        egui::Image::from(self).fit_to_exact_size(size / ctx.pixels_per_point())
     }
 }
 

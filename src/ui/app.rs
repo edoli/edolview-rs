@@ -1,19 +1,18 @@
 use core::f32;
-use std::{cell::OnceCell, path::PathBuf};
+use std::path::PathBuf;
 
 use eframe::egui::{self, vec2, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
     model::{AppState, Image, Recti},
-    res,
+    res::icons::Icons,
     ui::{
         component::{
             egui_ext::{ComboBoxExt, Size, UiExt},
             CustomSlider,
         },
         gl::ScaleMode,
-        icon::{self, IconExt},
         ImageViewer,
     },
     util::math_ext::vec2i,
@@ -32,17 +31,11 @@ pub struct ViewerApp {
     tmp_marquee_rect: Recti,
     marquee_rect_text: String,
 
-    show_background_icon: OnceCell<egui::TextureHandle>,
-    show_pixel_value_icon: OnceCell<egui::TextureHandle>,
-    show_crosshair_icon: OnceCell<egui::TextureHandle>,
-
-    scale_linear_icon: OnceCell<egui::TextureHandle>,
-    scale_inverse_icon: OnceCell<egui::TextureHandle>,
-    scale_log_icon: OnceCell<egui::TextureHandle>,
-
     // Panel visibility toggles
     show_side_panel: bool,
     show_bottom_panel: bool,
+
+    icons: Icons,
 }
 
 impl ViewerApp {
@@ -62,16 +55,10 @@ impl ViewerApp {
             tmp_marquee_rect: marquee_rect.clone(),
             marquee_rect_text: marquee_rect.to_string().into(),
 
-            show_background_icon: OnceCell::new(),
-            show_pixel_value_icon: OnceCell::new(),
-            show_crosshair_icon: OnceCell::new(),
-
-            scale_linear_icon: OnceCell::new(),
-            scale_inverse_icon: OnceCell::new(),
-            scale_log_icon: OnceCell::new(),
-
             show_side_panel: true,
             show_bottom_panel: true,
+
+            icons: Icons::new(),
         }
     }
 
@@ -89,25 +76,6 @@ impl ViewerApp {
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.set_visuals(Visuals::dark());
-
-        let show_background_icon = self
-            .show_background_icon
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_background", res::icons::SHOW_BACKGROUND));
-        let show_pixel_value_icon = self
-            .show_pixel_value_icon
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_pixel_value", res::icons::SHOW_PIXEL_VALUE));
-        let show_crosshair_icon = self
-            .show_crosshair_icon
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_crosshair", res::icons::SHOW_CROSSHAIR));
-        let scale_linear_icon = self
-            .scale_linear_icon
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_linear", res::icons::SCALE_LINEAR));
-        let scale_inverse_icon = self
-            .scale_inverse_icon
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_inverse", res::icons::SCALE_INVERSE));
-        let scale_log_icon = self
-            .scale_log_icon
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_log", res::icons::SCALE_LOG));
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
@@ -248,17 +216,17 @@ impl eframe::App for ViewerApp {
                     .on_hover_text("When enabled, Ctrl+C copies marquee at image pixel size (ignores zoom).");
                 ui.toggle_icon(
                     &mut self.state.is_show_background,
-                    show_background_icon.to_icon(ui),
+                    self.icons.get_show_background(ctx),
                     "Show Background",
                 );
                 ui.toggle_icon(
                     &mut self.state.is_show_pixel_value,
-                    show_pixel_value_icon.to_icon(ui),
+                    self.icons.get_show_pixel_value(ctx),
                     "Show Pixel Value",
                 );
                 ui.toggle_icon(
                     &mut self.state.is_show_crosshair,
-                    show_crosshair_icon.to_icon(ui),
+                    self.icons.get_show_crosshair(ctx),
                     "Show Crosshair",
                 );
 
@@ -364,13 +332,13 @@ impl eframe::App for ViewerApp {
                                     ui.radio_icon(
                                         &mut self.state.shader_params.scale_mode_channels[i],
                                         ScaleMode::Linear,
-                                        scale_linear_icon.to_icon(ui),
+                                        self.icons.get_scale_linear(ctx),
                                         "Linear",
                                     );
                                     ui.radio_icon(
                                         &mut self.state.shader_params.scale_mode_channels[i],
                                         ScaleMode::Inverse,
-                                        scale_inverse_icon.to_icon(ui),
+                                        self.icons.get_scale_inverse(ctx),
                                         "Inverse",
                                     );
 
@@ -385,7 +353,7 @@ impl eframe::App for ViewerApp {
                                                     egui::DragValue::new(
                                                         &mut self.state.shader_params.min_v_channels[i],
                                                     )
-                                                    .speed(0.01)
+                                                    .speed(0.01),
                                                 )
                                                 .on_hover_text("Min value");
                                             if columns[1]
@@ -403,7 +371,7 @@ impl eframe::App for ViewerApp {
                                                     egui::DragValue::new(
                                                         &mut self.state.shader_params.max_v_channels[i],
                                                     )
-                                                    .speed(0.01)
+                                                    .speed(0.01),
                                                 )
                                                 .on_hover_text("Max value");
                                         },
@@ -415,13 +383,13 @@ impl eframe::App for ViewerApp {
                                 ui.radio_icon(
                                     &mut self.state.shader_params.scale_mode,
                                     ScaleMode::Linear,
-                                    scale_linear_icon.to_icon(ui),
+                                    self.icons.get_scale_linear(ctx),
                                     "Linear",
                                 );
                                 ui.radio_icon(
                                     &mut self.state.shader_params.scale_mode,
                                     ScaleMode::Inverse,
-                                    scale_inverse_icon.to_icon(ui),
+                                    self.icons.get_scale_inverse(ctx),
                                     "Inverse",
                                 );
 
@@ -476,11 +444,10 @@ impl eframe::App for ViewerApp {
                     ui.horizontal(|ui| {
                         let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
                         ui.spacing_mut().combo_width = sizes[0];
-                        egui::ComboBox::from_id_salt("channel_index").combo_i32(
-                            ui,
-                            &mut self.state.channel_index,
-                            &(-1..channels).collect(),
-                        ).response.on_hover_text("Channel to display -1: color, 0: R, 1: G, 2: B, 3: A");
+                        egui::ComboBox::from_id_salt("channel_index")
+                            .combo_i32(ui, &mut self.state.channel_index, &(-1..channels).collect())
+                            .response
+                            .on_hover_text("Channel to display -1: color, 0: R, 1: G, 2: B, 3: A");
 
                         ui.spacing_mut().combo_width = sizes[1];
                         if is_mono {
@@ -495,7 +462,9 @@ impl eframe::App for ViewerApp {
                                 &mut self.state.colormap_rgb,
                                 &self.state.colormap_rgb_list,
                             )
-                        }.response.on_hover_text("Colormap");
+                        }
+                        .response
+                        .on_hover_text("Colormap");
                     });
                 });
         }
