@@ -32,6 +32,7 @@ pub struct ImageViewer {
     pan: egui::Vec2,
     dragging: bool,
     drag_mode: DragMode,
+    copy_requested: bool,
     last_image_id: Option<u64>, // cache key to know when to re-upload texture
     last_viewport_size_px: Option<egui::Vec2>,
 }
@@ -47,6 +48,7 @@ impl ImageViewer {
             pan: egui::Vec2::ZERO,
             dragging: false,
             drag_mode: DragMode::None,
+            copy_requested: false,
             last_image_id: None,
             last_viewport_size_px: None,
         }
@@ -477,6 +479,10 @@ impl ImageViewer {
         let viewport_cx = vw * 0.5;
         let viewport_cy = vh * 0.5;
         self.pan = egui::vec2(viewport_cx - rect_cx * scale, viewport_cy - rect_cy * scale);
+    }
+
+    pub fn request_copy(&mut self) {
+        self.copy_requested = true;
     }
 }
 

@@ -18,6 +18,11 @@ use crate::{
     util::math_ext::vec2i,
 };
 
+
+const SELECT_ALL_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
+const SELECT_NONE_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
+const COPY_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::D);
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -95,8 +100,8 @@ impl eframe::App for ViewerApp {
         }
 
         if !ctx.wants_keyboard_input() {
-            ctx.input(|i| {
-                if i.key_pressed(egui::Key::A) && i.modifiers.ctrl {
+            ctx.input_mut(|i| {
+                if i.consume_shortcut(&SELECT_ALL_SC) {
                     if let Some(d) = &self.state.display {
                         let spec = d.spec();
                         let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
@@ -105,8 +110,11 @@ impl eframe::App for ViewerApp {
                         self.marquee_rect_text = img_rect.to_string().into();
                     }
                 }
-                if i.key_pressed(egui::Key::Escape) {
+                if i.consume_shortcut(&SELECT_NONE_SC) {
                     self.state.reset_marquee_rect();
+                }
+                if i.consume_shortcut(&COPY_SC) {
+                    self.viewer.request_copy();
                 }
             });
         }
