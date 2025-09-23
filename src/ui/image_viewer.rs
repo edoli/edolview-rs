@@ -230,6 +230,20 @@ impl ImageViewer {
                 }
             }
 
+            // Queue a Ctrl+C copy operation to perform inside GL callback
+            let mut copy_request: Option<(i32, i32, egui::Vec2)> = None;
+            if self.copy_requested {
+                let sel = app_state.marquee_rect;
+                if sel.width() > 0 && sel.height() > 0 {
+                    let scale = self.zoom();
+                    let out_w = (sel.width() as f32 * scale).round().max(1.0) as i32;
+                    let out_h = (sel.height() as f32 * scale).round().max(1.0) as i32;
+                    let position = egui::vec2(-(sel.min.x as f32) * scale, -(sel.min.y as f32) * scale);
+                    copy_request = Some((out_w, out_h, position));
+                }
+                self.copy_requested = false;
+            }
+
             if let (Some(background_prog), Some(image_prog), Some(_gl)) =
                 (self.background_prog.clone(), self.image_prog.clone(), frame.gl())
             {
@@ -289,6 +303,97 @@ impl ImageViewer {
                                 position,
                                 &shader_params,
                             );
+                        }
+
+                        // If a copy was requested, render to an offscreen FBO and place on clipboard
+                        if let Some((out_w, out_h, crop_pos)) = copy_request {
+                            // Create offscreen target
+                            let fbo = gl.create_framebuffer().unwrap();
+                            gl.bind_framebuffer(GL::FRAMEBUFFER, Some(fbo));
+                            let tex = gl.create_texture().unwrap();
+                            gl.bind_texture(GL::TEXTURE_2D, Some(tex));
+                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as _);
+                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::LINEAR as _);
+                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as _);
+                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as _);
+                            gl.tex_image_2d(
+                                GL::TEXTURE_2D,
+                                0,
+                                GL::RGBA8 as i32,
+                                out_w,
+                                out_h,
+                                0,
+                                GL::RGBA,
+                                GL::UNSIGNED_BYTE,
+                                GL::PixelUnpackData::Slice(None),
+                            );
+                            gl.framebuffer_texture_2d(
+                                GL::FRAMEBUFFER,
+                                GL::COLOR_ATTACHMENT0,
+                                GL::TEXTURE_2D,
+                                Some(tex),
+                                0,
+                            );
+                            if gl.check_framebuffer_status(GL::FRAMEBUFFER) == GL::FRAMEBUFFER_COMPLETE {
+                                gl.viewport(0, 0, out_w, out_h);
+                                gl.disable(GL::SCISSOR_TEST);
+
+                                gl.clear_color(0.0, 0.0, 0.0, 0.0);
+                                gl.clear(GL::COLOR_BUFFER_BIT);
+                                if let Ok(mut image_prog) = image_prog.lock() {
+                                    image_prog.draw(
+                                        gl,
+                                        tex_handle,
+                                        colormap.as_str(),
+                                        egui::vec2(out_w as f32, out_h as f32),
+                                        image_size,
+                                        channel_index,
+                                        is_mono,
+                                        scale,
+                                        crop_pos,
+                                        &shader_params,
+                                    );
+                                }
+
+                                // Read back
+                                let mut buf = vec![0u8; (out_w as usize) * (out_h as usize) * 4];
+                                gl.read_pixels(
+                                    0,
+                                    0,
+                                    out_w,
+                                    out_h,
+                                    GL::RGBA,
+                                    GL::UNSIGNED_BYTE,
+                                    GL::PixelPackData::Slice(Some(buf.as_mut_slice())),
+                                );
+
+                                // Flip vertically
+                                let row_stride = (out_w as usize) * 4;
+                                let mut flipped = vec![0u8; buf.len()];
+                                for y in 0..(out_h as usize) {
+                                    let src_y = (out_h as usize - 1) - y;
+                                    let src_off = src_y * row_stride;
+                                    let dst_off = y * row_stride;
+                                    flipped[dst_off..dst_off + row_stride]
+                                        .copy_from_slice(&buf[src_off..src_off + row_stride]);
+                                }
+
+                                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                    let img = arboard::ImageData {
+                                        width: out_w as usize,
+                                        height: out_h as usize,
+                                        bytes: std::borrow::Cow::Owned(flipped),
+                                    };
+                                    let _ = clipboard.set_image(img);
+                                }
+                            }
+                            gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+                            gl.delete_framebuffer(fbo);
+                            gl.delete_texture(tex);
+                            
+                            // Restore viewport to screen
+                            gl.viewport(0, 0, screen_w, screen_h);
+                            gl.enable(GL::SCISSOR_TEST);
                         }
                         gl.viewport(0, 0, screen_w, screen_h);
                     })),
