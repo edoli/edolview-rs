@@ -324,46 +324,109 @@ impl eframe::App for ViewerApp {
 
                     let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
                     let is_mono = self.state.channel_index != -1 || channels == 1;
+                    let visible_channels = if is_mono { 1 } else { channels.max(1).min(4) } as usize;
 
-                    ui.horizontal(|ui| {
+                    ui.separator();
+                    ui.checkbox(&mut self.state.shader_params.use_per_channel, "Per-channel controls");
+
+                    ui.vertical(|ui| {
                         let mut style: egui::Style = ui.style().as_ref().clone();
                         egui::containers::menu::menu_style(&mut style);
                         ui.set_style(std::sync::Arc::new(style));
 
-                        ui.radio_icon(
-                            &mut self.state.shader_params.scale_mode,
-                            ScaleMode::Linear,
-                            scale_linear_icon.to_icon(ui),
-                            "Linear",
-                        );
-                        ui.radio_icon(
-                            &mut self.state.shader_params.scale_mode,
-                            ScaleMode::Inverse,
-                            scale_inverse_icon.to_icon(ui),
-                            "Inverse",
-                        );
-                        ui.radio_icon(
-                            &mut self.state.shader_params.scale_mode,
-                            ScaleMode::Log,
-                            scale_log_icon.to_icon(ui),
-                            "Log",
-                        );
+                        if self.state.shader_params.use_per_channel {
+                            for i in 0..visible_channels {
+                                ui.horizontal(|ui| {
+                                    let label = match (visible_channels, i) {
+                                        (1, 0) => "C".to_string(),
+                                        (_, 0) => "R".to_string(),
+                                        (_, 1) => "G".to_string(),
+                                        (_, 2) => "B".to_string(),
+                                        _ => "A".to_string(),
+                                    };
+                                    ui.label(format!("{}", label));
+                                    ui.radio_icon(
+                                        &mut self.state.shader_params.scale_mode_channels[i],
+                                        ScaleMode::Linear,
+                                        scale_linear_icon.to_icon(ui),
+                                        "Linear",
+                                    );
+                                    ui.radio_icon(
+                                        &mut self.state.shader_params.scale_mode_channels[i],
+                                        ScaleMode::Inverse,
+                                        scale_inverse_icon.to_icon(ui),
+                                        "Inverse",
+                                    );
 
-                        ui.style_mut().spacing.item_spacing = vec2(0.0, 0.0);
-                        ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
-                            columns[0].text_edit_value(&mut self.tmp_min_v, &mut self.state.shader_params.min_v);
+                                    ui.separator();
 
-                            if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
-                                std::mem::swap(
-                                    &mut self.state.shader_params.min_v,
-                                    &mut self.state.shader_params.max_v,
-                                );
-                                self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
-                                self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
+                                    ui.style_mut().spacing.item_spacing = vec2(0.0, 0.0);
+                                    ui.columns_sized(
+                                        [Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)],
+                                        |columns| {
+                                            columns[0].add(
+                                                egui::DragValue::new(&mut self.state.shader_params.min_v_channels[i])
+                                                    .speed(0.01),
+                                            );
+                                            if columns[1]
+                                                .button("↔")
+                                                .on_hover_text("Switch min/max for this channel")
+                                                .clicked()
+                                            {
+                                                std::mem::swap(
+                                                    &mut self.state.shader_params.min_v_channels[i],
+                                                    &mut self.state.shader_params.max_v_channels[i],
+                                                );
+                                            }
+                                            columns[2].add(
+                                                egui::DragValue::new(&mut self.state.shader_params.max_v_channels[i])
+                                                    .speed(0.01),
+                                            );
+                                        },
+                                    );
+                                });
                             }
-                            columns[2].text_edit_value(&mut self.tmp_max_v, &mut self.state.shader_params.max_v);
-                        });
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.radio_icon(
+                                    &mut self.state.shader_params.scale_mode,
+                                    ScaleMode::Linear,
+                                    scale_linear_icon.to_icon(ui),
+                                    "Linear",
+                                );
+                                ui.radio_icon(
+                                    &mut self.state.shader_params.scale_mode,
+                                    ScaleMode::Inverse,
+                                    scale_inverse_icon.to_icon(ui),
+                                    "Inverse",
+                                );
+
+                                ui.separator();
+
+                                ui.style_mut().spacing.item_spacing = vec2(0.0, 0.0);
+                                ui.columns_sized(
+                                    [Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)],
+                                    |columns| {
+                                        columns[0]
+                                            .add(egui::DragValue::new(&mut self.state.shader_params.min_v).speed(0.01));
+
+                                        if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
+                                            std::mem::swap(
+                                                &mut self.state.shader_params.min_v,
+                                                &mut self.state.shader_params.max_v,
+                                            );
+                                            self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
+                                            self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
+                                        }
+                                        columns[2]
+                                            .add(egui::DragValue::new(&mut self.state.shader_params.max_v).speed(0.01));
+                                    },
+                                );
+                            });
+                        }
                     });
+
+                    ui.separator();
 
                     let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
                         ui.spacing_mut().slider_width = ui.available_width() - 128.0;

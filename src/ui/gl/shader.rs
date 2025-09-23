@@ -29,10 +29,20 @@ pub struct ImageProgram {
     u_min_v: glow::UniformLocation,
     u_max_v: glow::UniformLocation,
     u_scale_mode: glow::UniformLocation,
-
-    u_r_scale: Option<glow::UniformLocation>,
-    u_g_scale: Option<glow::UniformLocation>,
-    u_b_scale: Option<glow::UniformLocation>,
+    // Per-channel uniforms
+    u_use_per_channel: Option<glow::UniformLocation>,
+    u_min_v0: Option<glow::UniformLocation>,
+    u_min_v1: Option<glow::UniformLocation>,
+    u_min_v2: Option<glow::UniformLocation>,
+    u_min_v3: Option<glow::UniformLocation>,
+    u_max_v0: Option<glow::UniformLocation>,
+    u_max_v1: Option<glow::UniformLocation>,
+    u_max_v2: Option<glow::UniformLocation>,
+    u_max_v3: Option<glow::UniformLocation>,
+    u_scale_mode0: Option<glow::UniformLocation>,
+    u_scale_mode1: Option<glow::UniformLocation>,
+    u_scale_mode2: Option<glow::UniformLocation>,
+    u_scale_mode3: Option<glow::UniformLocation>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -55,10 +65,11 @@ pub struct ShaderParams {
     pub gamma: f32,
     pub min_v: f32,
     pub max_v: f32,
-    pub r_scale: f32,
-    pub g_scale: f32,
-    pub b_scale: f32,
     pub scale_mode: ScaleMode,
+    pub use_per_channel: bool,
+    pub min_v_channels: [f32; 4],
+    pub max_v_channels: [f32; 4],
+    pub scale_mode_channels: [ScaleMode; 4],
 }
 
 impl Default for ShaderParams {
@@ -70,9 +81,10 @@ impl Default for ShaderParams {
             min_v: 0.0,
             max_v: 1.0,
             scale_mode: ScaleMode::Linear,
-            r_scale: 1.0,
-            g_scale: 1.0,
-            b_scale: 1.0,
+            use_per_channel: false,
+            min_v_channels: [0.0; 4],
+            max_v_channels: [1.0; 4],
+            scale_mode_channels: [ScaleMode::Linear; 4],
         }
     }
 }
@@ -183,9 +195,19 @@ impl ImageProgram {
             let u_max_v = gl.check_and_get_uniform_location(program, "u_max_v");
             let u_scale_mode = gl.check_and_get_uniform_location(program, "u_scale_mode");
 
-            let u_r_scale = gl.get_uniform_location(program, "u_r_scale");
-            let u_g_scale = gl.get_uniform_location(program, "u_g_scale");
-            let u_b_scale = gl.get_uniform_location(program, "u_b_scale");
+            let u_use_per_channel = gl.get_uniform_location(program, "u_use_per_channel");
+            let u_min_v0 = gl.get_uniform_location(program, "u_min_v0");
+            let u_min_v1 = gl.get_uniform_location(program, "u_min_v1");
+            let u_min_v2 = gl.get_uniform_location(program, "u_min_v2");
+            let u_min_v3 = gl.get_uniform_location(program, "u_min_v3");
+            let u_max_v0 = gl.get_uniform_location(program, "u_max_v0");
+            let u_max_v1 = gl.get_uniform_location(program, "u_max_v1");
+            let u_max_v2 = gl.get_uniform_location(program, "u_max_v2");
+            let u_max_v3 = gl.get_uniform_location(program, "u_max_v3");
+            let u_scale_mode0 = gl.get_uniform_location(program, "u_scale_mode0");
+            let u_scale_mode1 = gl.get_uniform_location(program, "u_scale_mode1");
+            let u_scale_mode2 = gl.get_uniform_location(program, "u_scale_mode2");
+            let u_scale_mode3 = gl.get_uniform_location(program, "u_scale_mode3");
 
             Ok(Self {
                 program,
@@ -207,9 +229,19 @@ impl ImageProgram {
                 u_min_v,
                 u_max_v,
                 u_scale_mode,
-                u_r_scale,
-                u_g_scale,
-                u_b_scale,
+                u_use_per_channel,
+                u_min_v0,
+                u_min_v1,
+                u_min_v2,
+                u_min_v3,
+                u_max_v0,
+                u_max_v1,
+                u_max_v2,
+                u_max_v3,
+                u_scale_mode0,
+                u_scale_mode1,
+                u_scale_mode2,
+                u_scale_mode3,
             })
         }
     }
@@ -232,10 +264,19 @@ impl ImageProgram {
         self.u_max_v = gl.check_and_get_uniform_location(program, "u_max_v");
         self.u_scale_mode = gl.check_and_get_uniform_location(program, "u_scale_mode");
 
-        // channel scale uniforms might not exist in some shaders due to optimization
-        self.u_r_scale = gl.get_uniform_location(program, "u_r_scale");
-        self.u_g_scale = gl.get_uniform_location(program, "u_g_scale");
-        self.u_b_scale = gl.get_uniform_location(program, "u_b_scale");
+        self.u_use_per_channel = gl.get_uniform_location(program, "u_use_per_channel");
+        self.u_min_v0 = gl.get_uniform_location(program, "u_min_v0");
+        self.u_min_v1 = gl.get_uniform_location(program, "u_min_v1");
+        self.u_min_v2 = gl.get_uniform_location(program, "u_min_v2");
+        self.u_min_v3 = gl.get_uniform_location(program, "u_min_v3");
+        self.u_max_v0 = gl.get_uniform_location(program, "u_max_v0");
+        self.u_max_v1 = gl.get_uniform_location(program, "u_max_v1");
+        self.u_max_v2 = gl.get_uniform_location(program, "u_max_v2");
+        self.u_max_v3 = gl.get_uniform_location(program, "u_max_v3");
+        self.u_scale_mode0 = gl.get_uniform_location(program, "u_scale_mode0");
+        self.u_scale_mode1 = gl.get_uniform_location(program, "u_scale_mode1");
+        self.u_scale_mode2 = gl.get_uniform_location(program, "u_scale_mode2");
+        self.u_scale_mode3 = gl.get_uniform_location(program, "u_scale_mode3");
     }
 
     pub unsafe fn draw(
@@ -284,9 +325,25 @@ impl ImageProgram {
         gl.uniform_1_f32(Some(&self.u_max_v), shader_params.max_v);
         gl.uniform_1_i32(Some(&self.u_scale_mode), shader_params.scale_mode as i32);
 
-        gl.uniform_1_f32(self.u_r_scale.as_ref(), shader_params.r_scale);
-        gl.uniform_1_f32(self.u_g_scale.as_ref(), shader_params.g_scale);
-        gl.uniform_1_f32(self.u_b_scale.as_ref(), shader_params.b_scale);
+        // Per-channel uniforms
+        if let Some(loc) = &self.u_use_per_channel {
+            gl.uniform_1_i32(Some(loc), if shader_params.use_per_channel { 1 } else { 0 });
+        }
+        let mv = &shader_params.min_v_channels;
+        let xv = &shader_params.max_v_channels;
+        if let Some(loc) = &self.u_min_v0 { gl.uniform_1_f32(Some(loc), mv[0]); }
+        if let Some(loc) = &self.u_min_v1 { gl.uniform_1_f32(Some(loc), mv[1]); }
+        if let Some(loc) = &self.u_min_v2 { gl.uniform_1_f32(Some(loc), mv[2]); }
+        if let Some(loc) = &self.u_min_v3 { gl.uniform_1_f32(Some(loc), mv[3]); }
+        if let Some(loc) = &self.u_max_v0 { gl.uniform_1_f32(Some(loc), xv[0]); }
+        if let Some(loc) = &self.u_max_v1 { gl.uniform_1_f32(Some(loc), xv[1]); }
+        if let Some(loc) = &self.u_max_v2 { gl.uniform_1_f32(Some(loc), xv[2]); }
+        if let Some(loc) = &self.u_max_v3 { gl.uniform_1_f32(Some(loc), xv[3]); }
+        let sm = &shader_params.scale_mode_channels;
+        if let Some(loc) = &self.u_scale_mode0 { gl.uniform_1_i32(Some(loc), sm[0] as i32); }
+        if let Some(loc) = &self.u_scale_mode1 { gl.uniform_1_i32(Some(loc), sm[1] as i32); }
+        if let Some(loc) = &self.u_scale_mode2 { gl.uniform_1_i32(Some(loc), sm[2] as i32); }
+        if let Some(loc) = &self.u_scale_mode3 { gl.uniform_1_i32(Some(loc), sm[3] as i32); }
 
         gl.bind_vertex_array(Some(self.vao));
         gl.draw_elements(glow::TRIANGLES, 6, glow::UNSIGNED_INT, 0);

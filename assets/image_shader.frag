@@ -15,9 +15,21 @@ uniform float u_gamma;
 uniform float u_min_v;
 uniform float u_max_v;
 uniform int u_scale_mode; // 0: linear, 1: inverse, 2: log
-uniform float u_r_scale;
-uniform float u_g_scale;
-uniform float u_b_scale;
+
+// Per-channel controls
+uniform int u_use_per_channel; // 0: global, 1: per-channel
+uniform float u_min_v0;
+uniform float u_min_v1;
+uniform float u_min_v2;
+uniform float u_min_v3;
+uniform float u_max_v0;
+uniform float u_max_v1;
+uniform float u_max_v2;
+uniform float u_max_v3;
+uniform int u_scale_mode0;
+uniform int u_scale_mode1;
+uniform int u_scale_mode2;
+uniform int u_scale_mode3;
 
 #define PI 3.1415926535897932384626433832795
 #define EPS 1e-12
@@ -114,6 +126,22 @@ float color_proc(float v)
     return sign(tmp) * pow(abs(tmp), 1.0 / u_gamma);
 }
 
+float apply_scale_mode(float v, int mode)
+{
+    if (mode == 1) {
+        // Inverse: 1 / v
+        float s = sign(v);
+        return s / (abs(v) + EPS);
+    } else if (mode == 2) {
+        // Log: log(v)
+        float s = sign(v);
+        return s * log(abs(v) + 1.0);
+    } else {
+        // Linear: v
+        return v;
+    }
+}
+
 %colormap_function%
 
 void main()
@@ -121,26 +149,20 @@ void main()
     vec4 tex = texture2D(u_texture, v_tex_coord);
     float alpha = tex.a;
 
-    tex.r *= u_r_scale;
-    tex.g *= u_g_scale;
-    tex.b *= u_b_scale;
-
     float image_x = v_tex_coord.x * float(u_image_size.x);
     float image_y = v_tex_coord.y * float(u_image_size.y);
-
-    if (u_scale_mode == 1) {
-        // Inverse: 1 / v
-        vec4 s = sign(tex);
-        tex = s / (abs(tex) + vec4(EPS));
-    } else if (u_scale_mode == 2) {
-        // Log: log(v)
-        vec4 s = sign(tex);
-        tex = s * log(abs(tex) + 1);
+    
+    if (u_use_per_channel != 0) {
+        tex.r = (apply_scale_mode(tex.r, u_scale_mode0) - u_min_v0) / (u_max_v0 - u_min_v0);
+        tex.g = (apply_scale_mode(tex.g, u_scale_mode1) - u_min_v1) / (u_max_v1 - u_min_v1);
+        tex.b = (apply_scale_mode(tex.b, u_scale_mode2) - u_min_v2) / (u_max_v2 - u_min_v2);
+        tex.a = (apply_scale_mode(tex.a, u_scale_mode3) - u_min_v3) / (u_max_v3 - u_min_v3);
     } else {
-        // Linear: v
+        tex.r = (apply_scale_mode(tex.r, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
+        tex.g = (apply_scale_mode(tex.g, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
+        tex.b = (apply_scale_mode(tex.b, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
+        tex.a = (apply_scale_mode(tex.a, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
     }
-
-    tex = (tex - u_min_v) / (u_max_v - u_min_v);
 
     if (u_channel_index == 1) {
         tex.r = tex.g;
