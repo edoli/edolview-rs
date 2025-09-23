@@ -1,5 +1,5 @@
 use crate::util::str_ext::Join;
-use eframe::egui::{self, Color32};
+use eframe::egui::Color32;
 
 fn to_color32(color: &Vec<f32>) -> Color32 {
     if color.len() == 1 {
