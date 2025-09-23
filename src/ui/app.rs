@@ -364,10 +364,14 @@ impl eframe::App for ViewerApp {
                                     ui.columns_sized(
                                         [Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)],
                                         |columns| {
-                                            columns[0].add(
-                                                egui::DragValue::new(&mut self.state.shader_params.min_v_channels[i])
-                                                    .speed(0.01),
-                                            );
+                                            columns[0]
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut self.state.shader_params.min_v_channels[i],
+                                                    )
+                                                    .speed(0.01)
+                                                )
+                                                .on_hover_text("Min value");
                                             if columns[1]
                                                 .button("↔")
                                                 .on_hover_text("Switch min/max for this channel")
@@ -378,10 +382,14 @@ impl eframe::App for ViewerApp {
                                                     &mut self.state.shader_params.max_v_channels[i],
                                                 );
                                             }
-                                            columns[2].add(
-                                                egui::DragValue::new(&mut self.state.shader_params.max_v_channels[i])
-                                                    .speed(0.01),
-                                            );
+                                            columns[2]
+                                                .add(
+                                                    egui::DragValue::new(
+                                                        &mut self.state.shader_params.max_v_channels[i],
+                                                    )
+                                                    .speed(0.01)
+                                                )
+                                                .on_hover_text("Max value");
                                         },
                                     );
                                 });
@@ -408,7 +416,8 @@ impl eframe::App for ViewerApp {
                                     [Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)],
                                     |columns| {
                                         columns[0]
-                                            .add(egui::DragValue::new(&mut self.state.shader_params.min_v).speed(0.01));
+                                            .add(egui::DragValue::new(&mut self.state.shader_params.min_v).speed(0.01))
+                                            .on_hover_text("Min value");
 
                                         if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
                                             std::mem::swap(
@@ -419,7 +428,8 @@ impl eframe::App for ViewerApp {
                                             self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
                                         }
                                         columns[2]
-                                            .add(egui::DragValue::new(&mut self.state.shader_params.max_v).speed(0.01));
+                                            .add(egui::DragValue::new(&mut self.state.shader_params.max_v).speed(0.01))
+                                            .on_hover_text("Max value");
                                     },
                                 );
                             });
@@ -454,7 +464,7 @@ impl eframe::App for ViewerApp {
                             ui,
                             &mut self.state.channel_index,
                             &(-1..channels).collect(),
-                        );
+                        ).response.on_hover_text("Channel to display -1: color, 0: R, 1: G, 2: B, 3: A");
 
                         ui.spacing_mut().combo_width = sizes[1];
                         if is_mono {
@@ -469,7 +479,7 @@ impl eframe::App for ViewerApp {
                                 &mut self.state.colormap_rgb,
                                 &self.state.colormap_rgb_list,
                             )
-                        };
+                        }.response.on_hover_text("Colormap");
                     });
                 });
         }
