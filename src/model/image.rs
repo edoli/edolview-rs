@@ -118,12 +118,25 @@ impl MatImage {
             return Err(eyre!("Image does not exist: {:?}", path));
         }
 
+        // Determine extension for special handling (e.g., PFM)
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        
+        let mut scale_abs = 1.0f64;
+
         let mat = {
             let _timer = util::timer::ScopedTimer::new("imdecode");
             // Read image using imread fails on paths with non-ASCII characters.
             // imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
 
-            let data = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
+            let mut data = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
+
+            if ext == "pfm" {
+                (data, scale_abs) = fix_pfm_header_and_parse_scale(&data);
+            }
             let data_mat = core::Mat::new_rows_cols_with_data(1, data.len() as i32, &data)?;
             imgcodecs::imdecode(&data_mat, imgcodecs::IMREAD_UNCHANGED)?
         };
@@ -153,7 +166,7 @@ impl MatImage {
 
         let dtype = tmp.depth();
 
-        tmp.convert_to(&mut mat_f32, core::CV_32F, 1.0 / dtype.alpha(), 0.0)?;
+        tmp.convert_to(&mut mat_f32, core::CV_32F, scale_abs / dtype.alpha(), 0.0)?;
 
         Ok(MatImage::new(mat_f32, dtype))
     }
@@ -177,4 +190,50 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn new_id() -> u64 {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+// Fix PFM header quirks for OpenCV and parse scale (3rd line)
+// - Trim a single trailing space just before the newline for the first three lines
+// - Return fixed bytes and |scale| value parsed from the 3rd line (defaults to 1.0)
+fn fix_pfm_header_and_parse_scale(input: &[u8]) -> (Vec<u8>, f64) {
+    let mut out: Vec<u8> = Vec::with_capacity(input.len());
+    let mut i = 0usize;
+    let mut nl = 0u8;
+
+    while i < input.len() && nl < 3 {
+        let b = input[i];
+        if b == b'\n' {
+            if !out.is_empty() && *out.last().unwrap() == b' ' {
+                // Replace trailing space with newline, do not push current newline
+                let last = out.len() - 1;
+                out[last] = b'\n';
+            } else {
+                out.push(b'\n');
+            }
+            nl += 1;
+        } else {
+            out.push(b);
+        }
+        i += 1;
+    }
+
+    // Parse absolute scale from the third line of the (possibly fixed) header
+    let mut scale_abs = 1.0f64;
+    if let Ok(header_str) = std::str::from_utf8(&out) {
+        let mut lines = header_str.lines();
+        let _magic = lines.next();
+        let _dim = lines.next();
+        if let Some(scale_line) = lines.next() {
+            if let Ok(v) = scale_line.trim().parse::<f64>() {
+                scale_abs = v.abs();
+            }
+        }
+    }
+
+    // Append rest of the data unchanged
+    if i < input.len() {
+        out.extend_from_slice(&input[i..]);
+    }
+
+    (out, scale_abs)
 }
