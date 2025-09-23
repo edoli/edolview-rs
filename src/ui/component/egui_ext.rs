@@ -1,16 +1,6 @@
 use eframe::egui::{self, Color32, ComboBox, Image, InnerResponse, Label, Rangef, Response, Ui, Widget, WidgetText};
 
-use crate::util::cv_ext::CvIntExt;
-
-trait Join {
-    fn join(&self, sep: &str) -> String;
-}
-
-impl Join for Vec<f32> {
-    fn join(&self, sep: &str) -> String {
-        self.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(sep)
-    }
-}
+use crate::util::{color::ColorDisplay, cv_ext::CvIntExt};
 
 #[derive(Clone, Debug, Copy)]
 pub enum Size {
@@ -124,22 +114,7 @@ impl UiExt for Ui {
 
     #[inline]
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response {
-        let color32 = if color.len() == 1 {
-            Color32::from_gray((color[0] * 255.0) as u8)
-        } else if color.len() == 2 {
-            Color32::from_rgb((color[0] * 255.0) as u8, (color[1] * 255.0) as u8, 0)
-        } else if color.len() == 3 {
-            Color32::from_rgb((color[0] * 255.0) as u8, (color[1] * 255.0) as u8, (color[2] * 255.0) as u8)
-        } else if color.len() == 4 {
-            Color32::from_rgba_premultiplied(
-                (color[0] * 255.0) as u8,
-                (color[1] * 255.0) as u8,
-                (color[2] * 255.0) as u8,
-                (color[3] * 255.0) as u8,
-            )
-        } else {
-            Color32::BLACK
-        };
+        let color32 = color.to_color32();
 
         self.horizontal(|ui| {
             let rect_size = ui.available_height();
@@ -147,31 +122,20 @@ impl UiExt for Ui {
             ui.painter().rect_filled(rect, 4.0, color32);
 
             let color_text = if dtype.cv_type_is_floating() {
-                format!("rgba({})", color.join(","))
+                color.to_rgba_string()
             } else {
-                format!(
-                    "rgba({})",
-                    color
-                        .iter()
-                        .map(|c| (((*c as f64) * dtype.alpha()) as i32).to_string())
-                        .collect::<Vec<_>>()
-                        .join(",")
-                )
+                color.to_rgba_int_string(dtype.alpha())
             };
 
-            // Right click context menu
             resp.context_menu(|ui| {
-                ui.label("Color");
-                ui.separator();
-                // let (r, g, b, a) = (color.r(), color.g(), color.b(), color.a());
-                // if ui.button("Copy #RRGGBB").clicked() {
-                //     ui.ctx().copy_text(format!("#{:02X}{:02X}{:02X}", r, g, b));
-                //     ui.close();
-                // }
-                // if ui.button("Copy rgba() ").clicked() {
-                //     ui.ctx().copy_text(format!("rgba({}, {}, {}, {})", r, g, b, a));
-                //     ui.close();
-                // }
+                if ui.button("Copy #hex").clicked() {
+                    ui.ctx().copy_text(color.to_hex_string());
+                    ui.close();
+                }
+                if ui.button("Copy rgba() ").clicked() {
+                    ui.ctx().copy_text(color_text.clone());
+                    ui.close();
+                }
             });
 
             ui.label(&color_text);
