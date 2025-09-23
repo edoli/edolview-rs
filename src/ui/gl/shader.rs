@@ -28,11 +28,24 @@ pub struct ImageProgram {
     u_gamma: glow::UniformLocation,
     u_min_v: glow::UniformLocation,
     u_max_v: glow::UniformLocation,
-    u_is_reciprocal: glow::UniformLocation,
+    u_scale_mode: glow::UniformLocation,
 
     u_r_scale: Option<glow::UniformLocation>,
     u_g_scale: Option<glow::UniformLocation>,
     u_b_scale: Option<glow::UniformLocation>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ScaleMode {
+    Linear = 0,
+    Inverse = 1,
+    Log = 2,
+}
+
+impl Default for ScaleMode {
+    fn default() -> Self {
+        ScaleMode::Linear
+    }
 }
 
 #[derive(Clone)]
@@ -45,7 +58,7 @@ pub struct ShaderParams {
     pub r_scale: f32,
     pub g_scale: f32,
     pub b_scale: f32,
-    pub is_reciprocal: bool,
+    pub scale_mode: ScaleMode,
 }
 
 impl Default for ShaderParams {
@@ -56,7 +69,7 @@ impl Default for ShaderParams {
             gamma: 1.0,
             min_v: 0.0,
             max_v: 1.0,
-            is_reciprocal: false,
+            scale_mode: ScaleMode::Linear,
             r_scale: 1.0,
             g_scale: 1.0,
             b_scale: 1.0,
@@ -168,7 +181,7 @@ impl ImageProgram {
             let u_gamma = gl.check_and_get_uniform_location(program, "u_gamma");
             let u_min_v = gl.check_and_get_uniform_location(program, "u_min_v");
             let u_max_v = gl.check_and_get_uniform_location(program, "u_max_v");
-            let u_is_reciprocal = gl.check_and_get_uniform_location(program, "u_is_reciprocal");
+            let u_scale_mode = gl.check_and_get_uniform_location(program, "u_scale_mode");
 
             let u_r_scale = gl.get_uniform_location(program, "u_r_scale");
             let u_g_scale = gl.get_uniform_location(program, "u_g_scale");
@@ -193,7 +206,7 @@ impl ImageProgram {
                 u_gamma,
                 u_min_v,
                 u_max_v,
-                u_is_reciprocal,
+                u_scale_mode,
                 u_r_scale,
                 u_g_scale,
                 u_b_scale,
@@ -217,7 +230,7 @@ impl ImageProgram {
         self.u_gamma = gl.check_and_get_uniform_location(program, "u_gamma");
         self.u_min_v = gl.check_and_get_uniform_location(program, "u_min_v");
         self.u_max_v = gl.check_and_get_uniform_location(program, "u_max_v");
-        self.u_is_reciprocal = gl.check_and_get_uniform_location(program, "u_is_reciprocal");
+        self.u_scale_mode = gl.check_and_get_uniform_location(program, "u_scale_mode");
 
         // channel scale uniforms might not exist in some shaders due to optimization
         self.u_r_scale = gl.get_uniform_location(program, "u_r_scale");
@@ -269,7 +282,7 @@ impl ImageProgram {
         gl.uniform_1_f32(Some(&self.u_gamma), shader_params.gamma);
         gl.uniform_1_f32(Some(&self.u_min_v), shader_params.min_v);
         gl.uniform_1_f32(Some(&self.u_max_v), shader_params.max_v);
-        gl.uniform_1_i32(Some(&self.u_is_reciprocal), shader_params.is_reciprocal as i32);
+        gl.uniform_1_i32(Some(&self.u_scale_mode), shader_params.scale_mode as i32);
 
         gl.uniform_1_f32(self.u_r_scale.as_ref(), shader_params.r_scale);
         gl.uniform_1_f32(self.u_g_scale.as_ref(), shader_params.g_scale);

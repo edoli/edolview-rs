@@ -1,7 +1,7 @@
 use core::f32;
 use std::{cell::OnceCell, path::PathBuf};
 
-use eframe::egui::{self, Color32, Rangef, Visuals};
+use eframe::egui::{self, vec2, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -12,6 +12,7 @@ use crate::{
             egui_ext::{ComboBoxExt, Size, UiExt},
             CustomSlider,
         },
+        gl::ScaleMode,
         icon::{self, IconExt},
         ImageViewer,
     },
@@ -34,6 +35,10 @@ pub struct ViewerApp {
     show_background_icon: OnceCell<egui::TextureHandle>,
     show_pixel_value_icon: OnceCell<egui::TextureHandle>,
     show_crosshair_icon: OnceCell<egui::TextureHandle>,
+
+    scale_linear_icon: OnceCell<egui::TextureHandle>,
+    scale_inverse_icon: OnceCell<egui::TextureHandle>,
+    scale_log_icon: OnceCell<egui::TextureHandle>,
 
     // Panel visibility toggles
     show_side_panel: bool,
@@ -60,6 +65,10 @@ impl ViewerApp {
             show_background_icon: OnceCell::new(),
             show_pixel_value_icon: OnceCell::new(),
             show_crosshair_icon: OnceCell::new(),
+
+            scale_linear_icon: OnceCell::new(),
+            scale_inverse_icon: OnceCell::new(),
+            scale_log_icon: OnceCell::new(),
 
             show_side_panel: true,
             show_bottom_panel: true,
@@ -90,6 +99,15 @@ impl eframe::App for ViewerApp {
         let show_crosshair_icon = self
             .show_crosshair_icon
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_crosshair", res::icons::SHOW_CROSSHAIR));
+        let scale_linear_icon = self
+            .scale_linear_icon
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_linear", res::icons::SCALE_LINEAR));
+        let scale_inverse_icon = self
+            .scale_inverse_icon
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_inverse", res::icons::SCALE_INVERSE));
+        let scale_log_icon = self
+            .scale_log_icon
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_log", res::icons::SCALE_LOG));
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
@@ -300,21 +318,51 @@ impl eframe::App for ViewerApp {
                 .width_range(Rangef::new(240.0, f32::INFINITY))
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.heading("Right Panel");
+                        ui.heading("View Settings");
                     });
                     ui.style_mut().spacing.slider_rail_height = 4.0;
 
                     let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
                     let is_mono = self.state.channel_index != -1 || channels == 1;
 
-                    ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
-                        columns[0].text_edit_value(&mut self.tmp_min_v, &mut self.state.shader_params.min_v);
-                        if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
-                            std::mem::swap(&mut self.state.shader_params.min_v, &mut self.state.shader_params.max_v);
-                            self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
-                            self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
-                        }
-                        columns[2].text_edit_value(&mut self.tmp_max_v, &mut self.state.shader_params.max_v);
+                    ui.horizontal(|ui| {
+                        let mut style: egui::Style = ui.style().as_ref().clone();
+                        egui::containers::menu::menu_style(&mut style);
+                        ui.set_style(std::sync::Arc::new(style));
+
+                        ui.radio_icon(
+                            &mut self.state.shader_params.scale_mode,
+                            ScaleMode::Linear,
+                            scale_linear_icon.to_icon(ui),
+                            "Linear",
+                        );
+                        ui.radio_icon(
+                            &mut self.state.shader_params.scale_mode,
+                            ScaleMode::Inverse,
+                            scale_inverse_icon.to_icon(ui),
+                            "Inverse",
+                        );
+                        ui.radio_icon(
+                            &mut self.state.shader_params.scale_mode,
+                            ScaleMode::Log,
+                            scale_log_icon.to_icon(ui),
+                            "Log",
+                        );
+
+                        ui.style_mut().spacing.item_spacing = vec2(0.0, 0.0);
+                        ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
+                            columns[0].text_edit_value(&mut self.tmp_min_v, &mut self.state.shader_params.min_v);
+
+                            if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
+                                std::mem::swap(
+                                    &mut self.state.shader_params.min_v,
+                                    &mut self.state.shader_params.max_v,
+                                );
+                                self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
+                                self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
+                            }
+                            columns[2].text_edit_value(&mut self.tmp_max_v, &mut self.state.shader_params.max_v);
+                        });
                     });
 
                     let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {

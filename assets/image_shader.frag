@@ -14,12 +14,13 @@ uniform float u_exposure;
 uniform float u_gamma;
 uniform float u_min_v;
 uniform float u_max_v;
-uniform int u_is_reciprocal;
+uniform int u_scale_mode; // 0: linear, 1: inverse, 2: log
 uniform float u_r_scale;
 uniform float u_g_scale;
 uniform float u_b_scale;
 
 #define PI 3.1415926535897932384626433832795
+#define EPS 1e-12
 
 mat3 rgb2xyz_mat = mat3(
     0.4124564, 0.3575761, 0.1804375,
@@ -127,13 +128,19 @@ void main()
     float image_x = v_tex_coord.x * float(u_image_size.x);
     float image_y = v_tex_coord.y * float(u_image_size.y);
 
-    if (u_is_reciprocal == 1) {
-        float invMinV = 1.0 / u_min_v;
-        float invMaxV = 1.0 / u_max_v;
-        tex = ((1.0 / tex) - invMaxV) / (invMinV - invMaxV);
+    if (u_scale_mode == 1) {
+        // Inverse: 1 / v
+        vec4 s = sign(tex);
+        tex = s / (abs(tex) + vec4(EPS));
+    } else if (u_scale_mode == 2) {
+        // Log: log(v)
+        vec4 s = sign(tex);
+        tex = s * log(abs(tex) + 1);
     } else {
-        tex = (tex - u_min_v) / (u_max_v - u_min_v);
+        // Linear: v
     }
+
+    tex = (tex - u_min_v) / (u_max_v - u_min_v);
 
     if (u_channel_index == 1) {
         tex.r = tex.g;

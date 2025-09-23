@@ -91,6 +91,13 @@ pub trait UiExt {
         last_value: &mut T,
     ) -> Response;
     fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>, name: &str) -> Response;
+    fn radio_icon<'a, Value: PartialEq>(
+        &mut self,
+        current_value: &mut Value,
+        alternative: Value,
+        icon: impl Into<Image<'a>>,
+        name: &str,
+    ) -> Response;
     fn calc_sizes<const N: usize>(&self, sizes: [Size; N]) -> [f32; N];
     fn columns_sized<R, const N: usize>(
         &mut self,
@@ -212,6 +219,28 @@ impl UiExt for Ui {
         let resp = self.add(image_button).on_hover_text(name);
         if resp.clicked() {
             *selected = !*selected;
+        }
+
+        resp
+    }
+
+    fn radio_icon<'a, Value: PartialEq>(
+        &mut self,
+        current_value: &mut Value,
+        alternative: Value,
+        icon: impl Into<Image<'a>>,
+        name: &str,
+    ) -> Response {
+        let tint_color = if *current_value == alternative {
+            self.style().visuals.selection.bg_fill
+        } else {
+            self.style().visuals.text_color()
+        };
+        let image_button = egui::ImageButton::new(icon.into().tint(tint_color));
+
+        let resp = self.add(image_button).on_hover_text(name);
+        if resp.clicked() {
+            *current_value = alternative;
         }
 
         resp
