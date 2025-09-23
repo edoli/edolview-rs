@@ -11,6 +11,15 @@ enum DragMode {
     None,
     Panning { last_pixel_pos: egui::Pos2 },
     Marquee { start_image_pos: egui::Pos2 },
+    Resizing { handle: ResizeHandle, start_rect: Recti },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResizeHandle {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
 pub struct ImageViewer {
@@ -99,6 +108,13 @@ impl ImageViewer {
             // Record viewport size in pixels for fit/center operations triggered from menus
             self.last_viewport_size_px = Some(vec2(rect_pixels.width(), rect_pixels.height()));
 
+            // Pre-compute selection rect in view space (points) for handle interactions
+            let selection_rect_view = {
+                let r = app_state.marquee_rect.to_rect();
+                let k = self.zoom() / pixel_per_point;
+                (r * k).translate(self.pan / pixel_per_point + rect.min.to_vec2())
+            };
+
             if resp.hovered() {
                 let scroll = ui.input(|i| i.raw_scroll_delta.y);
                 if scroll.abs() > 0.0 {
@@ -125,14 +141,36 @@ impl ImageViewer {
                     } else {
                         app_state.cursor_pos = None;
                     }
+
+                    // If marquee exists, set resize cursor when hovering corner handles
+                    if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
+                        if let Some(handle) = hit_test_handles(selection_rect_view, pointer_pos) {
+                            let icon = match handle {
+                                ResizeHandle::TopLeft | ResizeHandle::BottomRight => egui::CursorIcon::ResizeNwSe,
+                                ResizeHandle::TopRight | ResizeHandle::BottomLeft => egui::CursorIcon::ResizeNeSw,
+                            };
+                            ui.output_mut(|o| o.cursor_icon = icon);
+                        }
+                    }
                 }
             }
 
             if resp.drag_started() {
                 self.dragging = true;
                 if let Some(pos) = resp.interact_pointer_pos() {
-                    self.drag_mode = if ui.input(|i| i.modifiers.shift) {
-                        // Start marquee
+                    // If a marquee exists and a corner handle is grabbed, start resizing
+                    let handle_under_mouse = if app_state.marquee_rect.width() > 0
+                        && app_state.marquee_rect.height() > 0
+                    {
+                        hit_test_handles(selection_rect_view, pos)
+                    } else {
+                        None
+                    };
+
+                    self.drag_mode = if let Some(handle) = handle_under_mouse {
+                        DragMode::Resizing { handle, start_rect: app_state.marquee_rect }
+                    } else if ui.input(|i| i.modifiers.shift) {
+                        // Start marquee creation
                         DragMode::Marquee {
                             start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
                         }
@@ -160,6 +198,19 @@ impl ImageViewer {
                         let dx = delta.x;
                         let dy = delta.y;
                         self.pan += egui::vec2(dx, dy);
+                    } else if let DragMode::Resizing { handle, start_rect } = self.drag_mode {
+                        // Convert current pointer to image coordinates
+                        let img_pos = self.view_to_image_coords(pos, rect, pixel_per_point);
+
+                        // Determine the fixed (opposite) corner from the start_rect
+                        let (ax, ay) = match handle {
+                            ResizeHandle::TopLeft => (start_rect.max.x as f32, start_rect.max.y as f32),
+                            ResizeHandle::TopRight => (start_rect.min.x as f32, start_rect.max.y as f32),
+                            ResizeHandle::BottomLeft => (start_rect.max.x as f32, start_rect.min.y as f32),
+                            ResizeHandle::BottomRight => (start_rect.min.x as f32, start_rect.min.y as f32),
+                        };
+                        let anchor = egui::pos2(ax, ay);
+                        app_state.set_marquee_rect(Recti::bound_two_pos(anchor, img_pos));
                     }
                 }
 
@@ -234,9 +285,7 @@ impl ImageViewer {
                 });
 
                 // Draw marquee rectangle
-                let selection_rect = (app_state.marquee_rect.to_rect() * (self.zoom() / pixel_per_point))
-                    .translate(self.pan / pixel_per_point + rect.min.to_vec2())
-                    .intersect(rect);
+                let selection_rect = selection_rect_view.intersect(rect);
                 if selection_rect.width() > 0.0 && selection_rect.height() > 0.0 {
                     ui.painter().rect_stroke(
                         selection_rect,
@@ -244,6 +293,21 @@ impl ImageViewer {
                         (1.0, egui::Color32::from_gray(150)),
                         egui::StrokeKind::Middle,
                     );
+
+                    // Draw corner handles (small squares)
+                    let painter = ui.painter();
+                    let handle_size = 8.0; // in points
+                    let corners = [
+                        selection_rect.min,                                                     // TL
+                        egui::pos2(selection_rect.max.x, selection_rect.min.y),                // TR
+                        egui::pos2(selection_rect.min.x, selection_rect.max.y),                // BL
+                        selection_rect.max,                                                     // BR
+                    ];
+                    for &c in &corners {
+                        let r = egui::Rect::from_center_size(c, egui::vec2(handle_size, handle_size));
+                        painter.rect_filled(r, 0.0, egui::Color32::from_white_alpha(230));
+                        painter.rect_stroke(r, 0.0, (1.0, egui::Color32::BLACK), egui::StrokeKind::Outside);
+                    }
                 }
 
                 // Draw crosshair
@@ -453,4 +517,22 @@ fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::Native
         );
         Ok(tex)
     }
+}
+
+fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<ResizeHandle> {
+    let handle_size = 10.0; // hit area in points
+    let corners = [
+        (selection_rect.min, ResizeHandle::TopLeft),
+        (egui::pos2(selection_rect.max.x, selection_rect.min.y), ResizeHandle::TopRight),
+        (egui::pos2(selection_rect.min.x, selection_rect.max.y), ResizeHandle::BottomLeft),
+        (selection_rect.max, ResizeHandle::BottomRight),
+    ];
+
+    for (center, handle) in corners {
+        let r = egui::Rect::from_center_size(center, egui::vec2(handle_size, handle_size));
+        if r.contains(pointer) {
+            return Some(handle);
+        }
+    }
+    None
 }
