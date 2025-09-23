@@ -235,10 +235,15 @@ impl ImageViewer {
             if self.copy_requested {
                 let sel = app_state.marquee_rect;
                 if sel.width() > 0 && sel.height() > 0 {
-                    let scale_for_copy = if app_state.copy_use_original_size { 1.0 } else { self.zoom() };
+                    let scale_for_copy = if app_state.copy_use_original_size {
+                        1.0
+                    } else {
+                        self.zoom()
+                    };
                     let out_w = (sel.width() as f32 * scale_for_copy).round().max(1.0) as i32;
                     let out_h = (sel.height() as f32 * scale_for_copy).round().max(1.0) as i32;
-                    let position = egui::vec2(-(sel.min.x as f32) * scale_for_copy, -(sel.min.y as f32) * scale_for_copy);
+                    let position =
+                        egui::vec2(-(sel.min.x as f32) * scale_for_copy, -(sel.min.y as f32) * scale_for_copy);
                     copy_request = Some((out_w, out_h, position, scale_for_copy));
                 }
                 self.copy_requested = false;
@@ -610,6 +615,7 @@ fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::Native
 
     let (internal, format) = match channels {
         1 => (GL::R32F, GL::RED),
+        2 => (GL::RG32F, GL::RG),
         3 => (GL::RGB32F, GL::RGB),
         4 => (GL::RGBA32F, GL::RGBA),
         _ => return Err(eyre!("Unsupported channels: {channels}")),

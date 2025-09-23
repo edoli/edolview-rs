@@ -315,6 +315,32 @@ impl eframe::App for ViewerApp {
                     let is_mono = self.state.channel_index != -1 || channels == 1;
                     let visible_channels = if is_mono { 1 } else { channels.max(1).min(4) } as usize;
 
+                    ui.horizontal(|ui| {
+                        let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
+                        ui.spacing_mut().combo_width = sizes[0];
+                        egui::ComboBox::from_id_salt("channel_index")
+                            .combo_i32(ui, &mut self.state.channel_index, &(-1..channels).collect())
+                            .response
+                            .on_hover_text("Channel to display -1: color, 0: R, 1: G, 2: B, 3: A");
+
+                        ui.spacing_mut().combo_width = sizes[1];
+                        if is_mono {
+                            egui::ComboBox::from_id_salt("colormap_mono").combo(
+                                ui,
+                                &mut self.state.colormap_mono,
+                                &self.state.colormap_mono_list,
+                            )
+                        } else {
+                            egui::ComboBox::from_id_salt("colormap_rgb").combo(
+                                ui,
+                                &mut self.state.colormap_rgb,
+                                &self.state.colormap_rgb_list,
+                            )
+                        }
+                        .response
+                        .on_hover_text("Colormap");
+                    });
+
                     ui.separator();
                     ui.checkbox(&mut self.state.shader_params.use_per_channel, "Per-channel controls");
 
@@ -445,32 +471,6 @@ impl eframe::App for ViewerApp {
                     display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
                     display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
                     display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
-
-                    ui.horizontal(|ui| {
-                        let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
-                        ui.spacing_mut().combo_width = sizes[0];
-                        egui::ComboBox::from_id_salt("channel_index")
-                            .combo_i32(ui, &mut self.state.channel_index, &(-1..channels).collect())
-                            .response
-                            .on_hover_text("Channel to display -1: color, 0: R, 1: G, 2: B, 3: A");
-
-                        ui.spacing_mut().combo_width = sizes[1];
-                        if is_mono {
-                            egui::ComboBox::from_id_salt("colormap_mono").combo(
-                                ui,
-                                &mut self.state.colormap_mono,
-                                &self.state.colormap_mono_list,
-                            )
-                        } else {
-                            egui::ComboBox::from_id_salt("colormap_rgb").combo(
-                                ui,
-                                &mut self.state.colormap_rgb,
-                                &self.state.colormap_rgb_list,
-                            )
-                        }
-                        .response
-                        .on_hover_text("Colormap");
-                    });
                 });
         }
 

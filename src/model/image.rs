@@ -4,7 +4,9 @@ use half::f16;
 use opencv::prelude::*;
 use opencv::{core, imgcodecs, imgproc};
 use std::{
-    fs, mem, path::PathBuf, sync::atomic::{AtomicU64, Ordering}
+    fs, mem,
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 pub unsafe trait DataType: Copy {
@@ -119,12 +121,8 @@ impl MatImage {
         }
 
         // Determine extension for special handling (e.g., PFM)
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+
         let mut scale_abs = 1.0f64;
 
         let mat = {
@@ -136,6 +134,9 @@ impl MatImage {
 
             if ext == "pfm" {
                 (data, scale_abs) = fix_pfm_header_and_parse_scale(&data);
+            } else if ext == "flo" {
+                // Optical flow (.flo) file: decode directly to CV_32FC2 Mat
+                return Ok(MatImage::new(decode_flo_to_mat(&data)?, core::CV_32F));
             }
             let data_mat = core::Mat::new_rows_cols_with_data(1, data.len() as i32, &data)?;
             imgcodecs::imdecode(&data_mat, imgcodecs::IMREAD_UNCHANGED)?
@@ -144,7 +145,7 @@ impl MatImage {
         if mat.empty() {
             return Err(eyre!("Failed to load image"));
         }
-        
+
         let mut mat_f32 = core::Mat::default();
         let mut tmp = core::Mat::default();
 
@@ -236,4 +237,67 @@ fn fix_pfm_header_and_parse_scale(input: &[u8]) -> (Vec<u8>, f64) {
     }
 
     (out, scale_abs)
+}
+
+// Decode Middlebury .flo optical flow file into OpenCV Mat (CV_32FC2)
+// Format (little-endian):
+// - magic: f32 (202021.25)
+// - width: i32
+// - height: i32
+// - data: width * height * 2 f32 (u, v) in row-major, interleaved
+fn decode_flo_to_mat(bytes: &[u8]) -> Result<core::Mat> {
+    // Need at least 12 bytes for header
+    if bytes.len() < 12 {
+        return Err(eyre!(".flo: file too small: {} bytes", bytes.len()));
+    }
+
+    let magic = f32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    if magic != 202021.25f32 {
+        return Err(eyre!(".flo: invalid magic: {}", magic));
+    }
+
+    let width = i32::from_le_bytes(bytes[4..8].try_into().unwrap());
+    let height = i32::from_le_bytes(bytes[8..12].try_into().unwrap());
+    if width <= 0 || height <= 0 {
+        return Err(eyre!(".flo: invalid dimensions: {}x{}", width, height));
+    }
+
+    let num_pixels = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| eyre!(".flo: image size overflow"))?;
+    let num_floats = num_pixels.checked_mul(2).ok_or_else(|| eyre!(".flo: channels overflow"))?;
+    let data_bytes = num_floats.checked_mul(4).ok_or_else(|| eyre!(".flo: data size overflow"))?;
+
+    if bytes.len() < 12 + data_bytes {
+        return Err(eyre!(".flo: not enough data: have {}, need {}", bytes.len() - 12, data_bytes));
+    }
+
+    // Allocate CV_32FC2 Mat
+    let mut mat = unsafe { core::Mat::new_rows_cols(height, width, core::CV_32FC2)? };
+
+    // Fill data with proper endianness handling without assuming single-channel typed access
+    #[cfg(target_endian = "little")]
+    {
+        // Direct byte copy on little-endian
+        let src = &bytes[12..12 + data_bytes];
+        let dst_bytes = mat.data_bytes_mut()?;
+        debug_assert!(dst_bytes.len() >= data_bytes);
+        dst_bytes[..data_bytes].copy_from_slice(src);
+    }
+
+    #[cfg(target_endian = "big")]
+    {
+        // Convert LE bytes to native f32 values
+        let dst_bytes = mat.data_bytes_mut()?;
+        let (_, dst_f32, _) = unsafe { dst_bytes.align_to_mut::<f32>() };
+        debug_assert_eq!(dst_f32.len(), num_floats);
+        let mut off = 12usize;
+        for v in dst_f32.iter_mut() {
+            let f = f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
+            *v = f;
+            off += 4;
+        }
+    }
+
+    Ok(mat)
 }
