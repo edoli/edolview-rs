@@ -23,6 +23,7 @@ pub struct ImageViewer {
     dragging: bool,
     drag_mode: DragMode,
     last_image_id: Option<u64>, // cache key to know when to re-upload texture
+    last_viewport_size_px: Option<egui::Vec2>,
 }
 
 impl ImageViewer {
@@ -37,6 +38,7 @@ impl ImageViewer {
             dragging: false,
             drag_mode: DragMode::None,
             last_image_id: None,
+            last_viewport_size_px: None,
         }
     }
 
@@ -93,6 +95,9 @@ impl ImageViewer {
             let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
             let pixel_per_point = ui.ctx().pixels_per_point();
             let rect_pixels = rect * pixel_per_point;
+
+            // Record viewport size in pixels for fit/center operations triggered from menus
+            self.last_viewport_size_px = Some(vec2(rect_pixels.width(), rect_pixels.height()));
 
             if resp.hovered() {
                 let scroll = ui.input(|i| i.raw_scroll_delta.y);
@@ -346,6 +351,46 @@ impl ImageViewer {
     pub fn view_to_image_coords(&self, view_pos: egui::Pos2, rect: egui::Rect, pixel_per_point: f32) -> egui::Pos2 {
         let local_pos = (view_pos - rect.min) * pixel_per_point;
         ((local_pos - self.pan) / self.zoom()).to_pos2()
+    }
+
+    // Fit the given image-space rectangle fully within the last known viewport.
+    // Chooses the largest integer zoom_level such that the rect is fully visible.
+    pub fn fit_rect(&mut self, rect: Recti) {
+        let Some(viewport_px) = self.last_viewport_size_px else { return; };
+        let rw = rect.width().max(1) as f32;
+        let rh = rect.height().max(1) as f32;
+        let vw = viewport_px.x.max(1.0);
+        let vh = viewport_px.y.max(1.0);
+
+        // Maximum scale that still fits
+        let scale_max = (vw / rw).min(vh / rh);
+        if !scale_max.is_finite() || scale_max <= 0.0 { return; }
+
+        // Compute integer zoom level n where zoom_base^n <= scale_max and n is maximal
+        let base = self.zoom_base.max(1.0000001); // avoid ln(1)
+        let n = (scale_max.ln() / base.ln()).floor();
+        self.zoom_level = n;
+
+        // Center the rect in the viewport
+        let scale = self.zoom();
+        let rect_cx = (rect.min.x as f32 + rect.max.x as f32) * 0.5;
+        let rect_cy = (rect.min.y as f32 + rect.max.y as f32) * 0.5;
+        let viewport_cx = vw * 0.5;
+        let viewport_cy = vh * 0.5;
+        self.pan = egui::vec2(viewport_cx - rect_cx * scale, viewport_cy - rect_cy * scale);
+    }
+
+    // Center the given image-space rectangle in the viewport without changing zoom.
+    pub fn center_rect(&mut self, rect: Recti) {
+        let Some(viewport_px) = self.last_viewport_size_px else { return; };
+        let vw = viewport_px.x.max(1.0);
+        let vh = viewport_px.y.max(1.0);
+        let scale = self.zoom();
+        let rect_cx = (rect.min.x as f32 + rect.max.x as f32) * 0.5;
+        let rect_cy = (rect.min.y as f32 + rect.max.y as f32) * 0.5;
+        let viewport_cx = vw * 0.5;
+        let viewport_cy = vh * 0.5;
+        self.pan = egui::vec2(viewport_cx - rect_cx * scale, viewport_cy - rect_cy * scale);
     }
 }
 

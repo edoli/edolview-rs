@@ -168,6 +168,15 @@ impl eframe::App for ViewerApp {
                     self.viewer.reset_view();
                 }
 
+                if ui.button("Fit Selection").on_hover_text("Fit marquee to view with integer zoom").clicked() {
+                    let rect = self.state.marquee_rect.validate();
+                    self.viewer.fit_rect(rect);
+                }
+                if ui.button("Center Selection").on_hover_text("Center marquee in view").clicked() {
+                    let rect = self.state.marquee_rect.validate();
+                    self.viewer.center_rect(rect);
+                }
+
                 ui.toggle_icon(&mut self.state.is_show_background, show_background_icon.to_icon(ui));
                 ui.toggle_icon(&mut self.state.is_show_pixel_value, show_pixel_value_icon.to_icon(ui));
                 ui.toggle_icon(&mut self.state.is_show_crosshair, show_crosshair_icon.to_icon(ui));
