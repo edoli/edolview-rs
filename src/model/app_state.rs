@@ -105,4 +105,8 @@ impl AppState {
             self.marquee_rect = Recti::ZERO;
         }
     }
+
+    pub fn reset_marquee_rect(&mut self) {
+        self.marquee_rect = Recti::ZERO;
+    }
 }

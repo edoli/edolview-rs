@@ -214,7 +214,7 @@ impl ImageViewer {
                                 visuals.faint_bg_color,
                             );
                         }
-                        
+
                         if let Ok(mut image_prog) = image_prog.lock() {
                             image_prog.draw(
                                 gl,
@@ -237,12 +237,14 @@ impl ImageViewer {
                 let selection_rect = (app_state.marquee_rect.to_rect() * (self.zoom() / pixel_per_point))
                     .translate(self.pan / pixel_per_point + rect.min.to_vec2())
                     .intersect(rect);
-                ui.painter().rect_stroke(
-                    selection_rect,
-                    0.0,
-                    (1.0, egui::Color32::from_gray(150)),
-                    egui::StrokeKind::Middle,
-                );
+                if selection_rect.width() > 0.0 && selection_rect.height() > 0.0 {
+                    ui.painter().rect_stroke(
+                        selection_rect,
+                        0.0,
+                        (1.0, egui::Color32::from_gray(150)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
 
                 // Draw crosshair
                 if app_state.is_show_crosshair {
@@ -256,11 +258,23 @@ impl ImageViewer {
 
                         // Draw a subtle shadow then a bright line for visibility
                         let painter = ui.painter();
-                        let shadow = egui::Stroke { width: 3.0, color: egui::Color32::from_black_alpha(80) };
-                        let line = egui::Stroke { width: 1.0, color: egui::Color32::from_white_alpha(220) };
+                        let shadow = egui::Stroke {
+                            width: 3.0,
+                            color: egui::Color32::from_black_alpha(80),
+                        };
+                        let line = egui::Stroke {
+                            width: 1.0,
+                            color: egui::Color32::from_white_alpha(220),
+                        };
 
-                        let h1 = [egui::pos2(rect.left(), center_pt.y), egui::pos2(rect.right(), center_pt.y)];
-                        let v1 = [egui::pos2(center_pt.x, rect.top()), egui::pos2(center_pt.x, rect.bottom())];
+                        let h1 = [
+                            egui::pos2(rect.left(), center_pt.y),
+                            egui::pos2(rect.right(), center_pt.y),
+                        ];
+                        let v1 = [
+                            egui::pos2(center_pt.x, rect.top()),
+                            egui::pos2(center_pt.x, rect.bottom()),
+                        ];
 
                         painter.line_segment(h1, shadow);
                         painter.line_segment(v1, shadow);
@@ -300,10 +314,8 @@ impl ImageViewer {
                                     let num_c = vals.len();
 
                                     // Center of the image pixel in points
-                                    let center_px = egui::vec2(
-                                        (i as f32 + 0.5) * self.zoom(),
-                                        (j as f32 + 0.5) * self.zoom(),
-                                    );
+                                    let center_px =
+                                        egui::vec2((i as f32 + 0.5) * self.zoom(), (j as f32 + 0.5) * self.zoom());
                                     let center_pt = rect.min + (self.pan + center_px) / pixel_per_point;
 
                                     // Arrange channel lines vertically centered within the pixel cell
@@ -320,13 +332,7 @@ impl ImageViewer {
                                         };
 
                                         let text = format!("{:.4}", v);
-                                        painter.text(
-                                            pos,
-                                            egui::Align2::CENTER_CENTER,
-                                            text,
-                                            font_id.clone(),
-                                            color,
-                                        );
+                                        painter.text(pos, egui::Align2::CENTER_CENTER, text, font_id.clone(), color);
                                     }
                                 }
                             }
@@ -356,7 +362,9 @@ impl ImageViewer {
     // Fit the given image-space rectangle fully within the last known viewport.
     // Chooses the largest integer zoom_level such that the rect is fully visible.
     pub fn fit_rect(&mut self, rect: Recti) {
-        let Some(viewport_px) = self.last_viewport_size_px else { return; };
+        let Some(viewport_px) = self.last_viewport_size_px else {
+            return;
+        };
         let rw = rect.width().max(1) as f32;
         let rh = rect.height().max(1) as f32;
         let vw = viewport_px.x.max(1.0);
@@ -364,7 +372,9 @@ impl ImageViewer {
 
         // Maximum scale that still fits
         let scale_max = (vw / rw).min(vh / rh);
-        if !scale_max.is_finite() || scale_max <= 0.0 { return; }
+        if !scale_max.is_finite() || scale_max <= 0.0 {
+            return;
+        }
 
         // Compute integer zoom level n where zoom_base^n <= scale_max and n is maximal
         let base = self.zoom_base.max(1.0000001); // avoid ln(1)
@@ -382,7 +392,9 @@ impl ImageViewer {
 
     // Center the given image-space rectangle in the viewport without changing zoom.
     pub fn center_rect(&mut self, rect: Recti) {
-        let Some(viewport_px) = self.last_viewport_size_px else { return; };
+        let Some(viewport_px) = self.last_viewport_size_px else {
+            return;
+        };
         let vw = viewport_px.x.max(1.0);
         let vh = viewport_px.y.max(1.0);
         let scale = self.zoom();

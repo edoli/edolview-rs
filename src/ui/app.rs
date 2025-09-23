@@ -105,6 +105,9 @@ impl eframe::App for ViewerApp {
                         self.marquee_rect_text = img_rect.to_string().into();
                     }
                 }
+                if i.key_pressed(egui::Key::Escape) {
+                    self.state.reset_marquee_rect();
+                }
             });
         }
 
