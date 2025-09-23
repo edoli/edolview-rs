@@ -47,7 +47,8 @@ fn main() -> Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_title("edolview-rs")
-            .with_inner_size(egui::vec2(1280.0, 720.0)),
+            .with_inner_size(egui::vec2(1280.0, 720.0))
+            .with_min_inner_size(egui::vec2(720.0, 480.0)),
         ..Default::default()
     };
 
