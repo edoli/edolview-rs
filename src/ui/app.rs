@@ -18,7 +18,6 @@ use crate::{
     util::math_ext::vec2i,
 };
 
-
 const SELECT_ALL_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
 const SELECT_NONE_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
 const COPY_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::D);
@@ -35,6 +34,10 @@ pub struct ViewerApp {
     show_background_icon: OnceCell<egui::TextureHandle>,
     show_pixel_value_icon: OnceCell<egui::TextureHandle>,
     show_crosshair_icon: OnceCell<egui::TextureHandle>,
+
+    // Panel visibility toggles
+    show_side_panel: bool,
+    show_bottom_panel: bool,
 }
 
 impl ViewerApp {
@@ -57,6 +60,9 @@ impl ViewerApp {
             show_background_icon: OnceCell::new(),
             show_pixel_value_icon: OnceCell::new(),
             show_crosshair_icon: OnceCell::new(),
+
+            show_side_panel: true,
+            show_bottom_panel: true,
         }
     }
 
@@ -189,9 +195,8 @@ impl eframe::App for ViewerApp {
                 }
 
                 ui.separator();
-                ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size").on_hover_text(
-                    "When enabled, Ctrl+C copies marquee at image pixel size (ignores zoom).",
-                );
+                ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size")
+                    .on_hover_text("When enabled, Ctrl+C copies marquee at image pixel size (ignores zoom).");
                 ui.toggle_icon(
                     &mut self.state.is_show_background,
                     show_background_icon.to_icon(ui),
@@ -207,131 +212,141 @@ impl eframe::App for ViewerApp {
                     show_crosshair_icon.to_icon(ui),
                     "Show Crosshair",
                 );
+
+                // Right end: panel visibility toggles
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.toggle_value(&mut self.show_bottom_panel, "Status Bar");
+                    ui.toggle_value(&mut self.show_side_panel, "Sidebar");
+                });
             });
         });
 
-        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
-            ui.columns_sized(
-                [
-                    Size::exact(320.0),
-                    Size::exact(160.0),
-                    Size::remainder(1.0),
-                    Size::exact(64.0),
-                ],
-                |columns| {
-                    columns[0].vertical(|ui| {
-                        if let Some(d) = &self.state.display {
-                            let spec = d.spec();
-                            let dtype = d.spec().dtype;
+        if self.show_bottom_panel {
+            egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
+                ui.columns_sized(
+                    [
+                        Size::exact(320.0),
+                        Size::exact(160.0),
+                        Size::remainder(1.0),
+                        Size::exact(64.0),
+                    ],
+                    |columns| {
+                        columns[0].vertical(|ui| {
+                            if let Some(d) = &self.state.display {
+                                let spec = d.spec();
+                                let dtype = d.spec().dtype;
 
-                            let cursor_color = if let Ok(pixel) = d.get_pixel_at(
-                                self.state.cursor_pos.map_or(-1, |p| p.x),
-                                self.state.cursor_pos.map_or(-1, |p| p.y),
-                            ) {
-                                pixel.iter().cloned().collect()
-                            } else {
-                                vec![0.0; spec.channels as usize]
-                            };
-                            ui.label_with_colored_rect(cursor_color, dtype);
+                                let cursor_color = if let Ok(pixel) = d.get_pixel_at(
+                                    self.state.cursor_pos.map_or(-1, |p| p.x),
+                                    self.state.cursor_pos.map_or(-1, |p| p.y),
+                                ) {
+                                    pixel.iter().cloned().collect()
+                                } else {
+                                    vec![0.0; spec.channels as usize]
+                                };
+                                ui.label_with_colored_rect(cursor_color, dtype);
 
-                            let rect = self.state.marquee_rect;
-                            let mean_color = if let Ok(mean) = d.mean_value_in_rect(rect.to_cv_rect()) {
-                                mean.iter().map(|&v| v as f32).collect()
+                                let rect = self.state.marquee_rect;
+                                let mean_color = if let Ok(mean) = d.mean_value_in_rect(rect.to_cv_rect()) {
+                                    mean.iter().map(|&v| v as f32).collect()
+                                } else {
+                                    vec![0.0; d.spec().channels as usize]
+                                };
+                                ui.label_with_colored_rect(mean_color, dtype);
+                            }
+                        });
+
+                        columns[1].vertical(|ui| {
+                            if let Some(cursor_pos) = self.state.cursor_pos {
+                                ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
                             } else {
-                                vec![0.0; d.spec().channels as usize]
-                            };
-                            ui.label_with_colored_rect(mean_color, dtype);
+                                ui.label("Cursor: (-, -)");
+                            }
+
+                            ui.text_edit_value_capture(
+                                &mut self.marquee_rect_text,
+                                &mut self.state.marquee_rect,
+                                &mut self.tmp_marquee_rect,
+                            );
+                        });
+
+                        columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
+                            ui.label("Zoom:");
+                            ui.label(format!("{:.2}x", self.viewer.zoom()));
+                        });
+                    },
+                );
+            });
+        }
+
+        if self.show_side_panel {
+            egui::SidePanel::right("right")
+                .resizable(true)
+                .width_range(Rangef::new(240.0, f32::INFINITY))
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.heading("Right Panel");
+                    });
+                    ui.style_mut().spacing.slider_rail_height = 4.0;
+
+                    let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
+                    let is_mono = self.state.channel_index != -1 || channels == 1;
+
+                    ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
+                        columns[0].text_edit_value(&mut self.tmp_min_v, &mut self.state.shader_params.min_v);
+                        if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
+                            std::mem::swap(&mut self.state.shader_params.min_v, &mut self.state.shader_params.max_v);
+                            self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
+                            self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
                         }
+                        columns[2].text_edit_value(&mut self.tmp_max_v, &mut self.state.shader_params.max_v);
                     });
 
-                    columns[1].vertical(|ui| {
-                        if let Some(cursor_pos) = self.state.cursor_pos {
-                            ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
-                        } else {
-                            ui.label("Cursor: (-, -)");
-                        }
-
-                        ui.text_edit_value_capture(
-                            &mut self.marquee_rect_text,
-                            &mut self.state.marquee_rect,
-                            &mut self.tmp_marquee_rect,
+                    let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
+                        ui.spacing_mut().slider_width = ui.available_width() - 128.0;
+                        ui.add(
+                            CustomSlider::new(value, min..=max)
+                                .text(text)
+                                .step_by(0.01)
+                                .smart_aim(false)
+                                .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
+                                .trailing_fill(true)
+                                .trailing_start(0.0)
+                                .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
+                                .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
                         );
-                    });
-
-                    columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
-                        ui.label("Zoom:");
-                        ui.label(format!("{:.2}x", self.viewer.zoom()));
-                    });
-                },
-            );
-        });
-
-        egui::SidePanel::right("right")
-            .resizable(true)
-            .width_range(Rangef::new(240.0, f32::INFINITY))
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.heading("Right Panel");
-                });
-                ui.style_mut().spacing.slider_rail_height = 4.0;
-
-                let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
-                let is_mono = self.state.channel_index != -1 || channels == 1;
-
-                ui.columns_sized([Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)], |columns| {
-                    columns[0].text_edit_value(&mut self.tmp_min_v, &mut self.state.shader_params.min_v);
-                    if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
-                        std::mem::swap(&mut self.state.shader_params.min_v, &mut self.state.shader_params.max_v);
-                        self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
-                        self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
-                    }
-                    columns[2].text_edit_value(&mut self.tmp_max_v, &mut self.state.shader_params.max_v);
-                });
-
-                let mut display_profile_slider = |value: &mut f32, min: f32, max: f32, text: &str| {
-                    ui.spacing_mut().slider_width = ui.available_width() - 128.0;
-                    ui.add(
-                        CustomSlider::new(value, min..=max)
-                            .text(text)
-                            .step_by(0.01)
-                            .smart_aim(false)
-                            .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
-                            .trailing_fill(true)
-                            .trailing_start(0.0)
-                            .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
-                            .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
-                    );
-                };
-
-                display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
-                display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
-                display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
-
-                ui.horizontal(|ui| {
-                    let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
-                    ui.spacing_mut().combo_width = sizes[0];
-                    egui::ComboBox::from_id_salt("channel_index").combo_i32(
-                        ui,
-                        &mut self.state.channel_index,
-                        &(-1..channels).collect(),
-                    );
-
-                    ui.spacing_mut().combo_width = sizes[1];
-                    if is_mono {
-                        egui::ComboBox::from_id_salt("colormap_mono").combo(
-                            ui,
-                            &mut self.state.colormap_mono,
-                            &self.state.colormap_mono_list,
-                        )
-                    } else {
-                        egui::ComboBox::from_id_salt("colormap_rgb").combo(
-                            ui,
-                            &mut self.state.colormap_rgb,
-                            &self.state.colormap_rgb_list,
-                        )
                     };
+
+                    display_profile_slider(&mut self.state.shader_params.offset, -5.0, 5.0, "Offset");
+                    display_profile_slider(&mut self.state.shader_params.exposure, -5.0, 5.0, "Exposure");
+                    display_profile_slider(&mut self.state.shader_params.gamma, 0.1, 5.0, "Gamma");
+
+                    ui.horizontal(|ui| {
+                        let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
+                        ui.spacing_mut().combo_width = sizes[0];
+                        egui::ComboBox::from_id_salt("channel_index").combo_i32(
+                            ui,
+                            &mut self.state.channel_index,
+                            &(-1..channels).collect(),
+                        );
+
+                        ui.spacing_mut().combo_width = sizes[1];
+                        if is_mono {
+                            egui::ComboBox::from_id_salt("colormap_mono").combo(
+                                ui,
+                                &mut self.state.colormap_mono,
+                                &self.state.colormap_mono_list,
+                            )
+                        } else {
+                            egui::ComboBox::from_id_salt("colormap_rgb").combo(
+                                ui,
+                                &mut self.state.colormap_rgb,
+                                &self.state.colormap_rgb_list,
+                            )
+                        };
+                    });
                 });
-            });
+        }
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
