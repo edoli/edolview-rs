@@ -15,7 +15,7 @@ use crate::{
         gl::ScaleMode,
         ImageViewer,
     },
-    util::math_ext::vec2i,
+    util::{cv_ext::CvIntExt, math_ext::vec2i},
 };
 
 const SELECT_ALL_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
@@ -242,10 +242,10 @@ impl eframe::App for ViewerApp {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
                 ui.columns_sized(
                     [
-                        Size::exact(320.0),
+                        Size::exact(400.0),
                         Size::exact(160.0),
                         Size::remainder(1.0),
-                        Size::exact(64.0),
+                        Size::exact(128.0),
                     ],
                     |columns| {
                         columns[0].vertical(|ui| {
@@ -288,8 +288,13 @@ impl eframe::App for ViewerApp {
                         });
 
                         columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
-                            ui.label("Zoom:");
-                            ui.label(format!("{:.2}x", self.viewer.zoom()));
+                            if let Some(d) = &self.state.display {
+                                let spec = d.spec();
+                                ui.label(format!("{}×{} | {}", spec.width, spec.height, spec.dtype.cv_type_name()));
+                            } else {
+                                ui.label("No image loaded");
+                            }
+                            ui.label(format!("Zoom: {:.2}x", self.viewer.zoom()));
                         });
                     },
                 );
