@@ -111,6 +111,11 @@ impl Recti {
         self.width() * self.height()
     }
 
+    #[inline(always)]
+    pub fn empty(&self) -> bool {
+        self.min.x >= self.max.x || self.min.y >= self.max.y
+    }
+
     pub fn aspect_ratio(&self) -> f32 {
         self.width() as f32 / self.height() as f32
     }

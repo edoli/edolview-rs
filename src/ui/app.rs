@@ -220,11 +220,27 @@ impl eframe::App for ViewerApp {
 
                 if ui.button("Fit Selection").on_hover_text("Fit marquee to view").clicked() {
                     let rect = self.state.marquee_rect.validate();
-                    self.viewer.fit_rect(rect);
+                    if rect.empty() {
+                        if let Some(d) = &self.state.display {
+                            let spec = d.spec();
+                            let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+                            self.viewer.fit_rect(img_rect);
+                        }
+                    } else {
+                        self.viewer.fit_rect(rect);
+                    }
                 }
                 if ui.button("Center Selection").on_hover_text("Center marquee in view").clicked() {
                     let rect = self.state.marquee_rect.validate();
-                    self.viewer.center_rect(rect);
+                    if rect.empty() {
+                        if let Some(d) = &self.state.display {
+                            let spec = d.spec();
+                            let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+                            self.viewer.center_rect(img_rect);
+                        }
+                    } else {
+                        self.viewer.center_rect(rect);
+                    }
                 }
 
                 ui.separator();
