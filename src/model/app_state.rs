@@ -34,6 +34,9 @@ pub struct AppState {
 
     // Copy behavior: when true, Ctrl+C copies marquee at original pixel size regardless of zoom.
     pub copy_use_original_size: bool,
+
+    // File navigation + watcher
+    pub file_nav: crate::model::FileNav,
 }
 
 fn list_colormaps(dir: &PathBuf) -> Vec<String> {
@@ -79,12 +82,25 @@ impl AppState {
             is_server_receiving: false,
             image_server_port: 21734,
             copy_use_original_size: true,
+            file_nav: crate::model::FileNav::new(),
         }
     }
 
     pub fn load_from_path(&mut self, path: PathBuf) -> Result<()> {
         self.display = Some(MatImage::load_from_path(&path)?);
-        self.path = Some(path);
+        self.path = Some(path.clone());
+
+        // Refresh directory listing and select current index
+        if let Some(dir) = path.parent() {
+            self.file_nav.refresh_dir_listing_for(dir.to_path_buf());
+            self.file_nav.select_index_for_path(&path);
+            let _ = self.file_nav.start_dir_watcher(dir.to_path_buf());
+        } else {
+            self.file_nav.stop_dir_watcher();
+            self.file_nav.dir_path = None;
+            self.file_nav.files_in_dir.clear();
+            self.file_nav.current_file_index = None;
+        }
         Ok(())
     }
 
@@ -112,5 +128,28 @@ impl AppState {
 
     pub fn reset_marquee_rect(&mut self) {
         self.marquee_rect = Recti::ZERO;
+    }
+
+    pub fn navigate_next(&mut self) -> Result<()> {
+        if let Some(path) = self.file_nav.navigate_next() {
+            self.load_from_path(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn navigate_prev(&mut self) -> Result<()> {
+        if let Some(path) = self.file_nav.navigate_prev() {
+            self.load_from_path(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn process_watcher_events(&mut self) {
+        self.file_nav.process_watcher_events();
+        // Keep current index in sync when list commits
+        if let Some(cur_path) = self.path.clone() {
+            // Ensures index stays aligned if list changed.
+            self.file_nav.select_index_for_path(&cur_path);
+        }
     }
 }

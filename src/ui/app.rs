@@ -122,6 +122,20 @@ impl eframe::App for ViewerApp {
                 if i.consume_shortcut(&COPY_SC) {
                     self.viewer.request_copy();
                 }
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    if let Err(e) = self.state.navigate_prev() {
+                        eprintln!("Failed to navigate prev: {e}");
+                    } else {
+                        self.viewer.reset_view();
+                    }
+                }
+                if i.key_pressed(egui::Key::ArrowRight) {
+                    if let Err(e) = self.state.navigate_next() {
+                        eprintln!("Failed to navigate next: {e}");
+                    } else {
+                        self.viewer.reset_view();
+                    }
+                }
             });
         }
 
@@ -159,6 +173,7 @@ impl eframe::App for ViewerApp {
         }
 
         self.state.validate_marquee_rect();
+        self.state.process_watcher_events();
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
