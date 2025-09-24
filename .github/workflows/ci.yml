@@ -19,7 +19,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            suffix: linux
+          - os: windows-latest
+            suffix: window
+          - os: macos-latest
+            suffix: mac
 
     env:
       CARGO_TERM_COLOR: always
@@ -299,7 +305,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: edolview-${{ runner.os }}
+          name: edolview-${{ matrix.suffix }}
           path: |
             edolview-rs*
             colormap/**
