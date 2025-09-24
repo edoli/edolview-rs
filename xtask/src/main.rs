@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use ico::IconDirEntry;
+use oxipng::{self, Interlacing, Options, StripChunks};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -73,7 +74,16 @@ pub fn rasterize_svg_to_png(svg_path: &Path, png_out: &Path, size: (u32, u32)) -
         &mut pixmap.as_mut(),
     );
 
-    pixmap.save_png(png_out).map_err(|e| format!("failed to save PNG: {e}"))?;
+    let png = pixmap.encode_png().map_err(|e| format!("failed to encode PNG: {e}"))?; // tiny-skia가 PNG 인코딩 제공
+
+    let mut opts = Options::from_preset(6); // 6 is max compression, slowest
+    opts.strip = StripChunks::Safe;
+    opts.interlace = Some(Interlacing::None);
+
+    let optimized = oxipng::optimize_from_memory(&png, &opts).map_err(|e| format!("oxipng optimize failed: {e}"))?;
+
+    fs::write(png_out, optimized).map_err(|e| format!("failed to save optimized PNG: {e}"))?;
+
     Ok(())
 }
 
