@@ -689,7 +689,7 @@ impl CustomSlider<'_> {
             let scroll_delta_y = ui.input(|i| i.raw_scroll_delta.y);
             if scroll_delta_y.abs() > 0.0 {
                 let step = self.step.unwrap_or_else(|| self.current_gradient(position_range));
-                let new_value = self.get_value() + (-scroll_delta_y as f64) * step;
+                let new_value = self.get_value() + (scroll_delta_y as f64) * step;
                 self.set_value(new_value);
             }
         }
