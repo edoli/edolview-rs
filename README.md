@@ -1,52 +1,225 @@
-# edolview
+# EdolView - Image Viewer for Visualization and Analysis
 
-A simple OpenCV-based image viewer written by rust
+A lightning-fast, versatile image viewer 🚀
+Designed for researchers, engineers, and graphics professionals who need **speed, flexibility, and powerful visualization**.
 
-## Features
-- Load various image formats (anything supported by OpenCV)
-- Optionally downscale to fit within the maximum window size
-- Optional grayscale conversion
-- Exit with ESC or `q`
+
+* ⚡ **Blazing Fast Startup & I/O**: Instant starts up and rapid image loading without delays
+* 📂 **Wide Format Support**: Open and explore all major research and [graphics formats](#supported-file-formats)
+* 🎨 **Colormap Visualization**: Go beyond raw images with rich colormap-based data visualization
+* 🔧 **Flexible Display Controls**: Fine-tune normalization, exposure, gamma, and offset with ease
+
+[Image placeholder]
+
+## Installation
+
+- __Windows__: 
+- __Linux__: 
+- __macOS__: 
+
 
 ## Usage
+
+* **Navigation**
+  * `←` / `→` : navigate image files in current directory
+  * `+` / `-`, `scroll` : zoom in / out
+  * `r` : reset view
+  * `f11` : fullscreen mode
+
+* **Visualization**
+  * `o` / `O` : offset down / up
+  * `e` / `E` : exposure down / up
+  * `g` / `G` : gamma down / up
+
+* **Selection**
+  * `ctrl` + `a` : Select all region
+  * `esc` : Deselect region
+  * `ctrl` + `d` : Copy selected region
+
+
+## How to Build
+
+The project is Rust-based and links to **OpenCV 4.12.0 (static)** with a minimal module set (`core,imgproc,imgcodecs`) and **OpenEXR** enabled.
+
+### 0) Prerequisites (all platforms)
+* Rust
+* CMake, LLVM/Clang
+* curl, unzip, pkg-config (Linux/macOS)
+* Git
+
+
+### 1) Install Rust
+
+**Linux / macOS**
+
+```bash
+# installs rustup + stable toolchain
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# then reload shell or:
+source "$HOME/.cargo/env"
+
+# Check installation
+rustc -V && cargo -V
 ```
-# Build (optimized)
+
+**Windows (PowerShell)**
+
+```powershell
+# Option A: winget
+winget install Rustlang.Rustup
+
+# Option B: official installer
+# https://win.rustup.rs/x86_64 (downloads rustup-init.exe)
+
+# Check installation
+rustc -V; cargo -V
+```
+
+### 2) Prepare OpenCV
+
+**Linux (Ubuntu)**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  build-essential cmake git curl unzip pkg-config \
+  clang libclang-dev llvm-dev
+
+export OPENCV_VERSION=4.12.0
+WORKDIR="$(pwd)/.opencv"; SRC="$WORKDIR/opencv-$OPENCV_VERSION"; INSTALL="$WORKDIR/install"
+mkdir -p "$WORKDIR" && cd "$WORKDIR"
+[ -d "$SRC" ] || (curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip && unzip -q opencv.zip)
+mkdir -p "$SRC/build" && cd "$SRC/build"
+
+cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+  -DBUILD_LIST=core,imgproc,imgcodecs \
+  -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+  -DOPENCV_GENERATE_PKGCONFIG=ON \
+  -DBUILD_SHARED_LIBS=OFF -DBUILD_JAVA=OFF -DBUILD_PACKAGE=OFF \
+  -DWITH_ADE=OFF -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF \
+  -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_LAPACK=OFF \
+  -DWITH_OPENCL=OFF -DWITH_PROTOBUF=OFF \
+  -DOPENCV_IO_FORCE_OPENEXR=ON \
+  ..
+cmake --build .
+cmake --install .
+
+export PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
+```
+
+**macOS**
+
+```bash
+brew update
+brew install cmake llvm
+
+export OPENCV_VERSION=4.12.0
+WORKDIR="$(pwd)/.opencv"; SRC="$WORKDIR/opencv-$OPENCV_VERSION"; INSTALL="$WORKDIR/install"
+mkdir -p "$WORKDIR" && cd "$WORKDIR"
+[ -d "$SRC" ] || (curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip && unzip -q opencv.zip)
+mkdir -p "$SRC/build" && cd "$SRC/build"
+
+cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+  -DBUILD_LIST=core,imgproc,imgcodecs \
+  -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+  -DOPENCV_GENERATE_PKGCONFIG=ON \
+  -DBUILD_SHARED_LIBS=OFF -DBUILD_JAVA=OFF -DBUILD_PACKAGE=OFF \
+  -DWITH_ADE=OFF -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF \
+  -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_LAPACK=OFF \
+  -DWITH_OPENCL=OFF -DWITH_PROTOBUF=OFF \
+  -DOPENCV_IO_FORCE_OPENEXR=ON \
+  ..
+cmake --build .
+cmake --install .
+
+export PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
+```
+
+**Windows (PowerShell)**
+
+```powershell
+choco install -y --no-progress llvm cmake ninja git curl unzip
+
+$env:OPENCV_VERSION = "4.12.0"
+$work = Join-Path $pwd '.opencv'
+$install = Join-Path $work 'install'
+$src = Join-Path $work ("opencv-" + $env:OPENCV_VERSION)
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+if (-not (Test-Path $src)) {
+  $zip = Join-Path $work 'opencv.zip'
+  curl -L -o $zip "https://github.com/opencv/opencv/archive/refs/tags/$env:OPENCV_VERSION.zip"
+  unzip -q $zip -d $work
+}
+$build = Join-Path $src 'build'
+New-Item -ItemType Directory -Force -Path $build | Out-Null
+Push-Location $build
+
+cmake `
+  "-DCMAKE_BUILD_TYPE=Release" `
+  "-DCMAKE_INSTALL_PREFIX=$install" `
+  "-DBUILD_LIST=core,imgproc,imgcodecs" `
+  "-DBUILD_TESTS=OFF" "-DBUILD_PERF_TESTS=OFF" "-DBUILD_EXAMPLES=OFF" `
+  "-DOPENCV_GENERATE_PKGCONFIG=ON" `
+  "-DBUILD_SHARED_LIBS=OFF" "-DBUILD_JAVA=OFF" "-DBUILD_PACKAGE=OFF" `
+  "-DWITH_ADE=OFF" "-DWITH_FFMPEG=OFF" "-DWITH_GSTREAMER=OFF" `
+  "-DWITH_IPP=OFF" "-DWITH_ITT=OFF" "-DWITH_LAPACK=OFF" `
+  "-DWITH_OPENCL=OFF" "-DWITH_PROTOBUF=OFF" `
+  "-DOPENCV_IO_FORCE_OPENEXR=ON" `
+  "-DBUILD_WITH_STATIC_CRT=OFF" `
+  ..
+cmake --build .
+cmake --install .
+Pop-Location
+
+# Optional helpers for linking
+$lib = "$install\x64\vc17\staticlib"
+$env:OPENCV_LINK_PATHS = $lib
+$env:OPENCV_INCLUDE_PATHS = "$install\include"
+$env:OPENCV_LINK_STATIC = "1"
+```
+
+### 3) Build the viewer
+
+```bash
+# from project root
 cargo build --release
-
-# Run (basic)
-cargo run -- path/to/image.jpg
+# or run directly
+cargo run
 ```
 
-## Installing OpenCV on Windows
-The `opencv` Rust crate requires a native OpenCV installation on your system.
+**Built executable files path**
 
-### 1) Using vcpkg (recommended)
-1. Install vcpkg and set environment variables
-```
-git clone https://github.com/microsoft/vcpkg.git
-./vcpkg/bootstrap-vcpkg.bat
-```
-2. Install OpenCV
-```
-.\vcpkg.exe install opencv4:x64-windows-static-md
-```
-3. Set `VCPKG_ROOT` and then `cargo build`.
+* Linux/macOS: `target/release/edolview-rs`
+* Windows: `target/release/edolview-rs.exe`
 
-If static build causes issues, try:
-```
-.\vcpkg.exe install opencv4:x64-windows
-```
+---
 
-### 2) Using the official OpenCV distribution
-- Download the Windows package from https://opencv.org/releases
-- Set the `OpenCV_DIR` environment variable (e.g. `C:\opencv\build`)
-- Add `C:\opencv\build\x64\vc16\bin` to `PATH`
+### Troubleshooting
 
-## Roadmap / TODO
-- Directory browsing & next/previous image via N / P keys
-- Zoom and panning
-- Automatic EXIF orientation handling
-- Drag & drop support (maybe via winit / egui integration)
+* `pkg-config: opencv4 not found` → set `PKG_CONFIG_PATH` to your OpenCV’s `lib/pkgconfig`.
+* Windows link errors → ensure `OPENCV_LINK_PATHS`/`OPENCV_INCLUDE_PATHS` point to your static build.
+* macOS libclang issues → ensure Homebrew LLVM is on `PATH`, with `LIBCLANG_PATH`/`DYLD_LIBRARY_PATH` set.
+
+## Supported file formats
+EdolView internally uses OpenCV for image loading, so image formats supported by OpenCV should be work on EdolView.
+* EXR (\*.exr)
+* HDR (\*.hdr)
+* Flow (\*.flo)
+* PFM (\*.pfm)
+* PGM (\*.pgm), PPM (\*.ppm)
+* JPG (\*.jpg, \*.jpeg)
+* PNG (\*.png)
+* TIFF (\*.tif, \*.tiff)
+* BMP (\*.bmp)
+* WEBP (\*.webp)
+* GIF (\*.gif)
 
 ## License
-MIT
+EdolView is available under the MIT license.
