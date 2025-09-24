@@ -326,29 +326,29 @@ jobs:
 
       - name: Generate checksums
         run: |
-          set -e
           cd dist
-          # Find built binaries inside artifact subdirectories
-          FILES=$(find . -maxdepth 3 -type f \( -name 'edolview' -o -name 'edolview.exe' \))
-          if [ -z "$FILES" ]; then
-            echo "No edolview binaries found to checksum" >&2
-            find . -maxdepth 3 -type f -ls || true
-            exit 1
-          fi
-          : > SHA256SUMS.txt
-          for f in $FILES; do
-            # Normalize path in output (strip leading ./)
-            rel=${f#./}
-            sha256sum "$f" 2>/dev/null | sed "s|  $f|  $rel|" >> SHA256SUMS.txt \
-              || shasum -a 256 "$f" | sed "s|  $f|  $rel|" >> SHA256SUMS.txt
+          for f in */edolview*; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" >> SHA256SUMS.txt || shasum -a 256 "$f" >> SHA256SUMS.txt
           done
           cat SHA256SUMS.txt
+
+      - name: Prepare release assets
+        run: |
+          set -e
+          cd dist
+          for dir in *; do
+            if [ -d "$dir" ]; then
+              (cd "$dir" && zip -9 -r ../"$dir".zip . >/dev/null 2>&1 || true)
+            fi
+          done
+          ls -al
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/**/*.zip
+            dist/*.zip
             dist/SHA256SUMS.txt
           generate_release_notes: true
         env:
