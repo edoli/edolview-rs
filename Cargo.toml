@@ -1,9 +1,9 @@
 [package]
-name = "edolview-rs"
-version = "0.1.0"
+name = "edolview"
+version = "0.1.1"
 edition = "2021"
-authors = ["You <you@example.com>"]
-description = "Simple image viewer using OpenCV in Rust"
+authors = ["Daniel Jeon <edoli.mia@gmail.com>"]
+description = "Image viewer for visualization and analysis"
 license = "MIT"
 
 [dependencies]

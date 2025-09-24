@@ -1018,8 +1018,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "edolview-rs"
-version = "0.1.0"
+name = "edolview"
+version = "0.1.1"
 dependencies = [
  "ahash",
  "arboard",
