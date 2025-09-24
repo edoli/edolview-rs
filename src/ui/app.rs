@@ -321,7 +321,6 @@ impl eframe::App for ViewerApp {
 
                     let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
                     let is_mono = self.state.channel_index != -1 || channels == 1;
-                    let visible_channels = if is_mono { 1 } else { channels.max(1).min(4) } as usize;
 
                     ui.horizontal(|ui| {
                         let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
@@ -359,9 +358,9 @@ impl eframe::App for ViewerApp {
                             ui.set_style(std::sync::Arc::new(style));
 
                             if self.state.shader_params.use_per_channel {
-                                for i in 0..visible_channels {
+                                for i in 0..channels {
                                     ui.horizontal(|ui| {
-                                        let label = match (visible_channels, i) {
+                                        let label = match (channels, i) {
                                             (1, 0) => "C".to_string(),
                                             (_, 0) => "R".to_string(),
                                             (_, 1) => "G".to_string(),
@@ -374,11 +373,11 @@ impl eframe::App for ViewerApp {
                                             ui,
                                             &self.icons,
                                             d,
-                                            i as i32,
-                                            &mut self.state.shader_params.scale_mode_channels[i],
-                                            &mut self.state.shader_params.auto_minmax_channels[i],
-                                            &mut self.state.shader_params.min_v_channels[i],
-                                            &mut self.state.shader_params.max_v_channels[i],
+                                            i,
+                                            &mut self.state.shader_params.scale_mode_channels[i as usize],
+                                            &mut self.state.shader_params.auto_minmax_channels[i as usize],
+                                            &mut self.state.shader_params.min_v_channels[i as usize],
+                                            &mut self.state.shader_params.max_v_channels[i as usize],
                                         );
                                     });
                                 }
