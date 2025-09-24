@@ -123,14 +123,10 @@ impl ImageViewer {
                 let scroll = ui.input(|i| i.raw_scroll_delta.y);
                 if scroll.abs() > 0.0 {
                     // Compute old scale before applying zoom change
-                    let old_scale = self.zoom();
                     let scroll_sign = scroll.signum();
-                    self.zoom_level += scroll_sign;
-                    let new_scale = self.zoom();
-                    let k = new_scale / old_scale;
                     if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
                         let local = (pointer - rect.min) * pixel_per_point;
-                        self.pan = self.pan * k + local * (1.0 - k);
+                        self.zoom_in(scroll_sign, Some(local));
                     }
                 }
 
@@ -539,6 +535,21 @@ impl ImageViewer {
 
     pub fn zoom(&self) -> f32 {
         self.zoom_base.powf(self.zoom_level)
+    }
+
+    pub fn zoom_in(&mut self, level: f32, center: Option<egui::Vec2>) {
+        let old_scale = self.zoom();
+        self.zoom_level += level;
+        let new_scale = self.zoom();
+        let k = new_scale / old_scale;
+
+        let local = if let Some(center) = center {
+            center
+        } else {
+            self.last_viewport_size_px.unwrap_or(vec2(0.0, 0.0)) * 0.5
+        };
+
+        self.pan = self.pan * k + local * (1.0 - k);
     }
 
     pub fn view_to_image_coords(&self, view_pos: egui::Pos2, rect: egui::Rect, pixel_per_point: f32) -> egui::Pos2 {

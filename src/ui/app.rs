@@ -122,6 +122,15 @@ impl eframe::App for ViewerApp {
                         self.viewer.reset_view();
                     }
                 }
+                if i.key_pressed(egui::Key::R) {
+                    self.viewer.reset_view();
+                }
+                if i.key_pressed(egui::Key::Plus) {
+                    self.viewer.zoom_in(1.0, None);
+                }
+                if i.key_pressed(egui::Key::Minus) {
+                    self.viewer.zoom_in(-1.0, None);
+                }
             });
         }
 
