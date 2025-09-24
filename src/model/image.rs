@@ -7,6 +7,7 @@ use std::{
     fs, mem,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
+    sync::OnceLock,
 };
 
 pub unsafe trait DataType: Copy {
@@ -81,11 +82,73 @@ pub trait Image {
     }
 }
 
+#[derive(Clone)]
+pub struct MinMax {
+    mins: Vec<f32>,
+    maxs: Vec<f32>,
+
+    total_min: OnceLock<f32>,
+    total_max: OnceLock<f32>,
+}
+
+impl MinMax {
+    pub fn new(mins: Vec<f32>, maxs: Vec<f32>) -> Self {
+        Self {
+            mins,
+            maxs,
+            total_min: OnceLock::new(),
+            total_max: OnceLock::new(),
+        }
+    }
+
+    pub fn min(&self, channel: usize) -> f32 {
+        if channel >= self.mins.len() {
+            0.0
+        } else {
+            self.mins[channel]
+        }
+    }
+
+    pub fn max(&self, channel: usize) -> f32 {
+        if channel >= self.maxs.len() {
+            0.0
+        } else {
+            self.maxs[channel]
+        }
+    }
+
+    pub fn total_min(&self) -> f32 {
+        self.total_min
+            .get_or_init(|| {
+                if self.mins.is_empty() {
+                    0.0
+                } else {
+                    self.mins.iter().copied().fold(f32::INFINITY, f32::min)
+                }
+            })
+            .to_owned()
+    }
+
+    pub fn total_max(&self) -> f32 {
+        self.total_max
+            .get_or_init(|| {
+                if self.maxs.is_empty() {
+                    0.0
+                } else {
+                    self.maxs.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                }
+            })
+            .to_owned()
+    }
+}
+
 // data of MatImage should be always f32. dtype of spec is not dtype of mat, but the original dtype before conversion to f32.
 pub struct MatImage {
     id: u64,
     mat: opencv::core::Mat,
     spec: ImageSpec,
+
+    minmax: OnceLock<MinMax>,
 }
 
 impl MatImage {
@@ -96,6 +159,7 @@ impl MatImage {
             mat,
             spec,
             id: new_id(),
+            minmax: OnceLock::new(),
         }
     }
 
@@ -111,6 +175,33 @@ impl MatImage {
             mean_vec.push(mean[i]);
         }
         Ok(mean_vec)
+    }
+
+    fn compute_minmax(&self) -> MinMax {
+        let spec = self.spec();
+        if spec.width == 0 || spec.height == 0 || spec.channels <= 0 {
+            return MinMax::new(vec![], vec![]);
+        }
+
+        let mut mins = vec![f32::INFINITY; spec.channels as usize];
+        let mut maxs = vec![f32::NEG_INFINITY; spec.channels as usize];
+
+        let channels = self.mat.channels();
+        for ch in 0..channels {
+            let mut dst = core::Mat::default();
+            core::extract_channel(&self.mat, &mut dst, ch).expect("extract_channel failed");
+            let mut min_val = 0f64;
+            let mut max_val = 0f64;
+            let _ = core::min_max_loc(&dst, Some(&mut min_val), Some(&mut max_val), None, None, &core::no_array());
+            mins[ch as usize] = min_val as f32;
+            maxs[ch as usize] = max_val as f32;
+        }
+
+        MinMax::new(mins, maxs)
+    }
+
+    pub fn minmax(&self) -> &MinMax {
+        self.minmax.get_or_init(|| self.compute_minmax())
     }
 }
 
@@ -289,7 +380,7 @@ fn decode_flo_to_mat(bytes: &[u8]) -> Result<core::Mat> {
     {
         // Convert LE bytes to native f32 values
         let dst_bytes = mat.data_bytes_mut()?;
-        let (_, dst_f32, _) = unsafe { dst_bytes.align_to_mut::<f32>() };
+        let (_, dst_f32, _) = dst_bytes.align_to_mut::<f32>();
         debug_assert_eq!(dst_f32.len(), num_floats);
         let mut off = 12usize;
         for v in dst_f32.iter_mut() {

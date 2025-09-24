@@ -147,7 +147,6 @@ float apply_scale_mode(float v, int mode)
 void main()
 {
     vec4 tex = texture2D(u_texture, v_tex_coord);
-    float alpha = tex.a;
 
     float image_x = v_tex_coord.x * float(u_image_size.x);
     float image_y = v_tex_coord.y * float(u_image_size.y);
@@ -161,8 +160,8 @@ void main()
         tex.r = (apply_scale_mode(tex.r, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
         tex.g = (apply_scale_mode(tex.g, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
         tex.b = (apply_scale_mode(tex.b, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
-        tex.a = (apply_scale_mode(tex.a, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
     }
+    float alpha = tex.a;
 
     if (u_channel_index == 1) {
         tex.r = tex.g;

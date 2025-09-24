@@ -12,6 +12,8 @@ pub const SCALE_LINEAR: &[u8] = include_bytes!("icons/scale_linear.svg");
 pub const SCALE_INVERSE: &[u8] = include_bytes!("icons/scale_inverse.svg");
 pub const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
 
+pub const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
+
 pub struct Icons {
     show_background: OnceCell<egui::TextureHandle>,
     show_pixel_value: OnceCell<egui::TextureHandle>,
@@ -20,6 +22,8 @@ pub struct Icons {
     scale_linear: OnceCell<egui::TextureHandle>,
     scale_inverse: OnceCell<egui::TextureHandle>,
     scale_log: OnceCell<egui::TextureHandle>,
+
+    normalize: OnceCell<egui::TextureHandle>,
 }
 
 impl Icons {
@@ -32,6 +36,8 @@ impl Icons {
             scale_linear: OnceCell::new(),
             scale_inverse: OnceCell::new(),
             scale_log: OnceCell::new(),
+
+            normalize: OnceCell::new(),
         }
     }
 
@@ -73,6 +79,13 @@ impl Icons {
     pub fn get_scale_log<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.scale_log
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_log", SCALE_LOG))
+            .to_icon(ctx)
+    }
+
+    #[inline]
+    pub fn get_normalize<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.normalize
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "normalize", NORMALIZE))
             .to_icon(ctx)
     }
 }

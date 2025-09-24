@@ -1,7 +1,7 @@
 use core::f32;
 use std::path::PathBuf;
 
-use eframe::egui::{self, vec2, Color32, Rangef, Visuals};
+use eframe::egui::{self, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -9,10 +9,10 @@ use crate::{
     res::icons::Icons,
     ui::{
         component::{
+            display_controls_ui,
             egui_ext::{ComboBoxExt, Size, UiExt},
             CustomSlider,
         },
-        gl::ScaleMode,
         ImageViewer,
     },
     util::{cv_ext::CvIntExt, math_ext::vec2i},
@@ -344,112 +344,52 @@ impl eframe::App for ViewerApp {
                     ui.separator();
                     ui.checkbox(&mut self.state.shader_params.use_per_channel, "Per-channel controls");
 
-                    ui.vertical(|ui| {
-                        let mut style: egui::Style = ui.style().as_ref().clone();
-                        egui::containers::menu::menu_style(&mut style);
-                        ui.set_style(std::sync::Arc::new(style));
+                    if let Some(d) = &self.state.display {
+                        ui.vertical(|ui| {
+                            let mut style: egui::Style = ui.style().as_ref().clone();
+                            egui::containers::menu::menu_style(&mut style);
+                            ui.set_style(std::sync::Arc::new(style));
 
-                        if self.state.shader_params.use_per_channel {
-                            for i in 0..visible_channels {
+                            if self.state.shader_params.use_per_channel {
+                                for i in 0..visible_channels {
+                                    ui.horizontal(|ui| {
+                                        let label = match (visible_channels, i) {
+                                            (1, 0) => "C".to_string(),
+                                            (_, 0) => "R".to_string(),
+                                            (_, 1) => "G".to_string(),
+                                            (_, 2) => "B".to_string(),
+                                            _ => "A".to_string(),
+                                        };
+                                        ui.label(format!("{}", label));
+
+                                        display_controls_ui(
+                                            ui,
+                                            &self.icons,
+                                            d,
+                                            i as i32,
+                                            &mut self.state.shader_params.scale_mode_channels[i],
+                                            &mut self.state.shader_params.auto_minmax_channels[i],
+                                            &mut self.state.shader_params.min_v_channels[i],
+                                            &mut self.state.shader_params.max_v_channels[i],
+                                        );
+                                    });
+                                }
+                            } else {
                                 ui.horizontal(|ui| {
-                                    let label = match (visible_channels, i) {
-                                        (1, 0) => "C".to_string(),
-                                        (_, 0) => "R".to_string(),
-                                        (_, 1) => "G".to_string(),
-                                        (_, 2) => "B".to_string(),
-                                        _ => "A".to_string(),
-                                    };
-                                    ui.label(format!("{}", label));
-                                    ui.radio_icon(
-                                        &mut self.state.shader_params.scale_mode_channels[i],
-                                        ScaleMode::Linear,
-                                        self.icons.get_scale_linear(ctx),
-                                        "Linear",
-                                    );
-                                    ui.radio_icon(
-                                        &mut self.state.shader_params.scale_mode_channels[i],
-                                        ScaleMode::Inverse,
-                                        self.icons.get_scale_inverse(ctx),
-                                        "Inverse",
-                                    );
-
-                                    ui.separator();
-
-                                    ui.style_mut().spacing.item_spacing = vec2(0.0, 0.0);
-                                    ui.columns_sized(
-                                        [Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)],
-                                        |columns| {
-                                            columns[0]
-                                                .add(
-                                                    egui::DragValue::new(
-                                                        &mut self.state.shader_params.min_v_channels[i],
-                                                    )
-                                                    .speed(0.01),
-                                                )
-                                                .on_hover_text("Min value");
-                                            if columns[1]
-                                                .button("↔")
-                                                .on_hover_text("Switch min/max for this channel")
-                                                .clicked()
-                                            {
-                                                std::mem::swap(
-                                                    &mut self.state.shader_params.min_v_channels[i],
-                                                    &mut self.state.shader_params.max_v_channels[i],
-                                                );
-                                            }
-                                            columns[2]
-                                                .add(
-                                                    egui::DragValue::new(
-                                                        &mut self.state.shader_params.max_v_channels[i],
-                                                    )
-                                                    .speed(0.01),
-                                                )
-                                                .on_hover_text("Max value");
-                                        },
+                                    display_controls_ui(
+                                        ui,
+                                        &self.icons,
+                                        d,
+                                        -1,
+                                        &mut self.state.shader_params.scale_mode,
+                                        &mut self.state.shader_params.auto_minmax,
+                                        &mut self.state.shader_params.min_v,
+                                        &mut self.state.shader_params.max_v,
                                     );
                                 });
                             }
-                        } else {
-                            ui.horizontal(|ui| {
-                                ui.radio_icon(
-                                    &mut self.state.shader_params.scale_mode,
-                                    ScaleMode::Linear,
-                                    self.icons.get_scale_linear(ctx),
-                                    "Linear",
-                                );
-                                ui.radio_icon(
-                                    &mut self.state.shader_params.scale_mode,
-                                    ScaleMode::Inverse,
-                                    self.icons.get_scale_inverse(ctx),
-                                    "Inverse",
-                                );
-
-                                ui.separator();
-
-                                ui.style_mut().spacing.item_spacing = vec2(0.0, 0.0);
-                                ui.columns_sized(
-                                    [Size::remainder(1.0), Size::exact(24.0), Size::remainder(1.0)],
-                                    |columns| {
-                                        columns[0]
-                                            .add(egui::DragValue::new(&mut self.state.shader_params.min_v).speed(0.01))
-                                            .on_hover_text("Min value");
-
-                                        if columns[1].button("↔").on_hover_text("Switch min/max").clicked() {
-                                            std::mem::swap(
-                                                &mut self.state.shader_params.min_v,
-                                                &mut self.state.shader_params.max_v,
-                                            );
-                                            self.tmp_min_v = format!("{}", self.state.shader_params.min_v);
-                                            self.tmp_max_v = format!("{}", self.state.shader_params.max_v);
-                                        }
-                                        columns[2]
-                                            .add(egui::DragValue::new(&mut self.state.shader_params.max_v).speed(0.01))
-                                            .on_hover_text("Max value");
-                                    },
-                                );
-                            });
-                        }
-                    });
+                        });
+                    }
 
                     ui.separator();
 

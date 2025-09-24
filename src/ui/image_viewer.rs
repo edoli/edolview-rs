@@ -66,6 +66,7 @@ impl ImageViewer {
         let mut need_update_texture = false;
         let new_id = image.id();
         let spec = image.spec();
+        let min_max = image.minmax().clone();
 
         if self.gl_raw_tex.is_none() || Some(new_id) != self.last_image_id {
             need_update_texture = true;
@@ -303,6 +304,7 @@ impl ImageViewer {
                                 viewport_size,
                                 image_size,
                                 channel_index,
+                                &min_max,
                                 is_mono,
                                 scale,
                                 position,
@@ -353,6 +355,7 @@ impl ImageViewer {
                                         egui::vec2(out_w as f32, out_h as f32),
                                         image_size,
                                         channel_index,
+                                        &min_max,
                                         is_mono,
                                         copy_scale,
                                         crop_pos,
