@@ -22,3 +22,14 @@ resvg = "0.45.1"
 ahash = "0.8.12"
 arboard = "3.6.1"
 notify = "8.2.0"
+
+[workspace]
+members = ["xtask"]
+
+[build-dependencies]
+winres = "0.1"
+
+[package.metadata.bundle]
+name = "Edolview"
+identifier = "kr.edoli.edolview"
+icon = ["icons/Edolview.icns"]
