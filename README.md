@@ -9,7 +9,7 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 * 🎨 **Colormap Visualization**: Go beyond raw images with rich colormap-based data visualization
 * 🔧 **Flexible Display Controls**: Fine-tune normalization, exposure, gamma, and offset with ease
 
-[Image placeholder]
+![Screenshot](images/screenshot.png)
 
 ## Installation
 
@@ -20,16 +20,13 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 
 ## Usage
 
+### Shortcuts
+
 * **Navigation**
   * `←` / `→` : navigate image files in current directory
   * `+` / `-`, `scroll` : zoom in / out
   * `r` : reset view
   * `f11` : fullscreen mode
-
-* **Visualization**
-  * `o` / `O` : offset down / up
-  * `e` / `E` : exposure down / up
-  * `g` / `G` : gamma down / up
 
 * **Selection**
   * `ctrl` + `a` : Select all region
