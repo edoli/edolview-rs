@@ -31,6 +31,7 @@ pub fn display_controls_ui(
 
     ui.separator();
 
+    let original_spacing = ui.style().spacing.item_spacing;
     ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
 
     let mut tmp_min = *min_v;
@@ -51,6 +52,7 @@ pub fn display_controls_ui(
             Size::remainder(1.0),
             Size::exact(24.0),
             Size::remainder(1.0),
+            Size::exact(original_spacing.x),
             Size::exact(16.0),
         ],
         |columns| {
@@ -79,8 +81,9 @@ pub fn display_controls_ui(
                 .response
                 .on_hover_text("Max value");
 
+
             // Auto min/max toggle
-            columns[3].toggle_icon(
+            columns[4].toggle_icon(
                 auto_minmax,
                 icons.get_normalize(&ctx),
                 "Use min / max values of image for normalization",
