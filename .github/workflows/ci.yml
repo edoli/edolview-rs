@@ -23,7 +23,7 @@ jobs:
           - os: ubuntu-latest
             suffix: linux
           - os: windows-latest
-            suffix: window
+            suffix: windows
           - os: macos-latest
             suffix: mac
 
