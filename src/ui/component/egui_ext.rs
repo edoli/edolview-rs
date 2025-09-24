@@ -401,6 +401,13 @@ impl<R> InnerRespExt for InnerResponse<R> {
 pub trait ComboBoxExt {
     fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &Vec<String>) -> InnerResponse<Option<()>>;
     fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &Vec<i32>) -> InnerResponse<Option<()>>;
+    fn combo_i32_with<F: Fn(i32) -> String>(
+        self,
+        ui: &mut Ui,
+        selected_value: &mut i32,
+        list: &Vec<i32>,
+        to_label: F,
+    ) -> InnerResponse<Option<()>>;
 }
 
 impl ComboBoxExt for ComboBox {
@@ -422,5 +429,23 @@ impl ComboBoxExt for ComboBox {
                 }
             })
             .hover_scroll(ui, list, selected_text, false)
+    }
+
+    fn combo_i32_with<F: Fn(i32) -> String>(
+        self,
+        ui: &mut Ui,
+        selected_value: &mut i32,
+        list: &Vec<i32>,
+        to_label: F,
+    ) -> InnerResponse<Option<()>> {
+        // We capture labels first so hover_scroll can still work with underlying values.
+        self.selected_text(to_label(*selected_value))
+            .show_ui(ui, |ui| {
+                for index in list {
+                    let label = to_label(*index);
+                    ui.selectable_value(selected_value, *index, label);
+                }
+            })
+            .hover_scroll(ui, list, selected_value, false)
     }
 }

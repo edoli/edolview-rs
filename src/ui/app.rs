@@ -325,10 +325,24 @@ impl eframe::App for ViewerApp {
                     ui.horizontal(|ui| {
                         let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
                         ui.spacing_mut().combo_width = sizes[0];
+                        let channel_values: Vec<i32> = (-1..channels).collect();
                         egui::ComboBox::from_id_salt("channel_index")
-                            .combo_i32(ui, &mut self.state.channel_index, &(-1..channels).collect())
+                            .combo_i32_with(ui, &mut self.state.channel_index, &channel_values, |v| match v {
+                                -1 => "All".to_string(),
+                                0 => {
+                                    if channels > 1 {
+                                        "R".to_string()
+                                    } else {
+                                        "C".to_string()
+                                    }
+                                }
+                                1 => "G".to_string(),
+                                2 => "B".to_string(),
+                                3 => "A".to_string(),
+                                _ => format!("C{}", v),
+                            })
                             .response
-                            .on_hover_text("Channel to display -1: color, 0: R, 1: G, 2: B, 3: A");
+                            .on_hover_text("Channel to display");
 
                         ui.spacing_mut().combo_width = sizes[1];
                         if is_mono {
