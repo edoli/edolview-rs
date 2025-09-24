@@ -1,11 +1,14 @@
-use eframe::egui;
+use eframe::egui::{self, Color32};
 
 use crate::{
     model::MatImage,
     res::icons::Icons,
     switch,
     ui::{
-        component::egui_ext::{Size, UiExt},
+        component::{
+            egui_ext::{Size, UiExt},
+            CustomSlider,
+        },
         gl::ScaleMode,
     },
 };
@@ -84,4 +87,25 @@ pub fn display_controls_ui(
             );
         },
     );
+}
+
+pub fn display_profile_slider(ui: &mut egui::Ui, value: &mut f32, min: f32, max: f32, baseline: f64, text: &str) {
+    ui.spacing_mut().slider_width = ui.available_width() - 128.0;
+    ui.add(
+        CustomSlider::new(value, min..=max)
+            .text(text)
+            .step_by(0.01)
+            .smart_aim(false)
+            .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
+            .trailing_fill(true)
+            .trailing_start(baseline)
+            .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
+            .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
+    )
+    .context_menu(|ui| {
+        if ui.button("Reset").clicked() {
+            *value = baseline as f32;
+            ui.close();
+        }
+    });
 }

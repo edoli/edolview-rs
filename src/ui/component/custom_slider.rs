@@ -2,12 +2,13 @@
 
 use std::{cmp::Ordering, mem, ops::RangeInclusive};
 
-use eframe::egui::{SliderClamping, SliderOrientation};
+use eframe::egui::{PointerButton, SliderClamping, SliderOrientation};
 
 use crate::egui::{
-    Color32, DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect,
-    Response, Sense, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, emath,
-    epaint, lerp, pos2, remap, remap_clamp, style, style::HandleShape, vec2
+    emath, epaint, lerp, pos2, remap, remap_clamp,
+    style::{self, HandleShape},
+    vec2, Color32, DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect, Response, Sense, TextStyle,
+    TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText,
 };
 
 /// The minus character: <https://www.compart.com/en/unicode/U+2212>
@@ -127,13 +128,14 @@ impl<'a> CustomSlider<'a> {
             value.to_f64()
         });
 
-        if Num::INTEGRAL { slf.integer() } else { slf }
+        if Num::INTEGRAL {
+            slf.integer()
+        } else {
+            slf
+        }
     }
 
-    pub fn from_get_set(
-        range: RangeInclusive<f64>,
-        get_set_value: impl 'a + FnMut(Option<f64>) -> f64,
-    ) -> Self {
+    pub fn from_get_set(range: RangeInclusive<f64>, get_set_value: impl 'a + FnMut(Option<f64>) -> f64) -> Self {
         Self {
             get_set_value: Box::new(get_set_value),
             range,
@@ -446,10 +448,7 @@ impl<'a> CustomSlider<'a> {
     ///     }));
     /// # });
     /// ```
-    pub fn custom_formatter(
-        mut self,
-        formatter: impl 'a + Fn(f64, RangeInclusive<usize>) -> String,
-    ) -> Self {
+    pub fn custom_formatter(mut self, formatter: impl 'a + Fn(f64, RangeInclusive<usize>) -> String) -> Self {
         self.custom_formatter = Some(Box::new(formatter));
         self
     }
@@ -515,10 +514,7 @@ impl<'a> CustomSlider<'a> {
     /// # });
     /// ```
     pub fn binary(self, min_width: usize, twos_complement: bool) -> Self {
-        assert!(
-            min_width > 0,
-            "Slider::binary: `min_width` must be greater than 0"
-        );
+        assert!(min_width > 0, "Slider::binary: `min_width` must be greater than 0");
         if twos_complement {
             self.custom_formatter(move |n, _| format!("{:0>min_width$b}", n as i64))
         } else {
@@ -550,10 +546,7 @@ impl<'a> CustomSlider<'a> {
     /// # });
     /// ```
     pub fn octal(self, min_width: usize, twos_complement: bool) -> Self {
-        assert!(
-            min_width > 0,
-            "Slider::octal: `min_width` must be greater than 0"
-        );
+        assert!(min_width > 0, "Slider::octal: `min_width` must be greater than 0");
         if twos_complement {
             self.custom_formatter(move |n, _| format!("{:0>min_width$o}", n as i64))
         } else {
@@ -585,17 +578,10 @@ impl<'a> CustomSlider<'a> {
     /// # });
     /// ```
     pub fn hexadecimal(self, min_width: usize, twos_complement: bool, upper: bool) -> Self {
-        assert!(
-            min_width > 0,
-            "Slider::hexadecimal: `min_width` must be greater than 0"
-        );
+        assert!(min_width > 0, "Slider::hexadecimal: `min_width` must be greater than 0");
         match (twos_complement, upper) {
-            (true, true) => {
-                self.custom_formatter(move |n, _| format!("{:0>min_width$X}", n as i64))
-            }
-            (true, false) => {
-                self.custom_formatter(move |n, _| format!("{:0>min_width$x}", n as i64))
-            }
+            (true, true) => self.custom_formatter(move |n, _| format!("{:0>min_width$X}", n as i64)),
+            (true, false) => self.custom_formatter(move |n, _| format!("{:0>min_width$x}", n as i64)),
             (false, true) => self.custom_formatter(move |n, _| {
                 let sign = if n < 0.0 { MINUS_CHAR_STR } else { "" };
                 format!("{sign}{:0>min_width$X}", n.abs() as i64)
@@ -672,29 +658,40 @@ impl CustomSlider<'_> {
             SliderOrientation::Horizontal => vec2(ui.spacing().slider_width, thickness),
             SliderOrientation::Vertical => vec2(thickness, ui.spacing().slider_width),
         };
-        ui.allocate_response(desired_size, Sense::drag())
+        ui.allocate_response(desired_size, Sense::drag().union(Sense::click()))
     }
 
     /// Just the slider, no text
     fn slider_ui(&mut self, ui: &Ui, response: &Response) {
         let rect = &response.rect;
-        let handle_shape = self
-            .handle_shape
-            .unwrap_or_else(|| ui.style().visuals.handle_shape);
+        let handle_shape = self.handle_shape.unwrap_or_else(|| ui.style().visuals.handle_shape);
         let position_range = self.position_range(rect, &handle_shape);
 
-        if let Some(pointer_position_2d) = response.interact_pointer_pos() {
-            let position = self.pointer_position(pointer_position_2d);
-            let new_value = if self.smart_aim {
-                let aim_radius = ui.input(|i| i.aim_radius());
-                emath::smart_aim::best_in_range_f64(
-                    self.value_from_position(position - aim_radius, position_range),
-                    self.value_from_position(position + aim_radius, position_range),
-                )
-            } else {
-                self.value_from_position(position, position_range)
-            };
-            self.set_value(new_value);
+        if response.dragged_by(PointerButton::Primary) || ui.input(|i| i.pointer.button_pressed(PointerButton::Primary))
+        {
+            if let Some(pointer_position_2d) = response.interact_pointer_pos() {
+                let position = self.pointer_position(pointer_position_2d);
+                let new_value = if self.smart_aim {
+                    let aim_radius = ui.input(|i| i.aim_radius());
+                    emath::smart_aim::best_in_range_f64(
+                        self.value_from_position(position - aim_radius, position_range),
+                        self.value_from_position(position + aim_radius, position_range),
+                    )
+                } else {
+                    self.value_from_position(position, position_range)
+                };
+                self.set_value(new_value);
+            }
+        }
+
+        // Scroll wheel support (hover + wheel to adjust). Invert scroll so wheel up increases value.
+        if response.hovered() {
+            let scroll_delta_y = ui.input(|i| i.raw_scroll_delta.y);
+            if scroll_delta_y.abs() > 0.0 {
+                let step = self.step.unwrap_or_else(|| self.current_gradient(position_range));
+                let new_value = self.get_value() + (-scroll_delta_y as f64) * step;
+                self.set_value(new_value);
+            }
         }
 
         let mut decrement = 0usize;
@@ -707,10 +704,7 @@ impl CustomSlider<'_> {
                     EventFilter {
                         // pressing arrows in the orientation of the
                         // slider should not move focus to next widget
-                        horizontal_arrows: matches!(
-                            self.orientation,
-                            SliderOrientation::Horizontal
-                        ),
+                        horizontal_arrows: matches!(self.orientation, SliderOrientation::Horizontal),
                         vertical_arrows: matches!(self.orientation, SliderOrientation::Vertical),
                         ..Default::default()
                     },
@@ -783,9 +777,7 @@ impl CustomSlider<'_> {
             let center = self.marker_center(position_1d, &rail_rect);
 
             // Decide if we should add trailing fill.
-            let trailing_fill = self
-                .trailing_fill
-                .unwrap_or_else(|| ui.visuals().slider_trailing_fill);
+            let trailing_fill = self.trailing_fill.unwrap_or_else(|| ui.visuals().slider_trailing_fill);
 
             // Paint trailing fill.
             if trailing_fill {
@@ -834,9 +826,7 @@ impl CustomSlider<'_> {
 
             let radius = self.handle_radius(rect);
 
-            let handle_shape = self
-                .handle_shape
-                .unwrap_or_else(|| ui.style().visuals.handle_shape);
+            let handle_shape = self.handle_shape.unwrap_or_else(|| ui.style().visuals.handle_shape);
             match handle_shape {
                 style::HandleShape::Circle => {
                     ui.painter().add(epaint::CircleShape {
@@ -927,8 +917,7 @@ impl CustomSlider<'_> {
             // If [`DragValue`] is controlled from the keyboard and `step` is defined, set speed to `step`
             step
         } else {
-            self.drag_value_speed
-                .unwrap_or_else(|| self.current_gradient(position_range))
+            self.drag_value_speed.unwrap_or_else(|| self.current_gradient(position_range))
         };
 
         let mut value = self.get_value();
@@ -983,9 +972,7 @@ impl CustomSlider<'_> {
             self.set_value(old_value);
         }
 
-        let thickness = ui
-            .text_style_height(&TextStyle::Body)
-            .at_least(ui.spacing().interact_size.y);
+        let thickness = ui.text_style_height(&TextStyle::Body).at_least(ui.spacing().interact_size.y);
         let mut response = self.allocate_slider_space(ui, thickness);
         self.slider_ui(ui, &response);
 
@@ -998,15 +985,10 @@ impl CustomSlider<'_> {
         let slider_response = response.clone();
 
         let value_response = if self.show_value {
-            let handle_shape = self
-                .handle_shape
-                .unwrap_or_else(|| ui.style().visuals.handle_shape);
+            let handle_shape = self.handle_shape.unwrap_or_else(|| ui.style().visuals.handle_shape);
             let position_range = self.position_range(&response.rect, &handle_shape);
             let value_response = self.value_ui(ui, position_range);
-            if value_response.gained_focus()
-                || value_response.has_focus()
-                || value_response.lost_focus()
-            {
+            if value_response.gained_focus() || value_response.has_focus() || value_response.lost_focus() {
                 // Use the [`DragValue`] id as the id of the whole widget,
                 // so that the focus events work as expected.
                 response = value_response.union(response);
@@ -1020,8 +1002,7 @@ impl CustomSlider<'_> {
         };
 
         if !self.text.is_empty() {
-            let label_response =
-                ui.add(Label::new(self.text.clone()).wrap_mode(TextWrapMode::Extend));
+            let label_response = ui.add(Label::new(self.text.clone()).wrap_mode(TextWrapMode::Extend));
             // The slider already has an accessibility label via widget info,
             // but sometimes it's useful for a screen reader to know
             // that a piece of text is a label for another widget,
@@ -1088,25 +1069,14 @@ fn value_from_normalized(normalized: f64, range: RangeInclusive<f64>, spec: &Sli
             let zero_cutoff = logarithmic_zero_cutoff(min, max);
             if normalized < zero_cutoff {
                 // negative
-                value_from_normalized(
-                    remap(normalized, 0.0..=zero_cutoff, 0.0..=1.0),
-                    min..=0.0,
-                    spec,
-                )
+                value_from_normalized(remap(normalized, 0.0..=zero_cutoff, 0.0..=1.0), min..=0.0, spec)
             } else {
                 // positive
-                value_from_normalized(
-                    remap(normalized, zero_cutoff..=1.0, 0.0..=1.0),
-                    0.0..=max,
-                    spec,
-                )
+                value_from_normalized(remap(normalized, zero_cutoff..=1.0, 0.0..=1.0), 0.0..=max, spec)
             }
         }
     } else {
-        debug_assert!(
-            min.is_finite() && max.is_finite(),
-            "You should use a logarithmic range"
-        );
+        debug_assert!(min.is_finite() && max.is_finite(), "You should use a logarithmic range");
         lerp(range, normalized.clamp(0.0, 1.0))
     }
 }
@@ -1140,25 +1110,14 @@ fn normalized_from_value(value: f64, range: RangeInclusive<f64>, spec: &SliderSp
             let zero_cutoff = logarithmic_zero_cutoff(min, max);
             if value < 0.0 {
                 // negative
-                remap(
-                    normalized_from_value(value, min..=0.0, spec),
-                    0.0..=1.0,
-                    0.0..=zero_cutoff,
-                )
+                remap(normalized_from_value(value, min..=0.0, spec), 0.0..=1.0, 0.0..=zero_cutoff)
             } else {
                 // positive side
-                remap(
-                    normalized_from_value(value, 0.0..=max, spec),
-                    0.0..=1.0,
-                    zero_cutoff..=1.0,
-                )
+                remap(normalized_from_value(value, 0.0..=max, spec), 0.0..=1.0, zero_cutoff..=1.0)
             }
         }
     } else {
-        debug_assert!(
-            min.is_finite() && max.is_finite(),
-            "You should use a logarithmic range"
-        );
+        debug_assert!(min.is_finite() && max.is_finite(), "You should use a logarithmic range");
         remap_clamp(value, range, 0.0..=1.0)
     }
 }
