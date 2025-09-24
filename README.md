@@ -13,9 +13,9 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 
 ## Installation
 
-- __Windows__: https://github.com/edoli/edolview-rs/releases/latest/download/edolview-windows.zip
-- __Linux__:  https://github.com/edoli/edolview-rs/releases/latest/download/edolview-mac.zip
-- __macOS__: https://github.com/edoli/edolview-rs/releases/latest/download/edolview-linux.zip
+- __Windows__: [edolview-windows.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-windows.zip)
+- __Linux__:  [edolview-mac.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-mac.zip)
+- __macOS__: [edolview-linux.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-linux.zip)
 
 ## Usage
 
