@@ -1,4 +1,4 @@
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 use eframe::egui;
 
@@ -15,29 +15,29 @@ pub const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
 pub const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
 
 pub struct Icons {
-    show_background: OnceCell<egui::TextureHandle>,
-    show_pixel_value: OnceCell<egui::TextureHandle>,
-    show_crosshair: OnceCell<egui::TextureHandle>,
+    show_background: OnceLock<egui::TextureHandle>,
+    show_pixel_value: OnceLock<egui::TextureHandle>,
+    show_crosshair: OnceLock<egui::TextureHandle>,
 
-    scale_linear: OnceCell<egui::TextureHandle>,
-    scale_inverse: OnceCell<egui::TextureHandle>,
-    scale_log: OnceCell<egui::TextureHandle>,
+    scale_linear: OnceLock<egui::TextureHandle>,
+    scale_inverse: OnceLock<egui::TextureHandle>,
+    scale_log: OnceLock<egui::TextureHandle>,
 
-    normalize: OnceCell<egui::TextureHandle>,
+    normalize: OnceLock<egui::TextureHandle>,
 }
 
 impl Icons {
     pub fn new() -> Self {
         Self {
-            show_background: OnceCell::new(),
-            show_pixel_value: OnceCell::new(),
-            show_crosshair: OnceCell::new(),
+            show_background: OnceLock::new(),
+            show_pixel_value: OnceLock::new(),
+            show_crosshair: OnceLock::new(),
 
-            scale_linear: OnceCell::new(),
-            scale_inverse: OnceCell::new(),
-            scale_log: OnceCell::new(),
+            scale_linear: OnceLock::new(),
+            scale_inverse: OnceLock::new(),
+            scale_log: OnceLock::new(),
 
-            normalize: OnceCell::new(),
+            normalize: OnceLock::new(),
         }
     }
 
