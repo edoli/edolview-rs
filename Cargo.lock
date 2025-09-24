@@ -4882,6 +4882,7 @@ dependencies = [
  "dirs",
  "ico",
  "image",
+ "resvg",
  "walkdir",
  "which",
 ]

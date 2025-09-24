@@ -22,21 +22,25 @@ fn main() -> Result<()> {
     }
 }
 
+/// Rasterize `icon.svg` → `icons/icon.png` (512x512) and then run existing pipelines.
 fn generate_all_icons() -> Result<()> {
-    let src = Path::new("icon.png");
-    if !src.exists() {
-        bail!("missing icon.png");
+    let svg_src = Path::new("icon.svg");
+    if !svg_src.exists() {
+        bail!("missing icon.svg");
     }
 
     fs::create_dir_all("icons")?;
 
-    generate_windows_ico(src, Path::new("icons/app.ico")).context("Windows .ico generation failed")?;
+    let base_png = Path::new("icons/icon.png");
+    rasterize_svg_to_png(svg_src, base_png, (512, 512)).expect("SVG → PNG rasterization failed");
 
-    generate_linux_pngs(src, Path::new("icons/hicolor")).context("Linux hicolor png generation failed")?;
+    // from here on, reuse the existing PNG-based pipeline with our freshly rendered icon.png
+    generate_windows_ico(base_png, Path::new("icons/app.ico")).context("Windows .ico generation failed")?;
+    generate_linux_pngs(base_png, Path::new("icons/hicolor")).context("Linux hicolor png generation failed")?;
 
     // macOS icns (only if iconutil present + on macOS host)
     if which::which("iconutil").is_ok() {
-        generate_macos_icns(src, Path::new(format!("icons/{APP_NAME}.icns").as_str()))?;
+        generate_macos_icns(base_png, Path::new(format!("icons/{APP_NAME}.icns").as_str()))?;
     } else {
         eprintln!("[warn] 'iconutil' not found; skipping ICNS. Run this on macOS to create icons/{APP_NAME}.icns");
     }
@@ -45,6 +49,31 @@ fn generate_all_icons() -> Result<()> {
     write_linux_desktop(format!("packaging/{APP_NAME_LC}.desktop").as_str())?;
 
     println!("icons generated in ./icons");
+    Ok(())
+}
+
+pub fn rasterize_svg_to_png(svg_path: &Path, png_out: &Path, size: (u32, u32)) -> Result<(), String> {
+    use resvg::{
+        tiny_skia::Pixmap,
+        usvg::{Transform, Tree},
+    };
+
+    let data = fs::read(svg_path).map_err(|e| format!("failed to read SVG file: {e}"))?;
+    let options = resvg::usvg::Options::default();
+    let rtree = Tree::from_data(&data, &options).map_err(|err| err.to_string())?;
+
+    let source_size = (rtree.size().width(), rtree.size().height());
+
+    let mut pixmap = Pixmap::new(size.0, size.1)
+        .ok_or_else(|| format!("Failed to create SVG Pixmap of size {}x{}", size.0, size.1))?;
+
+    resvg::render(
+        &rtree,
+        Transform::from_scale(size.0 as f32 / source_size.0, size.1 as f32 / source_size.1),
+        &mut pixmap.as_mut(),
+    );
+
+    pixmap.save_png(png_out).map_err(|e| format!("failed to save PNG: {e}"))?;
     Ok(())
 }
 
@@ -107,7 +136,8 @@ fn generate_macos_icns(src_png: &Path, out_icns: &Path) -> Result<()> {
     let bytes = fs::read(src_png)?;
     let img = image::load_from_memory(&bytes)?;
 
-    // Apple recommended sizes
+    // Apple recommended sizes (keep square). Note: true iconset typically includes @2x variants;
+    // we keep the simple variant consistent with previous code.
     let sizes = [16u32, 32, 64, 128, 256, 512, 1024];
     for &sz in &sizes {
         let resized = img.resize_exact(sz, sz, FilterType::Lanczos3);
@@ -115,11 +145,7 @@ fn generate_macos_icns(src_png: &Path, out_icns: &Path) -> Result<()> {
             DynamicImage::ImageRgba8(buf) => buf,
             _ => resized.to_rgba8(),
         };
-        let filename = if sz == 1024 {
-            format!("icon_{sz}x{sz}.png")
-        } else {
-            format!("icon_{sz}x{sz}.png")
-        };
+        let filename = format!("icon_{sz}x{sz}.png");
         let dst = tmp.join(filename);
         image::save_buffer(&dst, &rgba8, sz, sz, image::ColorType::Rgba8)?;
     }
@@ -141,14 +167,16 @@ fn generate_macos_icns(src_png: &Path, out_icns: &Path) -> Result<()> {
 
 fn write_linux_desktop(path: &str) -> Result<()> {
     fs::create_dir_all(Path::new(path).parent().unwrap())?;
-    let desktop = format!(r#"[Desktop Entry]
+    let desktop = format!(
+        r#"[Desktop Entry]
 Type=Application
 Name={APP_NAME}
 Exec={APP_NAME_LC}
 Icon={APP_NAME_LC}
 Terminal=false
 Categories=Utility;
-"#);
+"#
+    );
     fs::write(path, desktop)?;
     Ok(())
 }
