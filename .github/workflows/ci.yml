@@ -295,11 +295,11 @@ jobs:
         run: |
           set -e
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cp target/release/edolview-rs.exe ./ || echo "Windows release binary not found"
+            cp target/release/edolview.exe ./ || echo "Windows release binary not found"
           else
-            cp target/release/edolview-rs ./ || echo "Unix release binary not found"
+            cp target/release/edolview ./ || echo "Unix release binary not found"
           fi
-          ls -al edolview-rs* || true
+          ls -al edolview* || true
         shell: bash
 
       - name: Upload artifact
@@ -307,7 +307,7 @@ jobs:
         with:
           name: edolview-${{ matrix.suffix }}
           path: |
-            edolview-rs*
+            edolview*
             colormap/**
           if-no-files-found: warn
 
@@ -327,7 +327,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          for f in */edolview-rs*; do
+          for f in */edolview*; do
             [ -f "$f" ] || continue
             sha256sum "$f" >> SHA256SUMS.txt || shasum -a 256 "$f" >> SHA256SUMS.txt
           done
@@ -339,7 +339,7 @@ jobs:
           cd dist
           for dir in *; do
             if [ -d "$dir" ]; then
-              (cd "$dir" && zip -9 ../"$dir".zip edolview-rs* colormap/* 2>/dev/null || true)
+              (cd "$dir" && zip -9 ../"$dir".zip edolview* colormap/* 2>/dev/null || true)
             fi
           done
           ls -al
