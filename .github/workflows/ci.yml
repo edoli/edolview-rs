@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -302,3 +304,44 @@ jobs:
             edolview-rs*
             assets/**
           if-no-files-found: warn
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          for f in */edolview-rs*; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" >> SHA256SUMS.txt || shasum -a 256 "$f" >> SHA256SUMS.txt
+          done
+          cat SHA256SUMS.txt
+
+      - name: Prepare release assets
+        run: |
+          set -e
+          cd dist
+          for dir in *; do
+            if [ -d "$dir" ]; then
+              (cd "$dir" && zip -9 ../"$dir".zip edolview-rs* assets/* 2>/dev/null || true)
+            fi
+          done
+          ls -al
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
