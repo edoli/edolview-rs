@@ -326,9 +326,21 @@ jobs:
 
       - name: Generate checksums
         run: |
+          set -e
           cd dist
-          find . -type f -name '*.zip' -print0 | sort -z | while IFS= read -r -d '' f; do
-            sha256sum "$f" >> SHA256SUMS.txt 2>/dev/null || shasum -a 256 "$f" >> SHA256SUMS.txt
+          # Find built binaries inside artifact subdirectories
+          FILES=$(find . -maxdepth 3 -type f \( -name 'edolview' -o -name 'edolview.exe' \))
+          if [ -z "$FILES" ]; then
+            echo "No edolview binaries found to checksum" >&2
+            find . -maxdepth 3 -type f -ls || true
+            exit 1
+          fi
+          : > SHA256SUMS.txt
+          for f in $FILES; do
+            # Normalize path in output (strip leading ./)
+            rel=${f#./}
+            sha256sum "$f" 2>/dev/null | sed "s|  $f|  $rel|" >> SHA256SUMS.txt \
+              || shasum -a 256 "$f" | sed "s|  $f|  $rel|" >> SHA256SUMS.txt
           done
           cat SHA256SUMS.txt
 
