@@ -302,7 +302,7 @@ jobs:
           name: edolview-${{ runner.os }}
           path: |
             edolview-rs*
-            assets/**
+            colormap/**
           if-no-files-found: warn
 
   release:
@@ -331,7 +331,7 @@ jobs:
           cd dist
           for dir in *; do
             if [ -d "$dir" ]; then
-              (cd "$dir" && zip -9 ../"$dir".zip edolview-rs* assets/* 2>/dev/null || true)
+              (cd "$dir" && zip -9 ../"$dir".zip edolview-rs* colormap/* 2>/dev/null || true)
             fi
           done
           ls -al

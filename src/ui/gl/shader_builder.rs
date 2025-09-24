@@ -31,10 +31,10 @@ impl ShaderBuilder {
 
     pub fn build(&self, colormap_name: &str, is_mono: bool) -> String {
         let colormap_code = if is_mono {
-            std::fs::read_to_string(&format!("assets/colormap/mono/{}.glsl", colormap_name))
+            std::fs::read_to_string(&format!("colormap/mono/{}.glsl", colormap_name))
                 .unwrap_or_else(|_| String::new())
         } else {
-            std::fs::read_to_string(&format!("assets/colormap/rgb/{}.glsl", colormap_name))
+            std::fs::read_to_string(&format!("colormap/rgb/{}.glsl", colormap_name))
                 .unwrap_or_else(|_| String::new())
         };
         // TODO: show error if colormap file not found
