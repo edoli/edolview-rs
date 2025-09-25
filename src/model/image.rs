@@ -232,49 +232,90 @@ impl MatImage {
             // Read image using imread fails on paths with non-ASCII characters.
             // imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
 
-            let mut data = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
+            let mut bytes = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
 
             if ext == "pfm" {
-                (data, scale_abs) = fix_pfm_header_and_parse_scale(&data);
+                (bytes, scale_abs) = fix_pfm_header_and_parse_scale(&bytes);
             } else if ext == "flo" {
                 // Optical flow (.flo) file: decode directly to CV_32FC2 Mat
-                return Ok(MatImage::new(decode_flo_to_mat(&data)?, core::CV_32F));
+                return Ok(MatImage::new(decode_flo_to_mat(&bytes)?, core::CV_32F));
             }
-            let data_mat = core::Mat::new_rows_cols_with_data(1, data.len() as i32, &data)?;
-            imgcodecs::imdecode(&data_mat, imgcodecs::IMREAD_UNCHANGED)?
+            let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
+            imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?
         };
 
         if mat.empty() {
             return Err(eyre!("Failed to load image"));
         }
 
+        let dtype = mat.depth();
+        let mat_f32 = Self::postprocess(mat, scale_abs, true)?;
+
+        Ok(MatImage::new(mat_f32, dtype))
+    }
+
+    pub fn load_from_clipboard() -> Result<MatImage> {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Clipboard read");
+
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| eyre!("Failed to open clipboard: {e}"))?;
+        let image_data = clipboard
+            .get_image()
+            .map_err(|e| eyre!("Failed to get image from clipboard: {e}"))?;
+
+        let width = image_data.width as i32;
+        let height = image_data.height as i32;
+        let bytes = std::borrow::Cow::into_owned(image_data.bytes);
+        let channels = (bytes.len() / (width as usize) / (height as usize)) as i32;
+        if width <= 0 || height <= 0 || channels <= 0 || channels > 4 {
+            return Err(eyre!("Invalid clipboard image dimensions or channels"));
+        }
+
+        let mat = core::Mat::new_rows_cols_with_data(height, width * channels, &bytes)?.clone_pointee();
+        let mat = mat.reshape(channels, height)?.clone_pointee().clone();
+
+        if mat.empty() {
+            return Err(eyre!("Failed to load image"));
+        }
+
+        let dtype = mat.depth();
+        let mat_f32 = Self::postprocess(mat, 1.0, false)?;
+
+        Ok(MatImage::new(mat_f32, dtype))
+    }
+
+    fn postprocess(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<core::Mat> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");
 
         let mut mat_f32 = core::Mat::default();
-        let mut tmp = core::Mat::default();
 
-        let channels = mat.channels();
-        let color_convert = match mat.channels() {
-            1 => -1,
-            3 => imgproc::COLOR_BGR2RGB,
-            4 => imgproc::COLOR_BGRA2RGBA,
-            _ => {
-                return Err(eyre!("Unsupported image channels: {}", channels));
+        let dtype = mat.depth();
+
+        if bgr_convert {
+            let channels = mat.channels();
+            let mut tmp = core::Mat::default();
+
+            let color_convert = match mat.channels() {
+                1 => -1,
+                3 => imgproc::COLOR_BGR2RGB,
+                4 => imgproc::COLOR_BGRA2RGBA,
+                _ => {
+                    return Err(eyre!("Unsupported image channels: {}", channels));
+                }
+            };
+
+            if color_convert != -1 {
+                imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
+                tmp.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
+            } else {
+                mat.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
             }
-        };
-
-        if color_convert != -1 {
-            imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
         } else {
-            tmp = mat.clone();
+            mat.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
         }
 
-        let dtype = tmp.depth();
-
-        tmp.convert_to(&mut mat_f32, core::CV_32F, scale_abs / dtype.alpha(), 0.0)?;
-
-        Ok(MatImage::new(mat_f32, dtype))
+        Ok(mat_f32)
     }
 }
 

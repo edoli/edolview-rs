@@ -244,4 +244,11 @@ impl FileNav {
             }
         }
     }
+
+    pub fn clear(&mut self) {
+        self.stop_dir_watcher();
+        self.dir_path = None;
+        self.files_in_dir.clear();
+        self.current_file_index = None;
+    }
 }

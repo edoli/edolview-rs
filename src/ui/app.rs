@@ -110,15 +110,11 @@ impl eframe::App for ViewerApp {
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     if let Err(e) = self.state.navigate_prev() {
                         eprintln!("Failed to navigate prev: {e}");
-                    } else {
-                        self.viewer.reset_view();
                     }
                 }
                 if i.key_pressed(egui::Key::ArrowRight) {
                     if let Err(e) = self.state.navigate_next() {
                         eprintln!("Failed to navigate next: {e}");
-                    } else {
-                        self.viewer.reset_view();
                     }
                 }
                 if i.key_pressed(egui::Key::R) {
@@ -189,6 +185,13 @@ impl eframe::App for ViewerApp {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+
+                if ui.button("Clipboard").clicked() {
+                    self.state.load_from_clipboard().unwrap_or_else(|e| {
+                        eprintln!("Failed to load image from clipboard: {e}");
+                    });
+                }
+
                 ui.separator();
                 if ui.button("Reset View").clicked() {
                     self.viewer.reset_view();

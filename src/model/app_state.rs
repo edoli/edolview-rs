@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use color_eyre::eyre::Result;
 
 use crate::{
-    model::{Asset, FileAsset, Image, MatImage, Recti},
+    model::{Asset, AssetType, ClipboardAsset, FileAsset, Image, MatImage, Recti},
     ui::gl::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
 };
@@ -88,7 +88,7 @@ impl AppState {
 
     pub fn load_from_path(&mut self, path: PathBuf) -> Result<()> {
         #[cfg(debug_assertions)]
-        let _timer1 = crate::util::timer::ScopedTimer::new("Total image load time");
+        let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from path]");
 
         self.asset = Some(Box::new(FileAsset::new(
             path.to_string_lossy().to_string(),
@@ -97,7 +97,7 @@ impl AppState {
         self.path = Some(path.clone());
 
         #[cfg(debug_assertions)]
-        let _timer2 = crate::util::timer::ScopedTimer::new("Path scan");
+        let _timer_path = crate::util::timer::ScopedTimer::new("Path scan");
 
         // Refresh directory listing and select current index
         if let Some(dir) = path.parent() {
@@ -105,11 +105,20 @@ impl AppState {
             self.file_nav.select_index_for_path(&path);
             let _ = self.file_nav.start_dir_watcher(dir.to_path_buf());
         } else {
-            self.file_nav.stop_dir_watcher();
-            self.file_nav.dir_path = None;
-            self.file_nav.files_in_dir.clear();
-            self.file_nav.current_file_index = None;
+            self.file_nav.clear();
         }
+        Ok(())
+    }
+
+    pub fn load_from_clipboard(&mut self) -> Result<()> {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from clipboard]");
+
+        self.asset = Some(Box::new(ClipboardAsset::new(MatImage::load_from_clipboard()?)));
+
+        self.path = None;
+        self.file_nav.clear();
+
         Ok(())
     }
 
@@ -140,15 +149,29 @@ impl AppState {
     }
 
     pub fn navigate_next(&mut self) -> Result<()> {
-        if let Some(path) = self.file_nav.navigate_next() {
-            self.load_from_path(path)?;
+        if let Some(asset) = &self.asset {
+            match asset.asset_type() {
+                AssetType::File => {
+                    if let Some(path) = self.file_nav.navigate_next() {
+                        self.load_from_path(path)?;
+                    }
+                }
+                _ => return Ok(()),
+            }
         }
         Ok(())
     }
 
     pub fn navigate_prev(&mut self) -> Result<()> {
-        if let Some(path) = self.file_nav.navigate_prev() {
-            self.load_from_path(path)?;
+        if let Some(asset) = &self.asset {
+            match asset.asset_type() {
+                AssetType::File => {
+                    if let Some(path) = self.file_nav.navigate_prev() {
+                        self.load_from_path(path)?;
+                    }
+                }
+                _ => return Ok(()),
+            }
         }
         Ok(())
     }
