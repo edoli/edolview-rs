@@ -151,9 +151,7 @@ impl eframe::App for ViewerApp {
             for f in dropped_files {
                 if let Some(path) = f.path {
                     match self.state.load_from_path(path.clone()) {
-                        Ok(_) => {
-                            break;
-                        }
+                        Ok(_) => {}
                         Err(e) => {
                             eprintln!("Failed to load dropped file: {e}");
                         }
