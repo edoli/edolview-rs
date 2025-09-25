@@ -1,7 +1,7 @@
 use core::f32;
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
-use eframe::egui::{self, Rangef, Visuals};
+use eframe::egui::{self, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -437,6 +437,8 @@ impl eframe::App for ViewerApp {
 
                     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                         let mut to_set: Option<_> = None;
+                        let mut to_remove: HashSet<_> = HashSet::new();
+                        let mut to_retain: HashSet<_> = HashSet::new();
 
                         self.state.assets.iter().for_each(|(hash, asset)| {
                             let name = asset.name();
@@ -447,13 +449,64 @@ impl eframe::App for ViewerApp {
                                 } else {
                                     ui.selectable_label(false, name)
                                 };
+                                btn.context_menu(|ui| {
+                                    ui.visuals_mut().override_text_color = Some(Color32::from_rgb(255, 100, 100));
+                                    if ui.button("Delete").clicked() {
+                                        to_remove.insert(hash.clone());
+                                        ui.close();
+                                    }
+                                    if ui.button("Delete Others").clicked() {
+                                        to_retain.insert(hash.clone());
+                                        ui.close();
+                                    }
+                                    ui.visuals_mut().override_text_color = None;
+
+                                    match asset.asset_type() {
+                                        crate::model::AssetType::File => {
+                                            if ui.button("Copy Path").clicked() {
+                                                let path = asset.name();
+                                                arboard::Clipboard::new()
+                                                    .and_then(|mut cb| cb.set_text(path.to_string()))
+                                                    .unwrap_or_else(|e| {
+                                                        eprintln!("Failed to copy path to clipboard: {e}");
+                                                    });
+                                                ui.close();
+                                            }
+                                            if ui.button("Reveal in File Explorer").clicked() {
+                                                let path = asset.name();
+                                                let path_buf = PathBuf::from(path);
+                                                if let Err(e) = opener::open(
+                                                    path_buf.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                                                ) {
+                                                    eprintln!("Failed to open file explorer: {e}");
+                                                }
+                                                ui.close();
+                                            }
+                                        }
+                                        crate::model::AssetType::Clipboard => {}
+                                        _ => {}
+                                    }
+                                });
                                 if btn.clicked() {
                                     to_set = Some(asset.clone());
                                 }
                             });
                         });
+
                         if let Some(to_set) = to_set {
                             self.state.set_asset(to_set);
+                        }
+
+                        if to_retain.is_empty() {
+                            self.state.assets.retain(|hash, _| !to_remove.contains(hash));
+                        } else {
+                            self.state.assets.retain(|hash, _| to_retain.contains(hash));
+                        }
+
+                        if let Some(asset) = &self.state.asset {
+                            if !self.state.assets.contains_key(asset.hash()) {
+                                self.state.clear_asset();
+                            }
                         }
                     });
                 });

@@ -138,6 +138,13 @@ impl AppState {
         self.asset = self.assets.get(&hash).cloned();
     }
 
+    pub fn clear_asset(&mut self) {
+        self.asset = None;
+        self.path = None;
+        self.file_nav.clear();
+        self.marquee_rect = Recti::ZERO;
+    }
+
     pub fn set_marquee_rect(&mut self, rect: Recti) {
         // check marquee rect exceed image bounds
         if let Some(asset) = &self.asset {
