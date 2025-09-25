@@ -114,7 +114,9 @@ impl AppState {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from clipboard]");
 
-        self.asset = Some(Box::new(ClipboardAsset::new(MatImage::load_from_clipboard()?)));
+        let image = MatImage::load_from_clipboard()
+            .or_else(|_| MatImage::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()))?;
+        self.asset = Some(Box::new(ClipboardAsset::new(image)));
 
         self.path = None;
         self.file_nav.clear();

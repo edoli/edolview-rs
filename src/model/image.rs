@@ -284,6 +284,24 @@ impl MatImage {
         Ok(MatImage::new(mat_f32, dtype))
     }
 
+    pub fn load_from_url(url: &str) -> Result<MatImage> {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Image download");
+
+        let bytes = ureq::get(url).call()?.body_mut().read_to_vec()?;
+
+        let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
+        let mat = imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?;
+        if mat.empty() {
+            return Err(eyre!("Failed to load image"));
+        }
+
+        let dtype = mat.depth();
+        let mat_f32 = Self::postprocess(mat, 1.0, true)?;
+
+        Ok(MatImage::new(mat_f32, dtype))
+    }
+
     fn postprocess(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<core::Mat> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");

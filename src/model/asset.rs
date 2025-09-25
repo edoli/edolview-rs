@@ -89,3 +89,27 @@ pub struct UrlAsset {
     url: String,
     image: MatImage,
 }
+
+impl UrlAsset {
+    pub fn new(url: String, image: MatImage) -> Self {
+        Self { url, image }
+    }
+}
+
+impl Asset<MatImage> for UrlAsset {
+    fn name(&self) -> &str {
+        &self.url
+    }
+
+    fn image(&self) -> &MatImage {
+        &self.image
+    }
+
+    fn hash(&self) -> &str {
+        &self.url
+    }
+
+    fn asset_type(&self) -> AssetType {
+        AssetType::Url
+    }
+}
