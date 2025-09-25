@@ -611,6 +611,9 @@ impl ImageViewer {
 // Upload an CPU data directly as an OpenGL texture.
 // Supports 1 (GRAY), 3 (BGR), 4 (BGRA) channel 8-bit mats.
 fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::NativeTexture> {
+    #[cfg(debug_assertions)]
+    let _timer = crate::util::timer::ScopedTimer::new("Upload texture");
+
     let spec = image.spec();
     let (w, h) = (spec.width, spec.height);
     let channels = spec.channels;

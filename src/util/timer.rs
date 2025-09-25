@@ -48,7 +48,6 @@ impl<'a> Drop for ScopedTimer<'a> {
         crate::debug::DEBUG_STATE
             .lock()
             .unwrap()
-            .timings
-            .insert(self.name.to_string(), elapsed);
+            .add_timing(self.name, elapsed);
     }
 }

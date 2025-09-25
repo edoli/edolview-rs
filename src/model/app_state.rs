@@ -87,8 +87,14 @@ impl AppState {
     }
 
     pub fn load_from_path(&mut self, path: PathBuf) -> Result<()> {
+        #[cfg(debug_assertions)]
+        let _timer1 = crate::util::timer::ScopedTimer::new("Total image load time");
+
         self.display = Some(MatImage::load_from_path(&path)?);
         self.path = Some(path.clone());
+
+        #[cfg(debug_assertions)]
+        let _timer2 = crate::util::timer::ScopedTimer::new("Path scan");
 
         // Refresh directory listing and select current index
         if let Some(dir) = path.parent() {

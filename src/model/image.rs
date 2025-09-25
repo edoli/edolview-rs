@@ -178,6 +178,9 @@ impl MatImage {
     }
 
     fn compute_minmax(&self) -> MinMax {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Compute minmax");
+
         let spec = self.spec();
         if spec.width == 0 || spec.height == 0 || spec.channels <= 0 {
             return MinMax::new(vec![], vec![]);
