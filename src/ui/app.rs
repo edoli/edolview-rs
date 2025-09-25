@@ -437,25 +437,27 @@ impl eframe::App for ViewerApp {
                         None
                     };
 
-                    let mut to_set: Option<_> = None;
-                    
-                    self.state.assets.iter().for_each(|(hash, asset)| {
-                        let name = asset.name();
+                    egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                        let mut to_set: Option<_> = None;
 
-                        ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                            let btn = if Some(hash) == asset_hash {
-                                ui.selectable_label(true, name)
-                            } else {
-                                ui.selectable_label(false, name)
-                            };
-                            if btn.clicked() {
-                                to_set = Some(asset.clone());
-                            }
+                        self.state.assets.iter().for_each(|(hash, asset)| {
+                            let name = asset.name();
+
+                            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                                let btn = if Some(hash) == asset_hash {
+                                    ui.selectable_label(true, name)
+                                } else {
+                                    ui.selectable_label(false, name)
+                                };
+                                if btn.clicked() {
+                                    to_set = Some(asset.clone());
+                                }
+                            });
                         });
+                        if let Some(to_set) = to_set {
+                            self.state.set_asset(to_set);
+                        }
                     });
-                    if let Some(to_set) = to_set {
-                        self.state.set_asset(to_set);
-                    }
                 });
         }
 
