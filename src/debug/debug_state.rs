@@ -1,7 +1,8 @@
-use std::{sync::{LazyLock, Mutex}, time::{Duration, Instant}};
-
-use ahash::HashMap;
-
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
 
 pub struct DebugState {
     timings: HashMap<String, Duration>,
@@ -26,10 +27,13 @@ impl DebugState {
     }
 
     pub fn timing_changed(&self, name: &str) -> f32 {
-        self.timing_changes.get(name).map(|instant| {
-            let duration = instant.elapsed();
-            duration.as_millis() as f32 / 1000.0
-        }).unwrap_or(0.0)
+        self.timing_changes
+            .get(name)
+            .map(|instant| {
+                let duration = instant.elapsed();
+                duration.as_millis() as f32 / 1000.0
+            })
+            .unwrap_or(0.0)
     }
 }
 

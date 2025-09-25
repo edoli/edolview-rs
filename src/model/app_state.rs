@@ -1,6 +1,7 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::Result;
+use indexmap::IndexMap;
 
 use crate::{
     model::{Asset, AssetType, ClipboardAsset, FileAsset, Image, MatImage, Recti},
@@ -40,7 +41,7 @@ pub struct AppState {
     // File navigation + watcher
     pub file_nav: crate::model::FileNav,
 
-    pub assets: HashMap<String, SharedAsset>,
+    pub assets: IndexMap<String, SharedAsset>,
 }
 
 fn list_colormaps(dir: &PathBuf) -> Vec<String> {
@@ -87,7 +88,7 @@ impl AppState {
             image_server_port: 21734,
             copy_use_original_size: true,
             file_nav: crate::model::FileNav::new(),
-            assets: HashMap::new(),
+            assets: IndexMap::new(),
         }
     }
 
