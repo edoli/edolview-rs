@@ -282,14 +282,14 @@ jobs:
           
           Get-Content -Path $Env:GITHUB_ENV
 
+      - name: Run icon generation
+        run: cargo run -p xtask -- icons
+
       - name: Build
         run: cargo build --verbose
 
       - name: Run tests (if any)
         run: cargo test --all --verbose --no-fail-fast
-
-      - name: Run icon generation
-        run: cargo run -p xtask -- icons
 
       - name: Package release binary
         run: cargo build --release
