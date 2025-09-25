@@ -186,14 +186,14 @@ impl eframe::App for ViewerApp {
                     }
                 });
 
-                if ui.button("Clipboard").clicked() {
+                if ui.button("Clipboard").on_hover_text("Load image from clipboard").clicked() {
                     self.state.load_from_clipboard().unwrap_or_else(|e| {
                         eprintln!("Failed to load image from clipboard: {e}");
                     });
                 }
 
                 ui.separator();
-                if ui.button("Reset View").clicked() {
+                if ui.button("Reset View").on_hover_text("Reset zoom and pan to original").clicked() {
                     self.viewer.reset_view();
                 }
 
