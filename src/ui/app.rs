@@ -427,7 +427,7 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    ui.heading("Image Navigator");
+                    ui.heading("Image List");
                     let asset = self.state.asset.clone();
                     let asset_hash = if let Some(asset) = asset {
                         Some(&asset.hash().to_string())
