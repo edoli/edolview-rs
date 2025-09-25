@@ -3,7 +3,7 @@ use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::{Arc, Mutex};
 
-use crate::model::{AppState, Image, Recti};
+use crate::model::{AppState, Image, Recti, EMPTY_MINMAX};
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
@@ -66,7 +66,13 @@ impl ImageViewer {
         let mut need_update_texture = false;
         let new_id = image.id();
         let spec = image.spec();
-        let min_max = image.minmax().clone();
+        let min_max = if app_state.shader_params.auto_minmax && !app_state.shader_params.use_per_channel
+            || app_state.shader_params.auto_minmax_channels.iter().any(|&b| b)
+        {
+            image.minmax().clone()
+        } else {
+            EMPTY_MINMAX
+        };
 
         if self.gl_raw_tex.is_none() || Some(new_id) != self.last_image_id {
             need_update_texture = true;
