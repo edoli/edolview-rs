@@ -298,7 +298,31 @@ impl eframe::App for ViewerApp {
                                 &mut self.marquee_rect_text,
                                 &mut self.state.marquee_rect,
                                 &mut self.tmp_marquee_rect,
-                            );
+                            )
+                            .context_menu(|ui| {
+                                if ui.button("Copy Numpy Indexing").clicked() {
+                                    let rect = self.state.marquee_rect.validate();
+                                    let np_indexing =
+                                        format!("{}:{}, {}:{}", rect.min.y, rect.max.y, rect.min.x, rect.max.x,);
+                                    arboard::Clipboard::new()
+                                        .and_then(|mut cb| cb.set_text(np_indexing))
+                                        .unwrap_or_else(|e| {
+                                            eprintln!("Failed to copy numpy indexing to clipboard: {e}");
+                                        });
+                                    ui.close();
+                                }
+                                if ui.button("Copy x1, y1, x2, y2").clicked() {
+                                    let rect = self.state.marquee_rect.validate();
+                                    let rect_str =
+                                        format!("{}, {}, {}, {}", rect.min.x, rect.min.y, rect.max.x, rect.max.y);
+                                    arboard::Clipboard::new()
+                                        .and_then(|mut cb| cb.set_text(rect_str))
+                                        .unwrap_or_else(|e| {
+                                            eprintln!("Failed to copy rect to clipboard: {e}");
+                                        });
+                                    ui.close();
+                                }
+                            });
                         });
 
                         columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
