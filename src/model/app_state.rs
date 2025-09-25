@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::Result;
 
@@ -8,9 +8,11 @@ use crate::{
     util::math_ext::{vec2i, Vec2i},
 };
 
+pub type SharedAsset = Arc<dyn Asset<MatImage>>;
+
 pub struct AppState {
     pub path: Option<PathBuf>,
-    pub asset: Option<Box<dyn Asset<MatImage>>>,
+    pub asset: Option<SharedAsset>,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Recti,
@@ -37,6 +39,8 @@ pub struct AppState {
 
     // File navigation + watcher
     pub file_nav: crate::model::FileNav,
+
+    pub assets: HashMap<String, SharedAsset>,
 }
 
 fn list_colormaps(dir: &PathBuf) -> Vec<String> {
@@ -83,6 +87,7 @@ impl AppState {
             image_server_port: 21734,
             copy_use_original_size: true,
             file_nav: crate::model::FileNav::new(),
+            assets: HashMap::new(),
         }
     }
 
@@ -90,7 +95,7 @@ impl AppState {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from path]");
 
-        self.asset = Some(Box::new(FileAsset::new(
+        self.set_asset(Arc::new(FileAsset::new(
             path.to_string_lossy().to_string(),
             MatImage::load_from_path(&path)?,
         )));
@@ -116,12 +121,20 @@ impl AppState {
 
         let image = MatImage::load_from_clipboard()
             .or_else(|_| MatImage::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()))?;
-        self.asset = Some(Box::new(ClipboardAsset::new(image)));
+        self.set_asset(Arc::new(ClipboardAsset::new(image)));
 
         self.path = None;
         self.file_nav.clear();
 
         Ok(())
+    }
+
+    pub fn set_asset(&mut self, asset: SharedAsset) {
+        let hash = asset.hash().to_string();
+
+        self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
+
+        self.asset = self.assets.get(&hash).cloned();
     }
 
     pub fn set_marquee_rect(&mut self, rect: Recti) {

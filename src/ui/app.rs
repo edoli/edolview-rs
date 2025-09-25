@@ -193,7 +193,11 @@ impl eframe::App for ViewerApp {
                 }
 
                 ui.separator();
-                if ui.button("Reset View").on_hover_text("Reset zoom and pan to original").clicked() {
+                if ui
+                    .button("Reset View")
+                    .on_hover_text("Reset zoom and pan to original")
+                    .clicked()
+                {
                     self.viewer.reset_view();
                 }
 
@@ -422,6 +426,33 @@ impl eframe::App for ViewerApp {
                     display_profile_slider(ui, &mut self.state.shader_params.offset, -5.0, 5.0, 0.0, "Offset");
                     display_profile_slider(ui, &mut self.state.shader_params.exposure, -5.0, 5.0, 0.0, "Exposure");
                     display_profile_slider(ui, &mut self.state.shader_params.gamma, 0.1, 5.0, 1.0, "Gamma");
+
+                    ui.separator();
+
+                    ui.heading("Image Navigator");
+                    let asset = self.state.asset.clone();
+                    let asset_hash = if let Some(asset) = asset {
+                        Some(&asset.hash().to_string())
+                    } else {
+                        None
+                    };
+
+                    let mut to_set: Option<_> = None;
+
+                    self.state.assets.iter().for_each(|(hash, asset)| {
+                        let name = asset.name();
+                        let btn = if Some(hash) == asset_hash {
+                            ui.selectable_label(true, name)
+                        } else {
+                            ui.selectable_label(false, name)
+                        };
+                        if btn.clicked() {
+                            to_set = Some(asset.clone());
+                        }
+                    });
+                    if let Some(to_set) = to_set {
+                        self.state.set_asset(to_set);
+                    }
                 });
         }
 
