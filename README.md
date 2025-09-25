@@ -170,7 +170,7 @@ cmake `
   "-DOPENCV_IO_FORCE_OPENEXR=ON" `
   "-DBUILD_WITH_STATIC_CRT=OFF" `
   ..
-cmake --build .
+cmake --build . --config Release
 cmake --install .
 Pop-Location
 
