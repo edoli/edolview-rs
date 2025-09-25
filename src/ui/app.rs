@@ -93,8 +93,8 @@ impl eframe::App for ViewerApp {
         if !ctx.wants_keyboard_input() {
             ctx.input_mut(|i| {
                 if i.consume_shortcut(&SELECT_ALL_SC) {
-                    if let Some(d) = &self.state.display {
-                        let spec = d.spec();
+                    if let Some(asset) = &self.state.asset {
+                        let spec = asset.image().spec();
                         let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
                         self.state.marquee_rect = img_rect;
                         self.tmp_marquee_rect = img_rect;
@@ -197,8 +197,8 @@ impl eframe::App for ViewerApp {
                 if ui.button("Fit Selection").on_hover_text("Fit marquee to view").clicked() {
                     let rect = self.state.marquee_rect.validate();
                     if rect.empty() {
-                        if let Some(d) = &self.state.display {
-                            let spec = d.spec();
+                        if let Some(asset) = &self.state.asset {
+                            let spec = asset.image().spec();
                             let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
                             self.viewer.fit_rect(img_rect);
                         }
@@ -209,8 +209,8 @@ impl eframe::App for ViewerApp {
                 if ui.button("Center Selection").on_hover_text("Center marquee in view").clicked() {
                     let rect = self.state.marquee_rect.validate();
                     if rect.empty() {
-                        if let Some(d) = &self.state.display {
-                            let spec = d.spec();
+                        if let Some(asset) = &self.state.asset {
+                            let spec = asset.image().spec();
                             let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
                             self.viewer.center_rect(img_rect);
                         }
@@ -257,11 +257,12 @@ impl eframe::App for ViewerApp {
                     ],
                     |columns| {
                         columns[0].vertical(|ui| {
-                            if let Some(d) = &self.state.display {
-                                let spec = d.spec();
-                                let dtype = d.spec().dtype;
+                            if let Some(asset) = &self.state.asset {
+                                let image = asset.image();
+                                let spec = image.spec();
+                                let dtype = image.spec().dtype;
 
-                                let cursor_color = if let Ok(pixel) = d.get_pixel_at(
+                                let cursor_color = if let Ok(pixel) = image.get_pixel_at(
                                     self.state.cursor_pos.map_or(-1, |p| p.x),
                                     self.state.cursor_pos.map_or(-1, |p| p.y),
                                 ) {
@@ -272,10 +273,10 @@ impl eframe::App for ViewerApp {
                                 ui.label_with_colored_rect(cursor_color, dtype);
 
                                 let rect = self.state.marquee_rect;
-                                let mean_color = if let Ok(mean) = d.mean_value_in_rect(rect.to_cv_rect()) {
+                                let mean_color = if let Ok(mean) = image.mean_value_in_rect(rect.to_cv_rect()) {
                                     mean.iter().map(|&v| v as f32).collect()
                                 } else {
-                                    vec![0.0; d.spec().channels as usize]
+                                    vec![0.0; image.spec().channels as usize]
                                 };
                                 ui.label_with_colored_rect(mean_color, dtype);
                             }
@@ -296,8 +297,8 @@ impl eframe::App for ViewerApp {
                         });
 
                         columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
-                            if let Some(d) = &self.state.display {
-                                let spec = d.spec();
+                            if let Some(asset) = &self.state.asset {
+                                let spec = asset.image().spec();
                                 ui.label(format!("{}×{} | {}", spec.width, spec.height, spec.dtype.cv_type_name()));
                             } else {
                                 ui.label("No image loaded");
@@ -319,7 +320,7 @@ impl eframe::App for ViewerApp {
                     });
                     ui.style_mut().spacing.slider_rail_height = 4.0;
 
-                    let channels = self.state.display.as_ref().map(|d| d.spec().channels).unwrap_or(0);
+                    let channels = self.state.asset.as_ref().map(|a| a.image().spec().channels).unwrap_or(0);
                     let is_mono = self.state.channel_index != -1 || channels == 1;
 
                     ui.horizontal(|ui| {
@@ -365,7 +366,8 @@ impl eframe::App for ViewerApp {
                     ui.separator();
                     ui.checkbox(&mut self.state.shader_params.use_per_channel, "Per-channel controls");
 
-                    if let Some(d) = &self.state.display {
+                    if let Some(asset) = &self.state.asset {
+                        let image = asset.image();
                         ui.vertical(|ui| {
                             let mut style: egui::Style = ui.style().as_ref().clone();
                             egui::containers::menu::menu_style(&mut style);
@@ -386,7 +388,7 @@ impl eframe::App for ViewerApp {
                                         display_controls_ui(
                                             ui,
                                             &self.icons,
-                                            d,
+                                            image,
                                             i,
                                             &mut self.state.shader_params.scale_mode_channels[i as usize],
                                             &mut self.state.shader_params.auto_minmax_channels[i as usize],
@@ -400,7 +402,7 @@ impl eframe::App for ViewerApp {
                                     display_controls_ui(
                                         ui,
                                         &self.icons,
-                                        d,
+                                        image,
                                         -1,
                                         &mut self.state.shader_params.scale_mode,
                                         &mut self.state.shader_params.auto_minmax,
@@ -425,7 +427,6 @@ impl eframe::App for ViewerApp {
             .show(ctx, |ui| {
                 self.viewer.show_image(ui, frame, &mut self.state);
             });
-            
 
         // Debug window
         #[cfg(debug_assertions)]

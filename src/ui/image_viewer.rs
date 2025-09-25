@@ -55,12 +55,13 @@ impl ImageViewer {
     }
 
     pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, app_state: &mut AppState) {
-        let Some(image) = app_state.display.as_ref() else {
+        let Some(asset) = app_state.asset.as_ref() else {
             ui.centered_and_justified(|ui| {
                 ui.label("Drag & Drop an image file here.");
             });
             return;
         };
+        let image = asset.image();
 
         // Determine if we need a (re)upload
         let mut need_update_texture = false;
@@ -496,10 +497,11 @@ impl ImageViewer {
                     let spacing = font_size * 0.1;
                     let font_id = egui::FontId::monospace(font_size);
 
-                    if let Some(img) = app_state.display.as_ref() {
+                    if let Some(asset) = app_state.asset.as_ref() {
+                        let image = asset.image();
                         for j in start_y..end_y {
                             for i in start_x..end_x {
-                                if let Ok(vals) = img.get_pixel_at(i, j) {
+                                if let Ok(vals) = image.get_pixel_at(i, j) {
                                     let num_c = vals.len();
 
                                     // Center of the image pixel in points

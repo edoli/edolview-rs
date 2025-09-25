@@ -3,14 +3,14 @@ use std::path::PathBuf;
 use color_eyre::eyre::Result;
 
 use crate::{
-    model::{Image, MatImage, Recti},
+    model::{Asset, FileAsset, Image, MatImage, Recti},
     ui::gl::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
 };
 
 pub struct AppState {
     pub path: Option<PathBuf>,
-    pub display: Option<MatImage>,
+    pub asset: Option<Box<dyn Asset<MatImage>>>,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Recti,
@@ -63,7 +63,7 @@ impl AppState {
     pub fn empty() -> Self {
         Self {
             path: None,
-            display: None,
+            asset: None,
             shader_params: ShaderParams::default(),
             cursor_pos: None,
             marquee_rect: Recti::ZERO,
@@ -90,7 +90,10 @@ impl AppState {
         #[cfg(debug_assertions)]
         let _timer1 = crate::util::timer::ScopedTimer::new("Total image load time");
 
-        self.display = Some(MatImage::load_from_path(&path)?);
+        self.asset = Some(Box::new(FileAsset::new(
+            path.to_string_lossy().to_string(),
+            MatImage::load_from_path(&path)?,
+        )));
         self.path = Some(path.clone());
 
         #[cfg(debug_assertions)]
@@ -112,8 +115,8 @@ impl AppState {
 
     pub fn set_marquee_rect(&mut self, rect: Recti) {
         // check marquee rect exceed image bounds
-        if let Some(d) = &self.display {
-            let spec = d.spec();
+        if let Some(asset) = &self.asset {
+            let spec = asset.image().spec();
             let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
             let r = rect.validate().intersect(img_rect);
             self.marquee_rect = r;
@@ -123,8 +126,8 @@ impl AppState {
     }
 
     pub fn validate_marquee_rect(&mut self) {
-        if let Some(d) = &self.display {
-            let spec = d.spec();
+        if let Some(asset) = &self.asset {
+            let spec = asset.image().spec();
             let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
             self.marquee_rect = self.marquee_rect.validate().intersect(img_rect);
         } else {
