@@ -169,6 +169,12 @@ impl eframe::App for ViewerApp {
         self.state.validate_marquee_rect();
         self.state.process_watcher_events();
 
+        // Debug window
+        #[cfg(debug_assertions)]
+        {
+            crate::debug::debug_window(ctx);
+        }
+
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {

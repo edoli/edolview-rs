@@ -1,4 +1,4 @@
-use crate::util::{self, cv_ext::CvIntExt};
+use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::{eyre, Result};
 use half::f16;
 use opencv::prelude::*;
@@ -217,7 +217,8 @@ impl MatImage {
         let mut scale_abs = 1.0f64;
 
         let mat = {
-            let _timer = util::timer::ScopedTimer::new("imdecode");
+            #[cfg(debug_assertions)]
+            let _timer = crate::util::timer::ScopedTimer::new("Image read");
             // Read image using imread fails on paths with non-ASCII characters.
             // imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
 
@@ -236,6 +237,9 @@ impl MatImage {
         if mat.empty() {
             return Err(eyre!("Failed to load image"));
         }
+
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");
 
         let mut mat_f32 = core::Mat::default();
         let mut tmp = core::Mat::default();

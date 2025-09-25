@@ -23,6 +23,9 @@ ahash = "0.8.12"
 arboard = "3.6.1"
 notify = "8.2.0"
 
+# Only for debug
+egui_extras = "0.32"
+
 [workspace]
 members = ["xtask"]
 

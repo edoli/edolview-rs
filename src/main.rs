@@ -14,6 +14,9 @@ mod res;
 mod ui;
 mod util;
 
+#[cfg(debug_assertions)]
+mod debug;
+
 const ICON_DATA: &[u8] = include_bytes!("../icons/icon.png");
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.

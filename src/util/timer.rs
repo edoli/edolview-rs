@@ -1,8 +1,8 @@
-use std::time::Instant;
-
+use std::time::{Duration, Instant};
 pub struct ScopedTimer<'a> {
     name: &'a str,
     t0: Instant,
+    print_on_drop: bool,
 }
 
 impl<'a> ScopedTimer<'a> {
@@ -11,6 +11,15 @@ impl<'a> ScopedTimer<'a> {
         Self {
             name,
             t0: Instant::now(),
+            print_on_drop: false,
+        }
+    }
+
+    pub fn with_print_on_drop(name: &'a str) -> Self {
+        Self {
+            name,
+            t0: Instant::now(),
+            print_on_drop: true,
         }
     }
 
@@ -18,7 +27,7 @@ impl<'a> ScopedTimer<'a> {
         self.t0 = Instant::now();
     }
 
-    pub fn elapsed(&self) -> std::time::Duration {
+    pub fn elapsed(&self) -> Duration {
         self.t0.elapsed()
     }
 
@@ -29,6 +38,17 @@ impl<'a> ScopedTimer<'a> {
 
 impl<'a> Drop for ScopedTimer<'a> {
     fn drop(&mut self) {
-        eprintln!("[{}] took: {:.2?}", self.name, self.t0.elapsed());
+        let elapsed = self.t0.elapsed();
+
+        if self.print_on_drop {
+            eprintln!("[{}] took: {:.2?}", self.name, elapsed);
+        }
+
+        #[cfg(debug_assertions)]
+        crate::debug::DEBUG_STATE
+            .lock()
+            .unwrap()
+            .timings
+            .insert(self.name.to_string(), elapsed);
     }
 }
