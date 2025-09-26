@@ -1,10 +1,13 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use color_eyre::eyre::Result;
 use indexmap::IndexMap;
 
 use crate::{
-    model::{Asset, AssetType, ClipboardAsset, FileAsset, Image, MatImage, Recti},
+    model::{Asset, AssetType, ClipboardAsset, FileAsset, Image, MatImage, Recti, SocketState},
     ui::gl::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
 };
@@ -40,6 +43,8 @@ pub struct AppState {
 
     // File navigation + watcher
     pub file_nav: crate::model::FileNav,
+
+    pub socket_state: Arc<Mutex<SocketState>>,
 
     pub assets: IndexMap<String, SharedAsset>,
 }
@@ -88,6 +93,7 @@ impl AppState {
             image_server_port: 21734,
             copy_use_original_size: true,
             file_nav: crate::model::FileNav::new(),
+            socket_state: Arc::new(Mutex::new(SocketState::new())),
             assets: IndexMap::new(),
         }
     }

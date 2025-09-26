@@ -4,8 +4,99 @@ use flate2::read::ZlibDecoder;
 use opencv::core::Size;
 use std::{
     io::{self, Read},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
+    sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
+    thread::{self, JoinHandle},
+    time::Duration,
 };
+
+#[derive(Clone)]
+pub struct SocketState {
+    pub is_socket_active: bool,
+    pub is_socket_receiving: bool,
+    pub socket_address: String,
+}
+
+impl SocketState {
+    pub fn new() -> Self {
+        Self {
+            is_socket_active: false,
+            is_socket_receiving: false,
+            socket_address: String::from(""),
+        }
+    }
+}
+
+pub struct SocketServer {
+    stop: Arc<AtomicBool>,
+    handle: JoinHandle<io::Result<()>>,
+}
+
+pub fn start_socket_listener(
+    addr: &str,
+    tx: Sender<SocketAsset>,
+    socket_state: Arc<Mutex<SocketState>>,
+) -> io::Result<SocketServer> {
+    let listener = TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
+
+    let stop = Arc::new(AtomicBool::new(false));
+
+    let handle = thread::spawn(move || -> io::Result<()> {
+        loop {
+            if socket_state.lock().unwrap().is_socket_active {
+                match listener.accept() {
+                    Ok((mut stream, peer)) => {
+                        eprintln!("[socket_comm] connected: {peer}");
+
+                        socket_state.lock().unwrap().is_socket_receiving = true;
+
+                        if let Ok(asset) = handle_client(&mut stream) {
+                            if tx.send(asset).is_err() {
+                                socket_state.lock().unwrap().is_socket_receiving = false;
+                                eprintln!("[socket_comm] receiver dropped");
+                                continue;
+                            }
+                        }
+
+                        socket_state.lock().unwrap().is_socket_receiving = false;
+                        eprintln!("[socket_comm] disconnected: {peer}");
+                    }
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    Err(e) => return Err(e),
+                }
+            } else {
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    });
+
+    Ok(SocketServer { stop, handle })
+}
+
+// Retry with next port if bind fails
+fn start_server_with_retry(
+    host: String,
+    mut port: u16,
+    tx: Sender<SocketAsset>,
+    socket_state: Arc<Mutex<SocketState>>,
+) -> io::Result<()> {
+    loop {
+        let addr = format!("{}:{}", host, port);
+        if let Err(e) = start_socket_listener(addr.as_str(), tx.clone(), socket_state.clone()) {
+            eprintln!("bind {}:{} failed: {e}. trying next port ...", host, port);
+            port = port.wrapping_add(1);
+            if port == 0 {
+                return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "port range exhausted"));
+            }
+        } else {
+            eprintln!("Socket listener started on {addr}");
+            return Ok(());
+        }
+    }
+}
 
 struct Extra {
     compression: String, // "png" | "zlib"
