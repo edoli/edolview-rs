@@ -20,7 +20,7 @@ pub struct SocketState {
 impl SocketState {
     pub fn new() -> Self {
         Self {
-            is_socket_active: false,
+            is_socket_active: true,
             is_socket_receiving: false,
             socket_address: String::from(""),
         }
@@ -38,7 +38,6 @@ pub fn start_socket_listener(
     socket_state: Arc<Mutex<SocketState>>,
 ) -> io::Result<SocketServer> {
     let listener = TcpListener::bind(addr)?;
-    listener.set_nonblocking(true)?;
 
     let stop = Arc::new(AtomicBool::new(false));
 
@@ -77,8 +76,8 @@ pub fn start_socket_listener(
 }
 
 // Retry with next port if bind fails
-fn start_server_with_retry(
-    host: String,
+pub fn start_server_with_retry(
+    host: &str,
     mut port: u16,
     tx: Sender<SocketAsset>,
     socket_state: Arc<Mutex<SocketState>>,
@@ -191,6 +190,17 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
         "png" => MatImage::from_bytes(&payload)?,
         "exr" => MatImage::from_bytes(&payload)?,
         "cv" => MatImage::from_bytes(&payload)?,
+        "raw" => {
+            let depth = crate::util::cv_ext::parse_cv_depth(&extra.dtype);
+            let channel = if extra.shape.len() == 3 {
+                extra.shape[2] as i32
+            } else {
+                1
+            };
+            let cv_type = crate::util::cv_ext::cv_make_type(depth, channel);
+
+            MatImage::from_bytes_size_type(&payload, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
+        }
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,

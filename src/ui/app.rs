@@ -1,11 +1,15 @@
 use core::f32;
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::{mpsc, Arc},
+};
 
 use eframe::egui::{self, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
-    model::{AppState, Image, Recti},
+    model::{start_server_with_retry, AppState, Image, Recti, SocketAsset},
     res::icons::Icons,
     ui::{
         component::{
@@ -35,6 +39,8 @@ pub struct ViewerApp {
     show_bottom_panel: bool,
 
     icons: Icons,
+
+    rx: mpsc::Receiver<SocketAsset>,
 }
 
 impl ViewerApp {
@@ -42,6 +48,14 @@ impl ViewerApp {
         let state = AppState::empty();
         let marquee_rect = state.marquee_rect.clone();
         let shader_params = state.shader_params.clone();
+
+        // Start socket server for receiving images
+        let host = "127.0.0.1";
+        let port = 21734;
+        let (tx, rx) = mpsc::channel::<SocketAsset>();
+        start_server_with_retry(host, port, tx, state.socket_state.clone()).unwrap_or_else(|e| {
+            eprintln!("Failed to start socket server: {e}");
+        });
 
         Self {
             state,
@@ -58,6 +72,8 @@ impl ViewerApp {
             show_bottom_panel: true,
 
             icons: Icons::new(),
+
+            rx,
         }
     }
 
@@ -158,6 +174,14 @@ impl eframe::App for ViewerApp {
                     }
                 }
             }
+        }
+
+        match self.rx.try_recv() {
+            Ok(asset) => {
+                self.state.set_asset(Arc::new(asset));
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {}
         }
 
         self.state.validate_marquee_rect();
