@@ -5,8 +5,8 @@
       "name": "Debug Rust (cppvsdbg)",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/target/debug/edolview-rs.exe",
-      "args": ["debug/test_big.hdr"],
+      "program": "${workspaceFolder}/target/debug/edolview.exe",
+      "args": [],
       "cwd": "${workspaceFolder}",
       "environment": [
         {
