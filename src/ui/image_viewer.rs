@@ -234,6 +234,13 @@ impl ImageViewer {
                 }
             }
 
+            // Recalculate selection rect in view space (points) for drawing
+            let selection_rect_view = {
+                let r = app_state.marquee_rect.to_rect();
+                let k = self.zoom() / pixel_per_point;
+                (r * k).translate(self.pan / pixel_per_point + rect.min.to_vec2())
+            };
+
             // Queue a Ctrl+C copy operation to perform inside GL callback
             let mut copy_request: Option<(i32, i32, egui::Vec2, f32)> = None;
             if self.copy_requested {
