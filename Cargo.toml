@@ -27,6 +27,8 @@ opener = "0.8.3"
 
 # Only for debug
 egui_extras = "0.32"
+json = "0.12.4"
+flate2 = "1.1.2"
 
 [workspace]
 members = ["xtask"]

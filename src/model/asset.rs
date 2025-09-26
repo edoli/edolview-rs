@@ -81,8 +81,32 @@ impl Asset<MatImage> for ClipboardAsset {
 }
 
 pub struct SocketAsset {
-    url: String,
+    name: String,
     image: MatImage,
+}
+
+impl SocketAsset {
+    pub fn new(name: String, image: MatImage) -> Self {
+        Self { name, image }
+    }
+}
+
+impl Asset<MatImage> for SocketAsset {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn image(&self) -> &MatImage {
+        &self.image
+    }
+
+    fn hash(&self) -> &str {
+        &self.name
+    }
+
+    fn asset_type(&self) -> AssetType {
+        AssetType::Socket
+    }
 }
 
 pub struct UrlAsset {

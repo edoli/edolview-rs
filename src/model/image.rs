@@ -1,6 +1,7 @@
 use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::{eyre, Result};
 use half::f16;
+use opencv::core::Size;
 use opencv::prelude::*;
 use opencv::{core, imgcodecs, imgproc};
 use std::{
@@ -216,6 +217,33 @@ impl MatImage {
 }
 
 impl MatImage {
+    pub fn from_bytes_size_type(bytes: &Vec<u8>, size: Size, dtype: i32) -> Result<MatImage> {
+        let channels = dtype.cv_type_channels();
+        let mat = core::Mat::new_rows_cols_with_data(size.height, size.width * channels, &bytes)?.clone_pointee();
+        let mat = mat.reshape(channels, size.height)?.clone_pointee().clone();
+        if mat.empty() {
+            return Err(eyre!("Failed to load image"));
+        }
+
+        let mat_f32 = Self::postprocess(mat, 1.0, true)?;
+
+        Ok(MatImage::new(mat_f32, dtype))
+    }
+
+    pub fn from_bytes(bytes: &Vec<u8>) -> Result<MatImage> {
+        let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, bytes)?;
+        let mat = imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?;
+
+        if mat.empty() {
+            return Err(eyre!("Failed to load image"));
+        }
+
+        let dtype = mat.depth();
+        let mat_f32 = Self::postprocess(mat, 1.0, true)?;
+
+        Ok(MatImage::new(mat_f32, dtype))
+    }
+
     pub fn load_from_path(path: &PathBuf) -> Result<MatImage> {
         if !path.exists() {
             return Err(eyre!("Image does not exist: {:?}", path));
@@ -239,7 +267,7 @@ impl MatImage {
                 {
                     #[cfg(debug_assertions)]
                     let _timer_copy = crate::util::timer::ScopedTimer::new("Image temp copy");
-                    
+
                     fs::copy(&path, &temp_path).map_err(|e| eyre!("Failed to copy file: {e}"))?;
                 }
                 imgcodecs::imread(temp_path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
