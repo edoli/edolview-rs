@@ -232,16 +232,29 @@ impl MatImage {
             // Read image using imread fails on paths with non-ASCII characters.
             // imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
 
-            let mut bytes = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
+            if ext == "exr" {
+                // Copy file to temp file with ASCII path and read it
+                let temp_dir = std::env::temp_dir();
+                let temp_path = temp_dir.join("edolview_temp.exr");
+                {
+                    #[cfg(debug_assertions)]
+                    let _timer_copy = crate::util::timer::ScopedTimer::new("Image temp copy");
+                    
+                    fs::copy(&path, &temp_path).map_err(|e| eyre!("Failed to copy file: {e}"))?;
+                }
+                imgcodecs::imread(temp_path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
+            } else {
+                let mut bytes = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
 
-            if ext == "pfm" {
-                (bytes, scale_abs) = fix_pfm_header_and_parse_scale(&bytes);
-            } else if ext == "flo" {
-                // Optical flow (.flo) file: decode directly to CV_32FC2 Mat
-                return Ok(MatImage::new(decode_flo_to_mat(&bytes)?, core::CV_32F));
+                if ext == "pfm" {
+                    (bytes, scale_abs) = fix_pfm_header_and_parse_scale(&bytes);
+                } else if ext == "flo" {
+                    // Optical flow (.flo) file: decode directly to CV_32FC2 Mat
+                    return Ok(MatImage::new(decode_flo_to_mat(&bytes)?, core::CV_32F));
+                }
+                let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
+                imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?
             }
-            let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
-            imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?
         };
 
         if mat.empty() {
