@@ -96,10 +96,14 @@ impl AppState {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from path]");
 
-        self.set_asset(Arc::new(FileAsset::new(
-            path.to_string_lossy().to_string(),
-            MatImage::load_from_path(&path)?,
-        )));
+        let path_str = path.to_string_lossy().to_string();
+
+        if self.assets.contains_key(&path_str) {
+            self.set_asset_by_hash(&path_str);
+        } else {
+            self.set_asset(Arc::new(FileAsset::new(path_str, MatImage::load_from_path(&path)?)));
+        }
+
         self.path = Some(path.clone());
 
         #[cfg(debug_assertions)]
@@ -128,6 +132,10 @@ impl AppState {
         self.file_nav.clear();
 
         Ok(())
+    }
+
+    pub fn set_asset_by_hash(&mut self, hash: &str) {
+        self.asset = self.assets.get(hash).cloned();
     }
 
     pub fn set_asset(&mut self, asset: SharedAsset) {
