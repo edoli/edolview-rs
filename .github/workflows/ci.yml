@@ -105,35 +105,11 @@ jobs:
             cd "$WORKDIR"
             if [ ! -d "$SRC_DIR" ]; then
               echo "Downloading OpenCV $OPENCV_VERSION sources"
-              curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
-              unzip -q opencv.zip
+              git clone -b release https://github.com/edoli/opencv-edolview.git $SRC_DIR
             fi
             test -f "$SRC_DIR/CMakeLists.txt" || { echo "CMakeLists.txt not found in $SRC_DIR"; ls -al "$WORKDIR"; exit 1; }
-            mkdir -p "$SRC_DIR/build"
-            cd "$SRC_DIR/build"
-            cmake \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-              -DBUILD_LIST=core,imgproc,imgcodecs \
-              -DBUILD_TESTS=OFF \
-              -DBUILD_PERF_TESTS=OFF \
-              -DBUILD_EXAMPLES=OFF \
-              -DOPENCV_GENERATE_PKGCONFIG=ON \
-              -DBUILD_SHARED_LIBS=OFF \
-              -DBUILD_JAVA=OFF \
-              -DBUILD_PACKAGE=OFF \
-              -DWITH_ADE=OFF \
-              -DWITH_FFMPEG=OFF \
-              -DWITH_GSTREAMER=OFF \
-              -DWITH_IPP=OFF \
-              -DWITH_ITT=OFF \
-              -DWITH_LAPACK=OFF \
-              -DWITH_OPENCL=OFF \
-              -DWITH_PROTOBUF=OFF \
-              -DOPENCV_IO_FORCE_OPENEXR=ON \
-              ..
-            cmake --build . --parallel $(nproc || echo 2)
-            cmake --install .
+            cd "$SRC_DIR"
+            sh cmake_script.sh
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
@@ -169,35 +145,12 @@ jobs:
           else
             cd "$WORKDIR"
             if [ ! -d "$SRC_DIR" ]; then
-              curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip
-              unzip -q opencv.zip
+              echo "Downloading OpenCV $OPENCV_VERSION sources"
+              git clone -b release https://github.com/edoli/opencv-edolview.git $SRC_DIR
             fi
             test -f "$SRC_DIR/CMakeLists.txt" || { echo "Missing CMakeLists.txt for macOS"; ls -al "$WORKDIR"; exit 1; }
-            mkdir -p "$SRC_DIR/build"
-            cd "$SRC_DIR/build"
-            cmake \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-              -DBUILD_LIST=core,imgproc,imgcodecs \
-              -DBUILD_TESTS=OFF \
-              -DBUILD_PERF_TESTS=OFF \
-              -DBUILD_EXAMPLES=OFF \
-              -DOPENCV_GENERATE_PKGCONFIG=ON \
-              -DBUILD_SHARED_LIBS=OFF \
-              -DBUILD_JAVA=OFF \
-              -DBUILD_PACKAGE=OFF \
-              -DWITH_ADE=OFF \
-              -DWITH_FFMPEG=OFF \
-              -DWITH_GSTREAMER=OFF \
-              -DWITH_IPP=OFF \
-              -DWITH_ITT=OFF \
-              -DWITH_LAPACK=OFF \
-              -DWITH_OPENCL=OFF \
-              -DWITH_PROTOBUF=OFF \
-              -DOPENCV_IO_FORCE_OPENEXR=ON \
-              ..
-            cmake --build . --parallel $(sysctl -n hw.ncpu || echo 2)
-            cmake --install .
+            cd "$SRC_DIR"
+            sh cmake_script.sh
           fi
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
@@ -235,40 +188,13 @@ jobs:
           } else {
             if (-not (Test-Path $srcDir)) {
               Write-Host "Downloading OpenCV $env:OPENCV_VERSION sources"
-              $zipPath = Join-Path $workdir 'opencv.zip'
-              curl -L -o $zipPath "https://github.com/opencv/opencv/archive/refs/tags/$env:OPENCV_VERSION.zip"
-              unzip -q $zipPath -d $workdir
+              git clone -b release https://github.com/edoli/opencv-edolview.git $srcDir
             }
             if (-not (Test-Path (Join-Path $srcDir 'CMakeLists.txt'))) {
               Write-Host "CMakeLists.txt not found in $srcDir"; Get-ChildItem $workdir; exit 1
             }
-            $buildDir = Join-Path $srcDir 'build'
-            New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
-            Push-Location $buildDir
-            cmake `
-              "-DCMAKE_BUILD_TYPE=Release" `
-              "-DCMAKE_INSTALL_PREFIX=$installDir" `
-              "-DBUILD_LIST=core,imgproc,imgcodecs" `
-              "-DBUILD_TESTS=OFF" `
-              "-DBUILD_PERF_TESTS=OFF" `
-              "-DBUILD_EXAMPLES=OFF" `
-              "-DBUILD_SHARED_LIBS=OFF" `
-              "-DBUILD_JAVA=OFF" `
-              "-DBUILD_PACKAGE=OFF" `
-              "-DWITH_ADE=OFF" `
-              "-DWITH_FFMPEG=OFF" `
-              "-DWITH_GSTREAMER=OFF" `
-              "-DWITH_IPP=OFF" `
-              "-DWITH_ITT=OFF" `
-              "-DWITH_LAPACK=OFF" `
-              "-DWITH_OPENCL=OFF" `
-              "-DWITH_PROTOBUF=OFF" `
-              "-DOPENCV_IO_FORCE_OPENEXR=ON" `
-              "-DBUILD_WITH_STATIC_CRT=OFF" `
-              ..
-            cmake --build . --parallel ${env:NUMBER_OF_PROCESSORS} --config Release
-            cmake --install . --config Release
-            Pop-Location
+            Push-Location $srcDir
+            pwsh .\cmake_script.ps1
           }
 
           $libPath = "$installDir\x64\vc17\staticlib"
