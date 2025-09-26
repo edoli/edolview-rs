@@ -78,31 +78,14 @@ rustc -V; cargo -V
 ```bash
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  build-essential cmake git curl unzip pkg-config \
-  clang libclang-dev llvm-dev
+  build-essential cmake git pkg-config \
+  clang libclang-dev llvm-dev nasm
 
-export OPENCV_VERSION=4.12.0
-WORKDIR="$(pwd)/.opencv"; SRC="$WORKDIR/opencv-$OPENCV_VERSION"; INSTALL="$WORKDIR/install"
-mkdir -p "$WORKDIR" && cd "$WORKDIR"
-[ -d "$SRC" ] || (curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip && unzip -q opencv.zip)
-mkdir -p "$SRC/build" && cd "$SRC/build"
+git clone -b release https://github.com/edoli/opencv-edolview.git opencv
+cv opencv
+sh cmake_script.sh
 
-cmake \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$INSTALL" \
-  -DBUILD_LIST=core,imgproc,imgcodecs \
-  -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
-  -DOPENCV_GENERATE_PKGCONFIG=ON \
-  -DBUILD_SHARED_LIBS=OFF -DBUILD_JAVA=OFF -DBUILD_PACKAGE=OFF \
-  -DWITH_ADE=OFF -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF \
-  -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_LAPACK=OFF \
-  -DWITH_OPENCL=OFF -DWITH_PROTOBUF=OFF \
-  -DOPENCV_IO_FORCE_OPENEXR=ON \
-  ..
-cmake --build .
-cmake --install .
-
-export PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH}"
 export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
 ```
 
@@ -110,74 +93,34 @@ export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
 
 ```bash
 brew update
-brew install cmake llvm
+brew install cmake llvm git pkg-config nasm
 
-export OPENCV_VERSION=4.12.0
-WORKDIR="$(pwd)/.opencv"; SRC="$WORKDIR/opencv-$OPENCV_VERSION"; INSTALL="$WORKDIR/install"
-mkdir -p "$WORKDIR" && cd "$WORKDIR"
-[ -d "$SRC" ] || (curl -sSL -o opencv.zip https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.zip && unzip -q opencv.zip)
-mkdir -p "$SRC/build" && cd "$SRC/build"
+git clone -b release https://github.com/edoli/opencv-edolview.git opencv
+cv opencv
+sh cmake_script.sh
 
-cmake \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$INSTALL" \
-  -DBUILD_LIST=core,imgproc,imgcodecs \
-  -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
-  -DOPENCV_GENERATE_PKGCONFIG=ON \
-  -DBUILD_SHARED_LIBS=OFF -DBUILD_JAVA=OFF -DBUILD_PACKAGE=OFF \
-  -DWITH_ADE=OFF -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF \
-  -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_LAPACK=OFF \
-  -DWITH_OPENCL=OFF -DWITH_PROTOBUF=OFF \
-  -DOPENCV_IO_FORCE_OPENEXR=ON \
-  ..
-cmake --build .
-cmake --install .
-
-export PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH}"
 export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-choco install -y --no-progress llvm cmake ninja git curl unzip
+choco install -y --no-progress llvm cmake ninja git nasm
 
-$env:OPENCV_VERSION = "4.12.0"
-$work = Join-Path $pwd '.opencv'
-$install = Join-Path $work 'install'
-$src = Join-Path $work ("opencv-" + $env:OPENCV_VERSION)
-New-Item -ItemType Directory -Force -Path $work | Out-Null
-
-if (-not (Test-Path $src)) {
-  $zip = Join-Path $work 'opencv.zip'
-  curl -L -o $zip "https://github.com/opencv/opencv/archive/refs/tags/$env:OPENCV_VERSION.zip"
-  unzip -q $zip -d $work
-}
-$build = Join-Path $src 'build'
-New-Item -ItemType Directory -Force -Path $build | Out-Null
-Push-Location $build
-
-cmake `
-  "-DCMAKE_BUILD_TYPE=Release" `
-  "-DCMAKE_INSTALL_PREFIX=$install" `
-  "-DBUILD_LIST=core,imgproc,imgcodecs" `
-  "-DBUILD_TESTS=OFF" "-DBUILD_PERF_TESTS=OFF" "-DBUILD_EXAMPLES=OFF" `
-  "-DOPENCV_GENERATE_PKGCONFIG=ON" `
-  "-DBUILD_SHARED_LIBS=OFF" "-DBUILD_JAVA=OFF" "-DBUILD_PACKAGE=OFF" `
-  "-DWITH_ADE=OFF" "-DWITH_FFMPEG=OFF" "-DWITH_GSTREAMER=OFF" `
-  "-DWITH_IPP=OFF" "-DWITH_ITT=OFF" "-DWITH_LAPACK=OFF" `
-  "-DWITH_OPENCL=OFF" "-DWITH_PROTOBUF=OFF" `
-  "-DOPENCV_IO_FORCE_OPENEXR=ON" `
-  "-DBUILD_WITH_STATIC_CRT=OFF" `
-  ..
-cmake --build . --config Release
-cmake --install .
-Pop-Location
+git clone -b release https://github.com/edoli/opencv-edolview.git opencv
+Push-Location opencv
+pwsh .\cmake_script.ps1
 
 # Optional helpers for linking
-$lib = "$install\x64\vc17\staticlib"
-$env:OPENCV_LINK_PATHS = $lib
-$env:OPENCV_INCLUDE_PATHS = "$install\include"
+$installDir = Join-Path $pwd "..\install"
+$libPath = "$installDir\x64\vc17\staticlib"
+$libs = Get-ChildItem -Path $libPath -Filter *.lib | ForEach-Object { $_.BaseName }
+$libsJoined = $libs -join ","
+
+$env:OPENCV_LINK_LIBS=$libsJoined
+$env:OPENCV_LINK_PATHS = $libPath
+$env:OPENCV_INCLUDE_PATHS = "$installDir\include"
 $env:OPENCV_LINK_STATIC = "1"
 ```
 
