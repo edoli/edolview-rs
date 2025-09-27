@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
     thread,
 };
@@ -12,16 +12,21 @@ use opencv::{
     imgproc,
 };
 
+use crate::model::{Image, MatImage};
+
 pub struct MeanProcessor {
-    integral_image: Arc<OnceLock<core::Mat>>,
+    integral_image: Arc<Mutex<OnceLock<core::Mat>>>,
     is_precompute_begin: AtomicBool,
+
+    last_image_id: u64,
 }
 
 impl MeanProcessor {
     pub fn new() -> Self {
         Self {
-            integral_image: Arc::new(OnceLock::new()),
+            integral_image: Arc::new(Mutex::new(OnceLock::new())),
             is_precompute_begin: AtomicBool::new(false),
+            last_image_id: u64::MAX,
         }
     }
 
@@ -46,16 +51,17 @@ impl MeanProcessor {
             return Ok(vec![0.0; channels as usize]);
         }
 
-        let integral_image = self
-            .integral_image
+        let integral_image_lock = self.integral_image.lock().unwrap();
+
+        let integral_image_mat = integral_image_lock
             .get()
             .ok_or_else(|| eyre!("Integral image not computed yet"))?;
 
-        let step = integral_image.cols() as usize;
+        let step = integral_image_mat.cols() as usize;
         let x = rect.x as usize;
         let y = rect.y as usize;
 
-        let bytes = integral_image.data_bytes()?;
+        let bytes = integral_image_mat.data_bytes()?;
         let (head, f32s, tail) = unsafe { bytes.align_to::<f64>() };
         if !head.is_empty() || !tail.is_empty() {
             return Err(eyre!("Integral image data is not aligned to f32"));
@@ -88,9 +94,9 @@ impl MeanProcessor {
         Ok(mean[..channels as usize].to_vec())
     }
 
-    pub fn compute(&self, mat: &core::Mat, rect: core::Rect) -> Result<Vec<f64>> {
+    fn compute_mat(&self, mat: &core::Mat, rect: core::Rect) -> Result<Vec<f64>> {
         if self.is_precompute_begin.load(Ordering::Relaxed) {
-            if self.integral_image.get().is_some() {
+            if self.integral_image.lock().unwrap().get().is_some() {
                 self.fast_compute(mat, rect)
             } else {
                 Self::fallback_compute(mat, rect)
@@ -101,10 +107,20 @@ impl MeanProcessor {
             let slot = Arc::clone(&self.integral_image);
             thread::spawn(move || {
                 if let Ok(ii) = Self::precompute(&mat_clone) {
-                    let _ = slot.set(ii);
+                    let _ = slot.lock().unwrap().set(ii);
                 }
             });
             Self::fallback_compute(mat, rect)
         }
+    }
+
+    pub fn compute(&mut self, image: &MatImage, rect: core::Rect) -> Result<Vec<f64>> {
+        let image_id = image.id();
+        if image_id != self.last_image_id {
+            self.last_image_id = image_id;
+            self.is_precompute_begin.store(false, Ordering::Relaxed);
+            let _ = self.integral_image.lock().unwrap().take();
+        }
+        self.compute_mat(&image.mat(), rect)
     }
 }

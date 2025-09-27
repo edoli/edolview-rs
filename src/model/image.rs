@@ -6,6 +6,7 @@ use opencv::core::Size;
 use opencv::prelude::*;
 use opencv::{core, imgcodecs, imgproc};
 use std::ffi::c_void;
+use std::sync::{LazyLock, Mutex};
 use std::{
     fs, mem,
     path::PathBuf,
@@ -85,6 +86,8 @@ pub trait Image {
     }
 }
 
+pub static MEAN_PROCESSOR: LazyLock<Mutex<MeanProcessor>> = LazyLock::new(|| Mutex::new(MeanProcessor::new()));
+
 #[derive(Clone)]
 pub struct MinMax {
     mins: Vec<f32>,
@@ -159,8 +162,6 @@ pub struct MatImage {
     spec: ImageSpec,
 
     minmax: OnceLock<MinMax>,
-
-    mean_processor: OnceLock<MeanProcessor>,
 }
 
 impl MatImage {
@@ -172,17 +173,17 @@ impl MatImage {
             spec,
             id: new_id(),
             minmax: OnceLock::new(),
-            mean_processor: OnceLock::new(),
         }
+    }
+
+    pub fn mat(&self) -> &opencv::core::Mat {
+        &self.mat
     }
 
     pub fn mean_value_in_rect(&self, rect: opencv::core::Rect) -> Result<Vec<f64>> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Compute mean in rect");
-
-        self.mean_processor
-            .get_or_init(|| MeanProcessor::new())
-            .compute(&self.mat, rect)
+        MEAN_PROCESSOR.lock().unwrap().compute(self, rect)
     }
 
     fn compute_minmax(&self) -> MinMax {
@@ -213,10 +214,6 @@ impl MatImage {
 
     pub fn minmax(&self) -> &MinMax {
         self.minmax.get_or_init(|| self.compute_minmax())
-    }
-
-    pub fn reset(&mut self) {
-        self.mean_processor.take();
     }
 }
 
