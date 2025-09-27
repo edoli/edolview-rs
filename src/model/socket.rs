@@ -120,10 +120,10 @@ pub fn start_server_with_retry(
 }
 
 struct Extra {
+    nbytes: u64,
+    dtype: u32,
+    shape: [u32; 3],
     compression: String, // "png" | "zlib"
-    nbytes: usize,
-    shape: Vec<usize>,
-    dtype: String,
 }
 
 fn read_exact_len(stream: &mut TcpStream, len: usize) -> io::Result<Vec<u8>> {
@@ -142,36 +142,23 @@ fn read_i32(stream: &mut TcpStream) -> io::Result<u32> {
     Ok(n as u32)
 }
 
-fn parse_extra(json_bytes: &[u8]) -> Result<Extra> {
-    let text = std::str::from_utf8(json_bytes)?;
-    let parsed = json::parse(text)?;
-
-    let compression = parsed["compression"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing compression"))?
-        .to_string();
-
-    let nbytes = parsed["nbytes"]
-        .as_u64()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing nbytes"))? as usize;
-
-    let shape = parsed["shape"]
-        .members()
-        .as_slice()
-        .iter()
-        .map(|x| x.as_u64().unwrap_or(0) as usize)
-        .collect::<Vec<_>>();
-
-    let dtype = parsed["dtype"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing dtype"))?
+fn parse_extra(bytes: &[u8]) -> Result<Extra> {
+    let nbytes = u64::from_be_bytes(bytes[0..8].try_into()?);
+    let shape = [
+        u32::from_be_bytes(bytes[8..12].try_into()?),
+        u32::from_be_bytes(bytes[12..16].try_into()?),
+        u32::from_be_bytes(bytes[16..20].try_into()?),
+    ];
+    let dtype = u32::from_be_bytes(bytes[20..24].try_into()?);
+    let compression = String::from_utf8(bytes[24..bytes.len()].to_vec())?
+        .trim_end_matches(char::from(0))
         .to_string();
 
     Ok(Extra {
-        compression,
         nbytes,
-        shape,
         dtype,
+        shape,
+        compression,
     })
 }
 
@@ -189,23 +176,24 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
 
     let payload = read_exact_len(stream, buf_len as usize)?;
 
-    if extra.nbytes == 0 || extra.shape.is_empty() || extra.dtype.is_empty() {
+    if extra.nbytes == 0 || extra.shape.is_empty() || extra.dtype < 0 || extra.dtype > 7 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid extra metadata").into());
     }
+
+    let dtype = extra.dtype as i32;
 
     let mat = match extra.compression.as_str() {
         "zlib" => {
             let mut z = ZlibDecoder::new(payload.as_slice());
-            let mut raw = Vec::with_capacity(extra.nbytes);
+            let mut raw = Vec::with_capacity(extra.nbytes as usize);
             z.read_to_end(&mut raw)?;
 
-            let depth = crate::util::cv_ext::parse_cv_depth(&extra.dtype);
             let channel = if extra.shape.len() == 3 {
                 extra.shape[2] as i32
             } else {
                 1
             };
-            let cv_type = crate::util::cv_ext::cv_make_type(depth, channel);
+            let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
 
             MatImage::from_bytes_size_type(&raw, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
         }
@@ -213,13 +201,12 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
         "exr" => MatImage::from_bytes(&payload)?,
         "cv" => MatImage::from_bytes(&payload)?,
         "raw" => {
-            let depth = crate::util::cv_ext::parse_cv_depth(&extra.dtype);
             let channel = if extra.shape.len() == 3 {
                 extra.shape[2] as i32
             } else {
                 1
             };
-            let cv_type = crate::util::cv_ext::cv_make_type(depth, channel);
+            let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
 
             MatImage::from_bytes_size_type(&payload, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
         }

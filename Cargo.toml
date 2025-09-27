@@ -24,11 +24,10 @@ notify = "8.2.0"
 ureq = "3.1.2"
 indexmap = "2.11.4"
 opener = "0.8.3"
+flate2 = "1.1.2"
 
 # Only for debug
 egui_extras = "0.32"
-json = "0.12.4"
-flate2 = "1.1.2"
 
 [workspace]
 members = ["xtask"]
