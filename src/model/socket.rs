@@ -5,23 +5,26 @@ use opencv::core::Size;
 use std::{
     io::{self, Read},
     net::{TcpListener, TcpStream},
-    sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
+        Arc,
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
 
-#[derive(Clone)]
 pub struct SocketState {
-    pub is_socket_active: bool,
-    pub is_socket_receiving: bool,
+    pub is_socket_active: AtomicBool,
+    pub is_socket_receiving: AtomicBool,
     pub socket_address: String,
 }
 
 impl SocketState {
     pub fn new() -> Self {
         Self {
-            is_socket_active: true,
-            is_socket_receiving: false,
+            is_socket_active: AtomicBool::new(true),
+            is_socket_receiving: AtomicBool::new(false),
             socket_address: String::from(""),
         }
     }
@@ -35,7 +38,7 @@ pub struct SocketServer {
 pub fn start_socket_listener(
     addr: &str,
     tx: Sender<SocketAsset>,
-    socket_state: Arc<Mutex<SocketState>>,
+    socket_state: Arc<SocketState>,
 ) -> io::Result<SocketServer> {
     let listener = TcpListener::bind(addr)?;
 
@@ -43,22 +46,22 @@ pub fn start_socket_listener(
 
     let handle = thread::spawn(move || -> io::Result<()> {
         loop {
-            if socket_state.lock().unwrap().is_socket_active {
+            if socket_state.is_socket_active.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut stream, peer)) => {
                         eprintln!("[socket_comm] connected: {peer}");
 
-                        socket_state.lock().unwrap().is_socket_receiving = true;
+                        socket_state.is_socket_active.store(true, Ordering::Relaxed);
 
                         if let Ok(asset) = handle_client(&mut stream) {
                             if tx.send(asset).is_err() {
-                                socket_state.lock().unwrap().is_socket_receiving = false;
+                                socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
                                 eprintln!("[socket_comm] receiver dropped");
                                 continue;
                             }
                         }
 
-                        socket_state.lock().unwrap().is_socket_receiving = false;
+                        socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
                         eprintln!("[socket_comm] disconnected: {peer}");
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -80,7 +83,7 @@ pub fn start_server_with_retry(
     host: &str,
     mut port: u16,
     tx: Sender<SocketAsset>,
-    socket_state: Arc<Mutex<SocketState>>,
+    mut socket_state: Arc<SocketState>,
 ) -> io::Result<()> {
     loop {
         let addr = format!("{}:{}", host, port);
@@ -91,6 +94,9 @@ pub fn start_server_with_retry(
                 return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "port range exhausted"));
             }
         } else {
+            if let Some(socket_state) = Arc::get_mut(&mut socket_state) {
+                socket_state.socket_address = addr.clone();
+            }
             eprintln!("Socket listener started on {addr}");
             return Ok(());
         }

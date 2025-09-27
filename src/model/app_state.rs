@@ -44,7 +44,7 @@ pub struct AppState {
     // File navigation + watcher
     pub file_nav: crate::model::FileNav,
 
-    pub socket_state: Arc<Mutex<SocketState>>,
+    pub socket_state: Arc<SocketState>,
 
     pub assets: IndexMap<String, SharedAsset>,
 }
@@ -93,7 +93,7 @@ impl AppState {
             image_server_port: 21734,
             copy_use_original_size: true,
             file_nav: crate::model::FileNav::new(),
-            socket_state: Arc::new(Mutex::new(SocketState::new())),
+            socket_state: Arc::new(SocketState::new()),
             assets: IndexMap::new(),
         }
     }
