@@ -91,6 +91,7 @@ pub trait UiExt {
         last_value: &mut T,
     ) -> Response;
     fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>, name: &str) -> Response;
+    fn indicator_icon<'a>(&mut self, is_on: bool, icon: impl Into<Image<'a>>, name: &str) -> Response;
     fn radio_icon<'a, Value: PartialEq>(
         &mut self,
         current_value: &mut Value,
@@ -221,6 +222,18 @@ impl UiExt for Ui {
             *selected = !*selected;
         }
 
+        resp
+    }
+
+    fn indicator_icon<'a>(&mut self, is_on: bool, icon: impl Into<Image<'a>>, name: &str) -> Response {
+        let tint_color = if is_on {
+            self.style().visuals.selection.bg_fill
+        } else {
+            self.style().visuals.text_color()
+        };
+        let image = icon.into().tint(tint_color);
+
+        let resp = self.add(image).on_hover_text(name);
         resp
     }
 

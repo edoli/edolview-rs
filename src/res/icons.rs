@@ -13,6 +13,7 @@ pub const SCALE_INVERSE: &[u8] = include_bytes!("icons/scale_inverse.svg");
 pub const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
 
 pub const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
+pub const DOWNLOADING: &[u8] = include_bytes!("icons/downloading.svg");
 
 pub struct Icons {
     show_background: OnceLock<egui::TextureHandle>,
@@ -24,6 +25,8 @@ pub struct Icons {
     scale_log: OnceLock<egui::TextureHandle>,
 
     normalize: OnceLock<egui::TextureHandle>,
+
+    downloading: OnceLock<egui::TextureHandle>,
 }
 
 impl Icons {
@@ -38,6 +41,8 @@ impl Icons {
             scale_log: OnceLock::new(),
 
             normalize: OnceLock::new(),
+
+            downloading: OnceLock::new(),
         }
     }
 
@@ -86,6 +91,13 @@ impl Icons {
     pub fn get_normalize<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.normalize
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "normalize", NORMALIZE))
+            .to_icon(ctx)
+    }
+
+    #[inline]
+    pub fn get_downloading<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.downloading
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "downloading", DOWNLOADING))
             .to_icon(ctx)
     }
 }

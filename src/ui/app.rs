@@ -2,7 +2,7 @@ use core::f32;
 use std::{
     collections::HashSet,
     path::PathBuf,
-    sync::{mpsc, Arc},
+    sync::{atomic::Ordering, mpsc, Arc},
 };
 
 use eframe::egui::{self, Color32, Rangef, Visuals};
@@ -29,10 +29,9 @@ pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
     last_path: Option<PathBuf>,
-    tmp_min_v: String,
-    tmp_max_v: String,
     tmp_marquee_rect: Recti,
     marquee_rect_text: String,
+    tmp_is_receiving: bool,
 
     // Panel visibility toggles
     show_side_panel: bool,
@@ -47,7 +46,6 @@ impl ViewerApp {
     pub fn new() -> Self {
         let state = AppState::empty();
         let marquee_rect = state.marquee_rect.clone();
-        let shader_params = state.shader_params.clone();
 
         // Start socket server for receiving images
         let host = "127.0.0.1";
@@ -63,10 +61,9 @@ impl ViewerApp {
 
             last_path: None,
 
-            tmp_min_v: shader_params.min_v.to_string().into(),
-            tmp_max_v: shader_params.max_v.to_string().into(),
             tmp_marquee_rect: marquee_rect.clone(),
             marquee_rect_text: marquee_rect.to_string().into(),
+            tmp_is_receiving: false,
 
             show_side_panel: true,
             show_bottom_panel: true,
@@ -265,6 +262,12 @@ impl eframe::App for ViewerApp {
                     &mut self.state.is_show_crosshair,
                     self.icons.get_show_crosshair(ctx),
                     "Show Crosshair",
+                );
+
+                ui.indicator_icon(
+                    self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed),
+                    self.icons.get_downloading(ctx),
+                    "Image Receiving",
                 );
 
                 // Right end: panel visibility toggles
@@ -570,6 +573,14 @@ impl eframe::App for ViewerApp {
         #[cfg(debug_assertions)]
         {
             crate::debug::debug_window(ctx);
+        }
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {
+        let current_is_receiving = self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed);
+        if self.tmp_is_receiving != current_is_receiving {
+            _ctx.request_repaint();
+            self.tmp_is_receiving = current_is_receiving;
         }
     }
 }

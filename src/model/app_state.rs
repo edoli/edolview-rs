@@ -1,7 +1,4 @@
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::Result;
 use indexmap::IndexMap;
@@ -33,10 +30,6 @@ pub struct AppState {
     pub is_show_crosshair: bool,
     pub is_show_sidebar: bool,
     pub is_show_statusbar: bool,
-
-    pub is_server_running: bool,
-    pub is_server_receiving: bool,
-    pub image_server_port: u16,
 
     // Copy behavior: when true, Ctrl+C copies marquee at original pixel size regardless of zoom.
     pub copy_use_original_size: bool,
@@ -88,9 +81,6 @@ impl AppState {
             is_show_crosshair: false,
             is_show_sidebar: true,
             is_show_statusbar: true,
-            is_server_running: false,
-            is_server_receiving: false,
-            image_server_port: 21734,
             copy_use_original_size: true,
             file_nav: crate::model::FileNav::new(),
             socket_state: Arc::new(SocketState::new()),
