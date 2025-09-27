@@ -262,8 +262,9 @@ impl eframe::App for ViewerApp {
                     "Show Crosshair",
                 );
 
+                ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
                 ui.label(self.state.socket_info.lock().unwrap().address.as_str());
-
+                ui.visuals_mut().override_text_color = None;
                 ui.indicator_icon(
                     self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed),
                     self.icons.get_downloading(ctx),

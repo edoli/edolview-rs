@@ -211,7 +211,7 @@ impl UiExt for Ui {
 
     fn toggle_icon<'a>(&mut self, selected: &mut bool, icon: impl Into<Image<'a>>, name: &str) -> Response {
         let tint_color = if *selected {
-            self.style().visuals.selection.bg_fill
+            self.style().visuals.selection.bg_fill.linear_multiply(1.5)
         } else {
             self.style().visuals.text_color()
         };
@@ -229,7 +229,7 @@ impl UiExt for Ui {
         let tint_color = if is_on {
             self.style().visuals.selection.bg_fill
         } else {
-            self.style().visuals.text_color()
+            self.style().visuals.weak_text_color()
         };
         let image = icon.into().tint(tint_color);
 
@@ -245,7 +245,7 @@ impl UiExt for Ui {
         name: &str,
     ) -> Response {
         let tint_color = if *current_value == alternative {
-            self.style().visuals.selection.bg_fill
+            self.style().visuals.selection.bg_fill.linear_multiply(1.2)
         } else {
             self.style().visuals.text_color()
         };
