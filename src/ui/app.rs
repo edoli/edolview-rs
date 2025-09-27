@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 
-use eframe::egui::{self, Color32, Rangef, Visuals};
+use eframe::egui::{self, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -21,6 +21,8 @@ use crate::{
     },
     util::{cv_ext::CvIntExt, math_ext::vec2i},
 };
+
+const IS_MAC: bool = cfg!(target_os = "macos");
 
 const SELECT_ALL_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
 const SELECT_NONE_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
@@ -245,7 +247,10 @@ impl eframe::App for ViewerApp {
 
                 ui.separator();
                 ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size")
-                    .on_hover_text("When enabled, Ctrl+C copies marquee at image pixel size (ignores zoom).");
+                    .on_hover_text(format!(
+                        "When enabled, {} copies marquee at image pixel size (ignores zoom).",
+                        COPY_SC.format(&ModifierNames::NAMES, IS_MAC)
+                    ));
                 ui.toggle_icon(
                     &mut self.state.is_show_background,
                     self.icons.get_show_background(ctx),
@@ -263,7 +268,19 @@ impl eframe::App for ViewerApp {
                 );
 
                 ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
-                ui.label(self.state.socket_info.lock().unwrap().address.as_str());
+                let socket_address = self.state.socket_info.lock().unwrap().address.clone();
+                ui.label(socket_address.clone())
+                    .on_hover_text("Socket Listener Address")
+                    .context_menu(|ui| {
+                        if ui.button("Copy Address").clicked() {
+                            arboard::Clipboard::new()
+                                .and_then(|mut cb| cb.set_text(socket_address))
+                                .unwrap_or_else(|e| {
+                                    eprintln!("Failed to copy socket address to clipboard: {e}");
+                                });
+                            ui.close();
+                        }
+                    });
                 ui.visuals_mut().override_text_color = None;
                 ui.indicator_icon(
                     self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed),
