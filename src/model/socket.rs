@@ -176,7 +176,7 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
 
     let payload = read_exact_len(stream, buf_len as usize)?;
 
-    if extra.nbytes == 0 || extra.shape.is_empty() || extra.dtype < 0 || extra.dtype > 7 {
+    if extra.nbytes == 0 || extra.shape.is_empty() || extra.dtype > 7 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid extra metadata").into());
     }
 
