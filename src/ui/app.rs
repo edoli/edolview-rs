@@ -53,9 +53,10 @@ impl ViewerApp {
         let port = 21734;
         let (tx, rx) = mpsc::channel::<SocketAsset>();
         let socket_state = state.socket_state.clone();
+        let socket_info = state.socket_info.clone();
 
         thread::spawn(move || {
-            start_server_with_retry(host, port, tx, socket_state).unwrap_or_else(|e| {
+            start_server_with_retry(host, port, tx, socket_state, socket_info).unwrap_or_else(|e| {
                 eprintln!("Failed to start socket server: {e}");
             });
         });
@@ -260,6 +261,8 @@ impl eframe::App for ViewerApp {
                     self.icons.get_show_crosshair(ctx),
                     "Show Crosshair",
                 );
+
+                ui.label(self.state.socket_info.lock().unwrap().address.as_str());
 
                 ui.indicator_icon(
                     self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed),

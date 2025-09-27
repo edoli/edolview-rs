@@ -8,7 +8,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::Sender,
-        Arc,
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -17,9 +17,6 @@ use std::{
 pub struct SocketState {
     pub is_socket_active: AtomicBool,
     pub is_socket_receiving: AtomicBool,
-    pub socket_address: String,
-    pub host: String,
-    pub port: u16,
 }
 
 impl SocketState {
@@ -27,7 +24,20 @@ impl SocketState {
         Self {
             is_socket_active: AtomicBool::new(true),
             is_socket_receiving: AtomicBool::new(false),
-            socket_address: String::from(""),
+        }
+    }
+}
+
+pub struct SocketInfo {
+    pub address: String,
+    pub host: String,
+    pub port: u16,
+}
+
+impl SocketInfo {
+    pub fn new() -> Self {
+        Self {
+            address: String::from(""),
             host: String::from(""),
             port: 0,
         }
@@ -87,7 +97,8 @@ pub fn start_server_with_retry(
     host: &str,
     mut port: u16,
     tx: Sender<SocketAsset>,
-    mut socket_state: Arc<SocketState>,
+    socket_state: Arc<SocketState>,
+    socket_info: Arc<Mutex<SocketInfo>>,
 ) -> io::Result<()> {
     loop {
         let addr = format!("{}:{}", host, port);
@@ -98,11 +109,10 @@ pub fn start_server_with_retry(
                 return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "port range exhausted"));
             }
         } else {
-            if let Some(socket_state) = Arc::get_mut(&mut socket_state) {
-                socket_state.socket_address = addr.clone();
-                socket_state.host = host.to_string();
-                socket_state.port = port;
-            }
+            let mut socket_info = socket_info.lock().unwrap();
+            socket_info.address = addr.clone();
+            socket_info.host = host.to_string();
+            socket_info.port = port;
             eprintln!("Socket listener started on {addr}");
             return Ok(());
         }
