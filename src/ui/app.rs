@@ -3,6 +3,7 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{atomic::Ordering, mpsc, Arc},
+    thread,
 };
 
 use eframe::egui::{self, Color32, Rangef, Visuals};
@@ -51,8 +52,12 @@ impl ViewerApp {
         let host = "127.0.0.1";
         let port = 21734;
         let (tx, rx) = mpsc::channel::<SocketAsset>();
-        start_server_with_retry(host, port, tx, state.socket_state.clone()).unwrap_or_else(|e| {
-            eprintln!("Failed to start socket server: {e}");
+        let socket_state = state.socket_state.clone();
+
+        thread::spawn(move || {
+            start_server_with_retry(host, port, tx, socket_state).unwrap_or_else(|e| {
+                eprintln!("Failed to start socket server: {e}");
+            });
         });
 
         Self {
@@ -171,14 +176,6 @@ impl eframe::App for ViewerApp {
                     }
                 }
             }
-        }
-
-        match self.rx.try_recv() {
-            Ok(asset) => {
-                self.state.set_asset(Arc::new(asset));
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {}
         }
 
         self.state.validate_marquee_rect();
@@ -581,6 +578,15 @@ impl eframe::App for ViewerApp {
         if self.tmp_is_receiving != current_is_receiving {
             _ctx.request_repaint();
             self.tmp_is_receiving = current_is_receiving;
+        }
+
+        match self.rx.try_recv() {
+            Ok(asset) => {
+                self.state.set_asset(Arc::new(asset));
+                _ctx.request_repaint();
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {}
         }
     }
 }
