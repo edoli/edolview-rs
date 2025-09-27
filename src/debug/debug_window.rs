@@ -14,6 +14,8 @@ pub fn debug_window(ctx: &egui::Context) {
             .with_resizable(true),
         move |second_ctx, _class| {
             egui::CentralPanel::default().show(second_ctx, |ui| {
+                DEBUG_STATE.lock().unwrap().sort_timings();
+
                 let debug_state = DEBUG_STATE.lock().unwrap();
 
                 let available_height = ui.available_height();

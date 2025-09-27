@@ -4,15 +4,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+use indexmap::IndexMap;
+
 pub struct DebugState {
-    timings: HashMap<String, Duration>,
+    timings: IndexMap<String, Duration>,
     timing_changes: HashMap<String, Instant>,
 }
 
 impl DebugState {
     pub fn new() -> Self {
         Self {
-            timings: HashMap::default(),
+            timings: IndexMap::default(),
             timing_changes: HashMap::default(),
         }
     }
@@ -20,6 +22,10 @@ impl DebugState {
     pub fn add_timing(&mut self, name: &str, duration: Duration) {
         self.timings.insert(name.to_string(), duration);
         self.timing_changes.insert(name.to_string(), Instant::now());
+    }
+
+    pub fn sort_timings(&mut self) {
+        self.timings.sort_keys();
     }
 
     pub fn iter_timings(&self) -> impl Iterator<Item = (&String, &Duration)> {
