@@ -18,6 +18,8 @@ pub struct SocketState {
     pub is_socket_active: AtomicBool,
     pub is_socket_receiving: AtomicBool,
     pub socket_address: String,
+    pub host: String,
+    pub port: u16,
 }
 
 impl SocketState {
@@ -26,6 +28,8 @@ impl SocketState {
             is_socket_active: AtomicBool::new(true),
             is_socket_receiving: AtomicBool::new(false),
             socket_address: String::from(""),
+            host: String::from(""),
+            port: 0,
         }
     }
 }
@@ -96,6 +100,8 @@ pub fn start_server_with_retry(
         } else {
             if let Some(socket_state) = Arc::get_mut(&mut socket_state) {
                 socket_state.socket_address = addr.clone();
+                socket_state.host = host.to_string();
+                socket_state.port = port;
             }
             eprintln!("Socket listener started on {addr}");
             return Ok(());
