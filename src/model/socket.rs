@@ -51,7 +51,7 @@ pub fn start_socket_listener(
                     Ok((mut stream, peer)) => {
                         eprintln!("[socket_comm] connected: {peer}");
 
-                        socket_state.is_socket_active.store(true, Ordering::Relaxed);
+                        socket_state.is_socket_receiving.store(true, Ordering::Relaxed);
 
                         if let Ok(asset) = handle_client(&mut stream) {
                             if tx.send(asset).is_err() {
