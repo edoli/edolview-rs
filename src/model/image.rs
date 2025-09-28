@@ -320,7 +320,7 @@ impl MatImage {
                 let temp_path = temp_dir.join("edolview_temp.exr");
                 {
                     #[cfg(debug_assertions)]
-                    let _timer_copy = crate::util::timer::ScopedTimer::new("Image temp copy");
+                    let _timer_copy = crate::util::timer::ScopedTimer::new("Image file temp copy");
 
                     fs::copy(&path, &temp_path).map_err(|e| eyre!("Failed to copy file: {e}"))?;
                 }
