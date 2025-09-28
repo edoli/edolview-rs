@@ -17,6 +17,7 @@ use crate::{
     util::cv_ext::cv_make_type,
 };
 
+#[derive(PartialEq, Clone)]
 pub enum MeanDim {
     All,
     Column,
@@ -121,17 +122,33 @@ impl MeanProcessor {
                 Ok(col_sums.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
             }
             MeanDim::Row => {
-                let left_col = integral_image_mat.col(x as i32)?;
-                let left_col_ranged =
-                    left_col.row_range(&core::Range::new((y + 1) as i32, (y + height + 1) as i32)?)?;
-                let right_col = integral_image_mat.col((x + width) as i32)?;
-                let right_col_ranged =
-                    right_col.row_range(&core::Range::new((y + 1) as i32, (y + height + 1) as i32)?)?;
+                let x = x as i32;
+                let y = y as i32;
+                let width = width as i32;
+                let height = height as i32;
 
-                // bot_row - top_row  => [1, W, (C)]
+                let left_col = integral_image_mat.col(x)?;
+                let right_col = integral_image_mat.col(x + width)?;
+
+                let r_bottom = core::Range::new(y + 1, y + height + 1)?;
+                let r_top = core::Range::new(y, y + height)?;
+
+                let top_right = left_col.row_range(&r_bottom)?;
+                let bot_right = right_col.row_range(&r_bottom)?;
+                let top_left = left_col.row_range(&r_top)?;
+                let bot_left = right_col.row_range(&r_top)?;
+
+                let no_mask = core::no_array();
+
+                let mut d_bot = core::Mat::default();
+                core::subtract(&bot_right, &top_right, &mut d_bot, &no_mask, -1)?;
+
+                let mut d_top = core::Mat::default();
+                core::subtract(&bot_left, &top_left, &mut d_top, &no_mask, -1)?;
+
                 let mut row_sums = core::Mat::default();
-                let mask = core::Mat::default();
-                core::subtract(&right_col_ranged, &left_col_ranged, &mut row_sums, &mask, -1)?;
+                core::subtract(&d_bot, &d_top, &mut row_sums, &no_mask, -1)?;
+
                 Ok(row_sums.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
             }
         }

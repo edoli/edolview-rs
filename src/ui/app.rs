@@ -45,6 +45,8 @@ pub struct ViewerApp {
     show_histogram_green: bool,
     show_histogram_blue: bool,
 
+    plot_dim: MeanDim,
+
     icons: Icons,
 
     rx: mpsc::Receiver<SocketAsset>,
@@ -85,6 +87,8 @@ impl ViewerApp {
             show_histogram_red: true,
             show_histogram_green: true,
             show_histogram_blue: true,
+
+            plot_dim: MeanDim::Column,
 
             icons: Icons::new(),
 
@@ -548,7 +552,7 @@ impl eframe::App for ViewerApp {
                         let rect = self.state.marquee_rect;
                         let reduced_value = asset
                             .image()
-                            .mean_value_in_rect(rect.to_cv_rect(), MeanDim::Column)
+                            .mean_value_in_rect(rect.to_cv_rect(), self.plot_dim.clone())
                             .expect("Failed to compute mean in rect");
 
                         let channels = asset.image().spec().channels as usize;
@@ -566,6 +570,21 @@ impl eframe::App for ViewerApp {
                             egui::vec2(ui.available_width(), 100.0),
                             &(0..channels).map(|i| &plot_data[i]).collect(),
                         );
+
+                        ui.horizontal(|ui| {
+                            ui.radio_icon(
+                                &mut self.plot_dim,
+                                MeanDim::Column,
+                                self.icons.get_scale_linear(&ctx),
+                                "Linear",
+                            );
+                            ui.radio_icon(
+                                &mut self.plot_dim,
+                                MeanDim::Row,
+                                self.icons.get_scale_inverse(&ctx),
+                                "Inverse",
+                            );
+                        });
                     }
 
                     ui.separator();
