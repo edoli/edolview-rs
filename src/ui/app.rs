@@ -84,9 +84,9 @@ impl ViewerApp {
             show_bottom_panel: true,
 
             show_histogram: false,
-            show_histogram_channels: [true; 4],
+            show_histogram_channels: [true, true, true, false],
 
-            show_plot_channels: [true; 4],
+            show_plot_channels: [true, true, true, false],
 
             plot_dim: MeanDim::Column,
 
@@ -511,6 +511,7 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
+                    let desired_size_plot = egui::vec2(ui.available_width(), 100.0);
                     if let Some(asset) = &self.state.asset {
                         let rect = self.state.marquee_rect;
                         let reduced_value = asset
@@ -532,17 +533,12 @@ impl eframe::App for ViewerApp {
                         if channels > 1 {
                             draw_multi_line_plot(
                                 ui,
-                                egui::vec2(ui.available_width(), 100.0),
+                                desired_size_plot,
                                 &(0..channels).map(|i| &plot_data[i]).collect(),
                                 &self.show_plot_channels,
                             );
                         } else {
-                            draw_multi_line_plot(
-                                ui,
-                                egui::vec2(ui.available_width(), 100.0),
-                                &vec![&plot_data[0]],
-                                &[true],
-                            );
+                            draw_multi_line_plot(ui, desired_size_plot, &vec![&plot_data[0]], &[true]);
                         }
 
                         ui.horizontal(|ui| {
@@ -567,6 +563,14 @@ impl eframe::App for ViewerApp {
                                 channel_toggle_ui(ui, &mut self.show_plot_channels, channels as usize);
                             }
                         });
+                    } else {
+                        ui.allocate_ui_with_layout(
+                            desired_size_plot,
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label("No data to display.");
+                            },
+                        );
                     }
 
                     ui.separator();
@@ -574,6 +578,7 @@ impl eframe::App for ViewerApp {
                     ui.checkbox(&mut self.show_histogram, "Show Histogram");
 
                     if self.show_histogram {
+                        let desired_size = egui::vec2(ui.available_width(), 100.0);
                         if let Some(asset) = &self.state.asset {
                             let hist = asset.image().hist();
                             let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
@@ -585,24 +590,20 @@ impl eframe::App for ViewerApp {
                                 }
 
                                 if channels > 1 {
-                                    draw_histogram(
-                                        ui,
-                                        egui::vec2(ui.available_width(), 100.0),
-                                        &display_hist,
-                                        &self.show_histogram_channels,
-                                        max,
-                                    );
+                                    draw_histogram(ui, desired_size, &display_hist, &self.show_histogram_channels, max);
                                     channel_toggle_ui(ui, &mut self.show_histogram_channels, channels as usize);
                                 } else {
-                                    draw_histogram(
-                                        ui,
-                                        egui::vec2(ui.available_width(), 100.0),
-                                        &display_hist,
-                                        &[true],
-                                        max,
-                                    );
+                                    draw_histogram(ui, desired_size, &display_hist, &[true], max);
                                 }
                             }
+                        } else {
+                            ui.allocate_ui_with_layout(
+                                desired_size,
+                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                |ui| {
+                                    ui.label("No data to display.");
+                                },
+                            );
                         }
                     }
 

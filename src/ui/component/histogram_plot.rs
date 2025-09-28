@@ -1,6 +1,17 @@
 use eframe::egui::{self, pos2, Color32, Rect, Sense, Vec2};
 
 pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]>, mask: &[bool], max_freq: f32) {
+    if series.is_empty() || series[0].is_empty() || mask.iter().all(|&m| !m) {
+        ui.allocate_ui_with_layout(
+            desired_size,
+            egui::Layout::centered_and_justified(eframe::egui::Direction::LeftToRight),
+            |ui| {
+                ui.label("No data to display.");
+            },
+        );
+        return;
+    }
+
     let (rect, _) = ui.allocate_exact_size(desired_size, Sense::hover());
     let painter = ui.painter_at(rect);
 
@@ -24,6 +35,7 @@ pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]
         Color32::from_rgba_unmultiplied(255, 0, 0, 150),
         Color32::from_rgba_unmultiplied(0, 255, 0, 150),
         Color32::from_rgba_unmultiplied(0, 0, 255, 150),
+        Color32::from_rgba_unmultiplied(255, 255, 0, 150),
     ];
 
     let draw_series = |series: &[f32], color: Color32| {
@@ -57,7 +69,7 @@ pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]
         }
     };
 
-    series.iter().take(3).enumerate().for_each(|(i, s)| {
+    series.iter().take(4).enumerate().for_each(|(i, s)| {
         if mask[i] {
             draw_series(s, colors[i])
         }
