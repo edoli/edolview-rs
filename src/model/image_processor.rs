@@ -14,7 +14,7 @@ use opencv::{
 
 use crate::{
     model::{Image, MatImage},
-    util::cv_ext::cv_make_type,
+    util::cv_ext::{cv_make_type, MatExt},
 };
 
 #[derive(PartialEq, Clone)]
@@ -195,7 +195,7 @@ impl MeanProcessor {
             }
         } else {
             self.is_precompute_begin.store(true, Ordering::Relaxed);
-            let mat_clone = mat.clone();
+            let mat_clone = mat.shallow_clone()?;
             let slot = Arc::clone(&self.integral_image);
             thread::spawn(move || {
                 if let Ok(ii) = Self::precompute(&mat_clone) {

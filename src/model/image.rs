@@ -1,5 +1,5 @@
 use crate::model::{MeanDim, MeanProcessor};
-use crate::util::cv_ext::CvIntExt;
+use crate::util::cv_ext::{CvIntExt, MatExt};
 use color_eyre::eyre::{eyre, Result};
 use half::f16;
 use opencv::core::Size;
@@ -203,7 +203,7 @@ impl MatImage {
         }
         let channels = spec.channels;
 
-        let input = core::Vector::<core::Mat>::from(vec![self.mat.clone()]);
+        let input = core::Vector::<core::Mat>::from(vec![self.mat.shallow_clone().expect("shallow_clone failed")]);
 
         let bins = 256;
         let hist_size = core::Vector::from_slice(&[bins]);

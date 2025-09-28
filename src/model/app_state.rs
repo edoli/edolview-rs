@@ -145,6 +145,8 @@ impl AppState {
         self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
 
         self.asset = self.assets.get(&hash).cloned();
+
+        self.validate_marquee_rect();
     }
 
     pub fn clear_asset(&mut self) {
