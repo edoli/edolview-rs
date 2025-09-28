@@ -184,7 +184,12 @@ impl MatImage {
 
     pub fn mean_value_in_rect(&self, rect: opencv::core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         #[cfg(debug_assertions)]
-        let _timer = crate::util::timer::ScopedTimer::new("Compute mean in rect");
+        let _timer = match dim {
+            MeanDim::All => crate::util::timer::ScopedTimer::new("Compute mean all"),
+            MeanDim::Column => crate::util::timer::ScopedTimer::new("Compute mean column"),
+            MeanDim::Row => crate::util::timer::ScopedTimer::new("Compute mean row"),
+        };
+
         MEAN_PROCESSOR.lock().unwrap().compute(self, rect, dim)
     }
 

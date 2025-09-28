@@ -511,42 +511,6 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    ui.checkbox(&mut self.show_histogram, "Show Histogram");
-
-                    if self.show_histogram {
-                        if let Some(asset) = &self.state.asset {
-                            let hist = asset.image().hist();
-                            let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
-
-                            if !hist.is_empty() {
-                                let mut display_hist: Vec<&[f32]> = Vec::with_capacity(hist.len());
-                                for i in 0..hist.len() {
-                                    display_hist.push(&hist[i]);
-                                }
-
-                                if channels > 1 {
-                                    draw_histogram(
-                                        ui,
-                                        egui::vec2(ui.available_width(), 100.0),
-                                        &display_hist,
-                                        &self.show_histogram_channels,
-                                        max,
-                                    );
-                                    channel_toggle_ui(ui, &mut self.show_histogram_channels, channels as usize);
-                                } else {
-                                    draw_histogram(
-                                        ui,
-                                        egui::vec2(ui.available_width(), 100.0),
-                                        &display_hist,
-                                        &[true],
-                                        max,
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    ui.separator();
                     if let Some(asset) = &self.state.asset {
                         let rect = self.state.marquee_rect;
                         let reduced_value = asset
@@ -603,6 +567,43 @@ impl eframe::App for ViewerApp {
                                 channel_toggle_ui(ui, &mut self.show_plot_channels, channels as usize);
                             }
                         });
+                    }
+
+                    ui.separator();
+
+                    ui.checkbox(&mut self.show_histogram, "Show Histogram");
+
+                    if self.show_histogram {
+                        if let Some(asset) = &self.state.asset {
+                            let hist = asset.image().hist();
+                            let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
+
+                            if !hist.is_empty() {
+                                let mut display_hist: Vec<&[f32]> = Vec::with_capacity(hist.len());
+                                for i in 0..hist.len() {
+                                    display_hist.push(&hist[i]);
+                                }
+
+                                if channels > 1 {
+                                    draw_histogram(
+                                        ui,
+                                        egui::vec2(ui.available_width(), 100.0),
+                                        &display_hist,
+                                        &self.show_histogram_channels,
+                                        max,
+                                    );
+                                    channel_toggle_ui(ui, &mut self.show_histogram_channels, channels as usize);
+                                } else {
+                                    draw_histogram(
+                                        ui,
+                                        egui::vec2(ui.available_width(), 100.0),
+                                        &display_hist,
+                                        &[true],
+                                        max,
+                                    );
+                                }
+                            }
+                        }
                     }
 
                     ui.separator();

@@ -1,8 +1,14 @@
-use eframe::egui::{Color32, Pos2, Sense, Stroke, Ui, Vec2};
+use eframe::egui::{Color32, Layout, Pos2, Sense, Stroke, Ui, Vec2};
 
 pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f32>>, mask: &[bool]) {
     if series.is_empty() || series[0].is_empty() {
-        ui.label("데이터가 없습니다.");
+        ui.allocate_ui_with_layout(
+            desired_size,
+            Layout::centered_and_justified(eframe::egui::Direction::LeftToRight),
+            |ui| {
+                ui.label("No data to display.");
+            },
+        );
         return;
     }
 
@@ -49,6 +55,47 @@ pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f
         Color32::LIGHT_RED,
         Color32::from_rgb(200, 100, 255),
     ];
+
+    // Draw background grid
+    {
+        let stroke = Stroke::new(1.0, Color32::from_gray(36));
+
+        let num_row = (rect.height() / 32.0).ceil() as usize;
+        let num_col = (rect.width() / 32.0).ceil() as usize;
+
+        // Horizontal lines
+        for i in 0..=num_row {
+            let y = rect.top() + (i as f32 / num_row as f32) * (rect.height() - 2.0) + 1.0;
+            painter.line_segment(
+                [
+                    Pos2 {
+                        x: rect.left() + 1.0,
+                        y,
+                    },
+                    Pos2 {
+                        x: rect.right() + 1.0,
+                        y,
+                    },
+                ],
+                stroke,
+            );
+        }
+
+        // Vertical lines
+        for i in 0..=num_col {
+            let x = rect.left() + (i as f32 / num_col as f32) * (rect.width() - 2.0) + 1.0;
+            painter.line_segment(
+                [
+                    Pos2 { x, y: rect.top() + 1.0 },
+                    Pos2 {
+                        x,
+                        y: rect.bottom() + 1.0,
+                    },
+                ],
+                stroke,
+            );
+        }
+    }
 
     for (i, ys) in series.iter().enumerate() {
         if mask[i] {

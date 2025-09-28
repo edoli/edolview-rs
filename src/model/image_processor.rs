@@ -57,10 +57,6 @@ impl MeanProcessor {
         let width = rect.width as usize;
         let height = rect.height as usize;
 
-        if width <= 0 || height <= 0 {
-            return Ok(vec![0.0; channels as usize]);
-        }
-
         let integral_image_lock = self.integral_image.lock().unwrap();
 
         let integral_image_mat = integral_image_lock
@@ -184,6 +180,13 @@ impl MeanProcessor {
     }
 
     fn compute_mat(&self, mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
+        let width = rect.width as usize;
+        let height = rect.height as usize;
+
+        if width <= 0 || height <= 0 {
+            return Ok(vec![]);
+        }
+
         if self.is_precompute_begin.load(Ordering::Relaxed) {
             if self.integral_image.lock().unwrap().get().is_some() {
                 self.fast_compute(mat, rect, dim)
