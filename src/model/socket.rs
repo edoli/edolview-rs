@@ -132,14 +132,10 @@ fn read_exact_len(stream: &mut TcpStream, len: usize) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn read_i32(stream: &mut TcpStream) -> io::Result<u32> {
-    let mut buf = [0u8; 4];
+fn read_u64(stream: &mut TcpStream) -> io::Result<u64> {
+    let mut buf = [0u8; 8];
     stream.read_exact(&mut buf)?;
-    let n = i32::from_be_bytes(buf);
-    if n < 0 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "negative length encountered"));
-    }
-    Ok(n as u32)
+    Ok(u64::from_be_bytes(buf))
 }
 
 fn parse_extra(bytes: &[u8]) -> Result<Extra> {
@@ -163,9 +159,9 @@ fn parse_extra(bytes: &[u8]) -> Result<Extra> {
 }
 
 fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
-    let name_len = read_i32(stream)?;
-    let extra_len = read_i32(stream)?;
-    let buf_len = read_i32(stream)?;
+    let name_len = read_u64(stream)?;
+    let extra_len = read_u64(stream)?;
+    let buf_len = read_u64(stream)?;
 
     // 2) name, extra(json), buf(bytes)
     let name_bytes = read_exact_len(stream, name_len as usize)?;
