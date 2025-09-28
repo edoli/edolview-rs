@@ -14,7 +14,7 @@ use crate::{
     res::icons::Icons,
     ui::{
         component::{
-            display_controls_ui, display_profile_slider,
+            display_controls_ui, display_profile_slider, draw_histogram,
             egui_ext::{ComboBoxExt, Size, UiExt},
         },
         ImageViewer,
@@ -493,6 +493,16 @@ impl eframe::App for ViewerApp {
                     display_profile_slider(ui, &mut self.state.shader_params.offset, -5.0, 5.0, 0.0, "Offset");
                     display_profile_slider(ui, &mut self.state.shader_params.exposure, -5.0, 5.0, 0.0, "Exposure");
                     display_profile_slider(ui, &mut self.state.shader_params.gamma, 0.1, 5.0, 1.0, "Gamma");
+
+                    if let Some(asset) = &self.state.asset {
+                        ui.separator();
+
+                        let hist = asset.image().hist();
+                        let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
+                        if !hist.is_empty() {
+                            draw_histogram(ui, hist, max, egui::vec2(ui.available_width(), 100.0));
+                        }
+                    }
 
                     ui.separator();
 

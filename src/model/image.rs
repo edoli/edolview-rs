@@ -161,6 +161,7 @@ pub struct MatImage {
     mat: opencv::core::Mat,
     spec: ImageSpec,
 
+    hist: OnceLock<Vec<Vec<f32>>>,
     minmax: OnceLock<MinMax>,
 }
 
@@ -172,6 +173,7 @@ impl MatImage {
             mat,
             spec,
             id: new_id(),
+            hist: OnceLock::new(),
             minmax: OnceLock::new(),
         }
     }
@@ -184,6 +186,45 @@ impl MatImage {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Compute mean in rect");
         MEAN_PROCESSOR.lock().unwrap().compute(self, rect)
+    }
+
+    pub fn compute_hist(&self) -> Vec<Vec<f32>> {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Compute hist");
+
+        let spec = self.spec();
+        if spec.width == 0 || spec.height == 0 || spec.channels <= 0 {
+            return vec![];
+        }
+        let channels = spec.channels;
+
+        let input = core::Vector::<core::Mat>::from(vec![self.mat.clone()]);
+
+        let bins = 256;
+        let hist_size = core::Vector::from_slice(&[bins]);
+        let ranges = core::Vector::from(vec![0f32, 1f32]);
+        let mask = core::Mat::default();
+
+        let mut result: Vec<Vec<f32>> = Vec::with_capacity(channels as usize);
+
+        for ch in 0..channels {
+            let hist_channels = core::Vector::from_slice(&[ch]);
+
+            let mut hist = core::Mat::default();
+
+            imgproc::calc_hist(&input, &hist_channels, &mask, &mut hist, &hist_size, &ranges, false)
+                .expect("calc_hist failed");
+
+            let slice: &[f32] = hist.data_typed::<f32>().expect("data_typed failed");
+
+            result.push(slice.to_vec());
+        }
+
+        result
+    }
+
+    pub fn hist(&self) -> &Vec<Vec<f32>> {
+        self.hist.get_or_init(|| self.compute_hist())
     }
 
     fn compute_minmax(&self) -> MinMax {
