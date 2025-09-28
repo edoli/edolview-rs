@@ -1,4 +1,4 @@
-use crate::model::MeanProcessor;
+use crate::model::{MeanDim, MeanProcessor};
 use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::{eyre, Result};
 use half::f16;
@@ -182,10 +182,10 @@ impl MatImage {
         &self.mat
     }
 
-    pub fn mean_value_in_rect(&self, rect: opencv::core::Rect) -> Result<Vec<f64>> {
+    pub fn mean_value_in_rect(&self, rect: opencv::core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Compute mean in rect");
-        MEAN_PROCESSOR.lock().unwrap().compute(self, rect)
+        MEAN_PROCESSOR.lock().unwrap().compute(self, rect, dim)
     }
 
     pub fn compute_hist(&self) -> Vec<Vec<f32>> {

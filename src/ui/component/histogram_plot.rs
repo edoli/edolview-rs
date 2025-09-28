@@ -1,7 +1,7 @@
 use eframe::egui::{self, pos2, Color32, Rect, Sense, Vec2};
 
-pub fn draw_histogram(ui: &mut egui::Ui, series: &Vec<&[f32]>, mask: &[bool], max_freq: f32, size_px: Vec2) {
-    let (rect, _) = ui.allocate_exact_size(size_px, Sense::hover());
+pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]>, mask: &[bool], max_freq: f32) {
+    let (rect, _) = ui.allocate_exact_size(desired_size, Sense::hover());
     let painter = ui.painter_at(rect);
 
     if max_freq <= 0.0 {

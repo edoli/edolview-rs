@@ -10,11 +10,11 @@ use eframe::egui::{self, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
-    model::{start_server_with_retry, AppState, Image, Recti, SocketAsset},
+    model::{start_server_with_retry, AppState, Image, MeanDim, Recti, SocketAsset},
     res::icons::Icons,
     ui::{
         component::{
-            display_controls_ui, display_profile_slider, draw_histogram,
+            display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
         },
         ImageViewer,
@@ -333,11 +333,12 @@ impl eframe::App for ViewerApp {
                                 ui.label_with_colored_rect(cursor_color, dtype);
 
                                 let rect = self.state.marquee_rect;
-                                let mean_color = if let Ok(mean) = image.mean_value_in_rect(rect.to_cv_rect()) {
-                                    mean.iter().map(|&v| v as f32).collect()
-                                } else {
-                                    vec![0.0; image.spec().channels as usize]
-                                };
+                                let mean_color =
+                                    if let Ok(mean) = image.mean_value_in_rect(rect.to_cv_rect(), MeanDim::All) {
+                                        mean.iter().map(|&v| v as f32).collect()
+                                    } else {
+                                        vec![0.0; image.spec().channels as usize]
+                                    };
                                 ui.label_with_colored_rect(mean_color, dtype);
                             }
                         });
@@ -523,7 +524,7 @@ impl eframe::App for ViewerApp {
                                     self.show_histogram_green && hist.len() > 1,
                                     self.show_histogram_blue && hist.len() > 2,
                                 ];
-                                draw_histogram(ui, &display_hist, &mask, max, egui::vec2(ui.available_width(), 100.0));
+                                draw_histogram(ui, egui::vec2(ui.available_width(), 100.0), &display_hist, &mask, max);
 
                                 if hist.len() > 1 {
                                     ui.horizontal(|ui| {
@@ -540,6 +541,31 @@ impl eframe::App for ViewerApp {
                                 }
                             }
                         }
+                    }
+
+                    ui.separator();
+                    if let Some(asset) = &self.state.asset {
+                        let rect = self.state.marquee_rect;
+                        let reduced_value = asset
+                            .image()
+                            .mean_value_in_rect(rect.to_cv_rect(), MeanDim::Column)
+                            .expect("Failed to compute mean in rect");
+
+                        let channels = asset.image().spec().channels as usize;
+                        let mut plot_data = Vec::with_capacity(channels);
+
+                        for i in 0..channels {
+                            let mut channel_data = Vec::with_capacity(reduced_value.len() / channels);
+                            for j in 0..(reduced_value.len() / channels) {
+                                channel_data.push(reduced_value[j * channels + i] as f32);
+                            }
+                            plot_data.push(channel_data);
+                        }
+                        draw_multi_line_plot(
+                            ui,
+                            egui::vec2(ui.available_width(), 100.0),
+                            &(0..channels).map(|i| &plot_data[i]).collect(),
+                        );
                     }
 
                     ui.separator();
