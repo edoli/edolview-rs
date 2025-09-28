@@ -28,6 +28,13 @@ const SELECT_ALL_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::
 const SELECT_NONE_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
 const COPY_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::D);
 
+#[derive(PartialEq, Clone)]
+enum PlotDim {
+    Column,
+    Row,
+    Auto,
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -45,7 +52,7 @@ pub struct ViewerApp {
 
     show_plot_channels: [bool; 4],
 
-    plot_dim: MeanDim,
+    plot_dim: PlotDim,
 
     icons: Icons,
 
@@ -88,7 +95,7 @@ impl ViewerApp {
 
             show_plot_channels: [true, true, true, false],
 
-            plot_dim: MeanDim::Column,
+            plot_dim: PlotDim::Auto,
 
             icons: Icons::new(),
 
@@ -514,9 +521,20 @@ impl eframe::App for ViewerApp {
                     let desired_size_plot = egui::vec2(ui.available_width(), 100.0);
                     if let Some(asset) = &self.state.asset {
                         let rect = self.state.marquee_rect;
+                        let mean_dim = match self.plot_dim {
+                            PlotDim::Auto => {
+                                if rect.width() >= rect.height() {
+                                    MeanDim::Column
+                                } else {
+                                    MeanDim::Row
+                                }
+                            }
+                            PlotDim::Column => MeanDim::Column,
+                            PlotDim::Row => MeanDim::Row,
+                        };
                         let reduced_value = asset
                             .image()
-                            .mean_value_in_rect(rect.to_cv_rect(), self.plot_dim.clone())
+                            .mean_value_in_rect(rect.to_cv_rect(), mean_dim)
                             .expect("Failed to compute mean in rect");
 
                         let channels = asset.image().spec().channels as usize;
@@ -548,13 +566,19 @@ impl eframe::App for ViewerApp {
 
                             ui.radio_icon(
                                 &mut self.plot_dim,
-                                MeanDim::Column,
+                                PlotDim::Auto,
+                                self.icons.get_reduce_auto(&ctx),
+                                "Auto (Mean Shorter Side)",
+                            );
+                            ui.radio_icon(
+                                &mut self.plot_dim,
+                                PlotDim::Column,
                                 self.icons.get_reduce_column(&ctx),
                                 "Mean Column",
                             );
                             ui.radio_icon(
                                 &mut self.plot_dim,
-                                MeanDim::Row,
+                                PlotDim::Row,
                                 self.icons.get_reduce_row(&ctx),
                                 "Mean Row",
                             );

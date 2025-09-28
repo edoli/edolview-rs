@@ -17,6 +17,7 @@ pub const DOWNLOADING: &[u8] = include_bytes!("icons/downloading.svg");
 
 pub const REDUCE_COLUMN: &[u8] = include_bytes!("icons/reduce_column.svg");
 pub const REDUCE_ROW: &[u8] = include_bytes!("icons/reduce_row.svg");
+pub const REDUCE_AUTO: &[u8] = include_bytes!("icons/reduce_auto.svg");
 
 pub struct Icons {
     show_background: OnceLock<egui::TextureHandle>,
@@ -33,6 +34,7 @@ pub struct Icons {
 
     reduce_column: OnceLock<egui::TextureHandle>,
     reduce_row: OnceLock<egui::TextureHandle>,
+    reduce_auto: OnceLock<egui::TextureHandle>,
 }
 
 impl Icons {
@@ -52,6 +54,7 @@ impl Icons {
 
             reduce_column: OnceLock::new(),
             reduce_row: OnceLock::new(),
+            reduce_auto: OnceLock::new(),
         }
     }
 
@@ -121,6 +124,13 @@ impl Icons {
     pub fn get_reduce_row<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.reduce_row
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_row", REDUCE_ROW))
+            .to_icon(ctx)
+    }
+
+    #[inline]
+    pub fn get_reduce_auto<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.reduce_auto
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_auto", REDUCE_AUTO))
             .to_icon(ctx)
     }
 }
