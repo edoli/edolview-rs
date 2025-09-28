@@ -298,6 +298,13 @@ impl MatImage {
         Ok(MatImage::new(mat_f32, dtype))
     }
 
+    fn contains_non_ascii(path: &PathBuf) -> bool {
+        match path.to_str() {
+            Some(s) => s.chars().any(|c| !c.is_ascii()),
+            None => true,
+        }
+    }
+
     pub fn load_from_path(path: &PathBuf) -> Result<MatImage> {
         if !path.exists() {
             return Err(eyre!("Image does not exist: {:?}", path));
@@ -311,10 +318,13 @@ impl MatImage {
         let mat = {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Image read");
-            // Read image using imread fails on paths with non-ASCII characters.
-            // imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
 
-            if ext == "exr" {
+            let contains_non_ascii = Self::contains_non_ascii(path);
+
+            if !contains_non_ascii && ext != "pfm" && ext != "flo" {
+                // Read image using imread fails on paths with non-ASCII characters.
+                imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
+            } else if ext == "exr" {
                 // Copy file to temp file with ASCII path and read it
                 let temp_dir = std::env::temp_dir();
                 let temp_path = temp_dir.join("edolview_temp.exr");
