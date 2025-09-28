@@ -208,10 +208,14 @@ impl MeanProcessor {
 
     pub fn compute(&mut self, image: &MatImage, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         let image_id = image.id();
-        if image_id != self.last_image_id {
+        let last_image_id = self.last_image_id;
+        if image_id != last_image_id {
             self.last_image_id = image_id;
-            self.is_precompute_begin.store(false, Ordering::Relaxed);
-            let _ = self.integral_image.lock().unwrap().take();
+
+            if last_image_id != u64::MAX {
+                self.is_precompute_begin.store(false, Ordering::Relaxed);
+                let _ = self.integral_image.lock().unwrap().take();
+            }
         }
         self.compute_mat(&image.mat(), rect, dim)
     }
