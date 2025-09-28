@@ -15,6 +15,9 @@ pub const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
 pub const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
 pub const DOWNLOADING: &[u8] = include_bytes!("icons/downloading.svg");
 
+pub const REDUCE_COLUMN: &[u8] = include_bytes!("icons/reduce_column.svg");
+pub const REDUCE_ROW: &[u8] = include_bytes!("icons/reduce_row.svg");
+
 pub struct Icons {
     show_background: OnceLock<egui::TextureHandle>,
     show_pixel_value: OnceLock<egui::TextureHandle>,
@@ -27,6 +30,9 @@ pub struct Icons {
     normalize: OnceLock<egui::TextureHandle>,
 
     downloading: OnceLock<egui::TextureHandle>,
+
+    reduce_column: OnceLock<egui::TextureHandle>,
+    reduce_row: OnceLock<egui::TextureHandle>,
 }
 
 impl Icons {
@@ -43,6 +49,9 @@ impl Icons {
             normalize: OnceLock::new(),
 
             downloading: OnceLock::new(),
+
+            reduce_column: OnceLock::new(),
+            reduce_row: OnceLock::new(),
         }
     }
 
@@ -98,6 +107,20 @@ impl Icons {
     pub fn get_downloading<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.downloading
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "downloading", DOWNLOADING))
+            .to_icon(ctx)
+    }
+
+    #[inline]
+    pub fn get_reduce_column<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.reduce_column
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_column", REDUCE_COLUMN))
+            .to_icon(ctx)
+    }
+
+    #[inline]
+    pub fn get_reduce_row<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.reduce_row
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_row", REDUCE_ROW))
             .to_icon(ctx)
     }
 }

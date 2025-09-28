@@ -589,14 +589,14 @@ impl eframe::App for ViewerApp {
                             ui.radio_icon(
                                 &mut self.plot_dim,
                                 MeanDim::Column,
-                                self.icons.get_scale_linear(&ctx),
-                                "Linear",
+                                self.icons.get_reduce_column(&ctx),
+                                "Mean Column",
                             );
                             ui.radio_icon(
                                 &mut self.plot_dim,
                                 MeanDim::Row,
-                                self.icons.get_scale_inverse(&ctx),
-                                "Inverse",
+                                self.icons.get_reduce_row(&ctx),
+                                "Mean Row",
                             );
 
                             if channels > 1 {
