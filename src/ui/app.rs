@@ -40,6 +40,11 @@ pub struct ViewerApp {
     show_side_panel: bool,
     show_bottom_panel: bool,
 
+    show_histogram: bool,
+    show_histogram_red: bool,
+    show_histogram_green: bool,
+    show_histogram_blue: bool,
+
     icons: Icons,
 
     rx: mpsc::Receiver<SocketAsset>,
@@ -75,6 +80,11 @@ impl ViewerApp {
 
             show_side_panel: true,
             show_bottom_panel: true,
+
+            show_histogram: false,
+            show_histogram_red: true,
+            show_histogram_green: true,
+            show_histogram_blue: true,
 
             icons: Icons::new(),
 
@@ -494,13 +504,41 @@ impl eframe::App for ViewerApp {
                     display_profile_slider(ui, &mut self.state.shader_params.exposure, -5.0, 5.0, 0.0, "Exposure");
                     display_profile_slider(ui, &mut self.state.shader_params.gamma, 0.1, 5.0, 1.0, "Gamma");
 
-                    if let Some(asset) = &self.state.asset {
-                        ui.separator();
+                    ui.separator();
 
-                        let hist = asset.image().hist();
-                        let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
-                        if !hist.is_empty() {
-                            draw_histogram(ui, hist, max, egui::vec2(ui.available_width(), 100.0));
+                    ui.checkbox(&mut self.show_histogram, "Show Histogram");
+
+                    if self.show_histogram {
+                        if let Some(asset) = &self.state.asset {
+                            let hist = asset.image().hist();
+                            let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
+
+                            if !hist.is_empty() {
+                                let mut display_hist: Vec<&[f32]> = Vec::with_capacity(hist.len());
+                                for i in 0..hist.len() {
+                                    display_hist.push(&hist[i]);
+                                }
+                                let mask = [
+                                    self.show_histogram_red && hist.len() > 0 || hist.len() == 1,
+                                    self.show_histogram_green && hist.len() > 1,
+                                    self.show_histogram_blue && hist.len() > 2,
+                                ];
+                                draw_histogram(ui, &display_hist, &mask, max, egui::vec2(ui.available_width(), 100.0));
+
+                                if hist.len() > 1 {
+                                    ui.horizontal(|ui| {
+                                        ui.checkbox(&mut self.show_histogram_red, "Red")
+                                            .on_hover_text("Show Red Channel");
+                                        ui.checkbox(&mut self.show_histogram_green, "Green")
+                                            .on_hover_text("Show Green Channel");
+
+                                        if hist.len() > 2 {
+                                            ui.checkbox(&mut self.show_histogram_blue, "Blue")
+                                                .on_hover_text("Show Blue Channel");
+                                        }
+                                    });
+                                }
+                            }
                         }
                     }
 

@@ -1,6 +1,6 @@
 use eframe::egui::{self, pos2, Color32, Rect, Sense, Vec2};
 
-pub fn draw_histogram(ui: &mut egui::Ui, series: &Vec<Vec<f32>>, max_freq: f32, size_px: Vec2) {
+pub fn draw_histogram(ui: &mut egui::Ui, series: &Vec<&[f32]>, mask: &[bool], max_freq: f32, size_px: Vec2) {
     let (rect, _) = ui.allocate_exact_size(size_px, Sense::hover());
     let painter = ui.painter_at(rect);
 
@@ -57,5 +57,9 @@ pub fn draw_histogram(ui: &mut egui::Ui, series: &Vec<Vec<f32>>, max_freq: f32, 
         }
     };
 
-    series.iter().take(3).enumerate().for_each(|(i, s)| draw_series(s, colors[i]));
+    series.iter().take(3).enumerate().for_each(|(i, s)| {
+        if mask[i] {
+            draw_series(s, colors[i])
+        }
+    });
 }
