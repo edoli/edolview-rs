@@ -14,7 +14,7 @@ use crate::{
     res::icons::Icons,
     ui::{
         component::{
-            display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
+            channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
         },
         ImageViewer,
@@ -41,9 +41,9 @@ pub struct ViewerApp {
     show_bottom_panel: bool,
 
     show_histogram: bool,
-    show_histogram_red: bool,
-    show_histogram_green: bool,
-    show_histogram_blue: bool,
+    show_histogram_channels: [bool; 4],
+
+    show_plot_channels: [bool; 4],
 
     plot_dim: MeanDim,
 
@@ -84,9 +84,9 @@ impl ViewerApp {
             show_bottom_panel: true,
 
             show_histogram: false,
-            show_histogram_red: true,
-            show_histogram_green: true,
-            show_histogram_blue: true,
+            show_histogram_channels: [true; 4],
+
+            show_plot_channels: [true; 4],
 
             plot_dim: MeanDim::Column,
 
@@ -523,25 +523,24 @@ impl eframe::App for ViewerApp {
                                 for i in 0..hist.len() {
                                     display_hist.push(&hist[i]);
                                 }
-                                let mask = [
-                                    self.show_histogram_red && hist.len() > 0 || hist.len() == 1,
-                                    self.show_histogram_green && hist.len() > 1,
-                                    self.show_histogram_blue && hist.len() > 2,
-                                ];
-                                draw_histogram(ui, egui::vec2(ui.available_width(), 100.0), &display_hist, &mask, max);
 
-                                if hist.len() > 1 {
-                                    ui.horizontal(|ui| {
-                                        ui.checkbox(&mut self.show_histogram_red, "Red")
-                                            .on_hover_text("Show Red Channel");
-                                        ui.checkbox(&mut self.show_histogram_green, "Green")
-                                            .on_hover_text("Show Green Channel");
-
-                                        if hist.len() > 2 {
-                                            ui.checkbox(&mut self.show_histogram_blue, "Blue")
-                                                .on_hover_text("Show Blue Channel");
-                                        }
-                                    });
+                                if channels > 1 {
+                                    draw_histogram(
+                                        ui,
+                                        egui::vec2(ui.available_width(), 100.0),
+                                        &display_hist,
+                                        &self.show_histogram_channels,
+                                        max,
+                                    );
+                                    channel_toggle_ui(ui, &mut self.show_histogram_channels, channels as usize);
+                                } else {
+                                    draw_histogram(
+                                        ui,
+                                        egui::vec2(ui.available_width(), 100.0),
+                                        &display_hist,
+                                        &[true],
+                                        max,
+                                    );
                                 }
                             }
                         }
@@ -565,13 +564,28 @@ impl eframe::App for ViewerApp {
                             }
                             plot_data.push(channel_data);
                         }
-                        draw_multi_line_plot(
-                            ui,
-                            egui::vec2(ui.available_width(), 100.0),
-                            &(0..channels).map(|i| &plot_data[i]).collect(),
-                        );
+
+                        if channels > 1 {
+                            draw_multi_line_plot(
+                                ui,
+                                egui::vec2(ui.available_width(), 100.0),
+                                &(0..channels).map(|i| &plot_data[i]).collect(),
+                                &self.show_plot_channels,
+                            );
+                        } else {
+                            draw_multi_line_plot(
+                                ui,
+                                egui::vec2(ui.available_width(), 100.0),
+                                &vec![&plot_data[0]],
+                                &[true],
+                            );
+                        }
 
                         ui.horizontal(|ui| {
+                            let mut style: egui::Style = ui.style().as_ref().clone();
+                            egui::containers::menu::menu_style(&mut style);
+                            ui.set_style(std::sync::Arc::new(style));
+
                             ui.radio_icon(
                                 &mut self.plot_dim,
                                 MeanDim::Column,
@@ -584,6 +598,10 @@ impl eframe::App for ViewerApp {
                                 self.icons.get_scale_inverse(&ctx),
                                 "Inverse",
                             );
+
+                            if channels > 1 {
+                                channel_toggle_ui(ui, &mut self.show_plot_channels, channels as usize);
+                            }
                         });
                     }
 

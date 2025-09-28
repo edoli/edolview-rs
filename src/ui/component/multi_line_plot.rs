@@ -1,6 +1,6 @@
 use eframe::egui::{Color32, Pos2, Sense, Stroke, Ui, Vec2};
 
-pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f32>>) {
+pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f32>>, mask: &[bool]) {
     if series.is_empty() || series[0].is_empty() {
         ui.label("데이터가 없습니다.");
         return;
@@ -14,15 +14,20 @@ pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f
 
     let mut y_min = f32::INFINITY;
     let mut y_max = f32::NEG_INFINITY;
-    for ys in series.iter() {
-        for &y in *ys {
-            y_min = y_min.min(y);
-            y_max = y_max.max(y);
+    for (i, ys) in series.iter().enumerate() {
+        if mask[i] {
+            for &y in *ys {
+                y_min = y_min.min(y);
+                y_max = y_max.max(y);
+            }
         }
     }
     if (y_max - y_min).abs() < f32::EPSILON {
         y_max += 1.0;
     }
+    let diff = y_max - y_min;
+    y_min -= 0.02 * diff;
+    y_max += 0.02 * diff;
 
     let to_screen = |i: usize, y: f32| -> Pos2 {
         let x = i as f32 / (len - 1) as f32;
@@ -46,13 +51,15 @@ pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f
     ];
 
     for (i, ys) in series.iter().enumerate() {
-        let color = colors[i % colors.len()];
-        let stroke = Stroke::new(1.0, color);
+        if mask[i] {
+            let color = colors[i % colors.len()];
+            let stroke = Stroke::new(1.0, color);
 
-        for x in 1..len {
-            let p1 = to_screen(x - 1, ys[x - 1]);
-            let p2 = to_screen(x, ys[x]);
-            painter.line_segment([p1, p2], stroke);
+            for x in 1..len {
+                let p1 = to_screen(x - 1, ys[x - 1]);
+                let p2 = to_screen(x, ys[x]);
+                painter.line_segment([p1, p2], stroke);
+            }
         }
     }
 }
