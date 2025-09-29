@@ -35,7 +35,7 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 
 * **Plot Selected Region**
 
-[![Plot Demo](images/plot_demo.mp4)](https://github.com/user-attachments/assets/4a219f8b-39f3-48a8-a5ea-b9d610bb3f40)
+https://github.com/user-attachments/assets/4a219f8b-39f3-48a8-a5ea-b9d610bb3f40
 
 
 ## How to Build
