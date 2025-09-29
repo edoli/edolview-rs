@@ -33,6 +33,10 @@ Designed for researchers, engineers, and graphics professionals who need **speed
   * `esc` : Deselect region
   * `ctrl` + `d` : Copy selected region
 
+* **Copy-Paste Selected Region**
+
+https://github.com/user-attachments/assets/fd76159c-da77-4f5d-946c-667cda5c1482
+
 * **Plot Selected Region**
 
 https://github.com/user-attachments/assets/4a219f8b-39f3-48a8-a5ea-b9d610bb3f40
