@@ -11,7 +11,7 @@ pub const SHOW_CROSSHAIR: &[u8] = include_bytes!("icons/show_crosshair.svg");
 pub const SCALE_LINEAR: &[u8] = include_bytes!("icons/scale_linear.svg");
 pub const SCALE_INVERSE: &[u8] = include_bytes!("icons/scale_inverse.svg");
 pub const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
-pub const SCALE_ABS: &[u8] = include_bytes!("icons/scale_abs.svg");
+pub const SCALE_ABSOLUTE: &[u8] = include_bytes!("icons/scale_absolute.svg");
 
 pub const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
 pub const DOWNLOADING: &[u8] = include_bytes!("icons/downloading.svg");
@@ -28,7 +28,7 @@ pub struct Icons {
     scale_linear: OnceLock<egui::TextureHandle>,
     scale_inverse: OnceLock<egui::TextureHandle>,
     scale_log: OnceLock<egui::TextureHandle>,
-    scale_abs: OnceLock<egui::TextureHandle>,
+    scale_absolute: OnceLock<egui::TextureHandle>,
 
     normalize: OnceLock<egui::TextureHandle>,
 
@@ -49,7 +49,7 @@ impl Icons {
             scale_linear: OnceLock::new(),
             scale_inverse: OnceLock::new(),
             scale_log: OnceLock::new(),
-            scale_abs: OnceLock::new(),
+            scale_absolute: OnceLock::new(),
 
             normalize: OnceLock::new(),
 
@@ -103,9 +103,9 @@ impl Icons {
     }
 
     #[inline]
-    pub fn get_scale_abs<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
-        self.scale_abs
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_abs", SCALE_ABS))
+    pub fn get_scale_absolute<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.scale_absolute
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_absolute", SCALE_ABSOLUTE))
             .to_icon(ctx)
     }
 

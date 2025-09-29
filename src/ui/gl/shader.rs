@@ -49,7 +49,7 @@ pub enum ScaleMode {
     Linear = 0,
     Inverse = 1,
     Log = 2,
-    Abs = 3,
+    Absolute = 3,
 }
 
 impl Default for ScaleMode {
@@ -315,7 +315,7 @@ impl ImageProgram {
 
         gl.uniform_1_i32(Some(&self.u_use_per_channel), if shader_params.use_per_channel { 1 } else { 0 });
 
-        let is_scale_mode_abs = shader_params.scale_mode == ScaleMode::Abs;
+        let is_scale_mode_abs = shader_params.scale_mode == ScaleMode::Absolute;
         if !shader_params.use_per_channel {
             let auto_minmax = shader_params.auto_minmax;
             let min_v = switch!(auto_minmax => 

@@ -27,7 +27,7 @@ pub fn display_controls_ui(
     let locked = *auto_minmax;
 
     ui.radio_icon(scale_mode, ScaleMode::Linear, icons.get_scale_linear(&ctx), "Linear");
-    ui.radio_icon(scale_mode, ScaleMode::Abs, icons.get_scale_abs(&ctx), "Abs");
+    ui.radio_icon(scale_mode, ScaleMode::Absolute, icons.get_scale_absolute(&ctx), "Absolute");
     ui.radio_icon(scale_mode, ScaleMode::Inverse, icons.get_scale_inverse(&ctx), "Inverse");
 
     ui.separator();
@@ -40,7 +40,7 @@ pub fn display_controls_ui(
 
     if locked {
         if channel == -1 {
-            if scale_mode == &ScaleMode::Abs {
+            if scale_mode == &ScaleMode::Absolute {
                 tmp_min = mat_image.minmax().total_min_abs();
                 tmp_max = mat_image.minmax().total_max_abs();
             } else {
@@ -48,7 +48,7 @@ pub fn display_controls_ui(
                 tmp_max = mat_image.minmax().total_max();
             }
         } else {
-            if scale_mode == &ScaleMode::Abs {
+            if scale_mode == &ScaleMode::Absolute {
                 tmp_min = mat_image.minmax().min_abs(channel as usize);
                 tmp_max = mat_image.minmax().max_abs(channel as usize);
             } else {
