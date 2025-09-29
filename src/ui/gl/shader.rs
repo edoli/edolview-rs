@@ -319,7 +319,7 @@ impl ImageProgram {
         if !shader_params.use_per_channel {
             let auto_minmax = shader_params.auto_minmax;
             let min_v = switch!(auto_minmax => 
-                switch!(is_scale_mode_abs => 0.0, min_max.total_min()), shader_params.min_v);
+                switch!(is_scale_mode_abs => min_max.total_min_abs(), min_max.total_min()), shader_params.min_v);
             let max_v = switch!(auto_minmax => 
                 switch!(is_scale_mode_abs => min_max.total_max_abs(), min_max.total_max()), shader_params.max_v);
 
@@ -334,7 +334,7 @@ impl ImageProgram {
             for i in 0..4 {
                 let auto_minmax = shader_params.auto_minmax_channels[i];
                 let min_v = switch!(auto_minmax => 
-                    switch!(is_scale_mode_abs => 0.0, min_max.min(i)), min_v_chs[i]);
+                    switch!(is_scale_mode_abs => min_max.min_abs(i), min_max.min(i)), min_v_chs[i]);
                 let max_v = switch!(auto_minmax => 
                     switch!(is_scale_mode_abs => min_max.max_abs(i), min_max.max(i)), max_v_chs[i]);
 

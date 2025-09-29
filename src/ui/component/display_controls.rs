@@ -41,7 +41,7 @@ pub fn display_controls_ui(
     if locked {
         if channel == -1 {
             if scale_mode == &ScaleMode::Abs {
-                tmp_min = 0.0;
+                tmp_min = mat_image.minmax().total_min_abs();
                 tmp_max = mat_image.minmax().total_max_abs();
             } else {
                 tmp_min = mat_image.minmax().total_min();
@@ -49,7 +49,7 @@ pub fn display_controls_ui(
             }
         } else {
             if scale_mode == &ScaleMode::Abs {
-                tmp_min = 0.0;
+                tmp_min = mat_image.minmax().min_abs(channel as usize);
                 tmp_max = mat_image.minmax().max_abs(channel as usize);
             } else {
                 tmp_min = mat_image.minmax().min(channel as usize);

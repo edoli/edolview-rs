@@ -131,6 +131,18 @@ impl MinMax {
     }
 
     #[inline]
+    pub fn min_abs(&self, channel: usize) -> f32 {
+        let channel_min = self.min(channel);
+        let channel_max = self.max(channel);
+        
+        if f32::signum(channel_min) != f32::signum(channel_max) {
+            0.0
+        } else {
+            f32::min(channel_min.abs(), channel_max.abs())
+        }
+    }
+
+    #[inline]
     pub fn max_abs(&self, channel: usize) -> f32 {
         if channel >= self.maxs.len() {
             0.0
@@ -161,6 +173,17 @@ impl MinMax {
                 }
             })
             .to_owned()
+    }
+
+    #[inline]
+    pub fn total_min_abs(&self) -> f32 {
+        let total_min = self.total_min();
+        let total_max = self.total_max();
+        if f32::signum(total_min) != f32::signum(total_max) {
+            0.0
+        } else {
+            f32::min(total_min.abs(), total_max.abs())
+        }
     }
 
     #[inline]
