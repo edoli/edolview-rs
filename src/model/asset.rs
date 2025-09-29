@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use opencv::core::{MatTrait, MatTraitConst};
+
 use crate::model::{Image, MatImage};
 
 pub type SharedAsset = Arc<dyn Asset<MatImage>>;
@@ -158,9 +160,19 @@ impl ComparisonAsset {
         let mat1 = img1.mat();
         let mat2 = img2.mat();
 
-        let mut mat = opencv::core::Mat::default();
+        let rect = opencv::core::Rect {
+            x: 0,
+            y: 0,
+            width: mat1.cols().min(mat2.cols()),
+            height: mat1.rows().min(mat2.rows()),
+        };
+        let mat1_roi = mat1.roi(rect).unwrap();
+        let mat2_roi = mat2.roi(rect).unwrap();
 
-        opencv::core::subtract(&mat1, &mat2, &mut mat, &opencv::core::no_array(), -1).unwrap();
+        let mut mat = mat1.clone();
+        let mut mat_roi = mat.roi_mut(rect).unwrap();
+
+        opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
 
         let comparison_image = MatImage::new(mat, img1.spec().dtype);
 
