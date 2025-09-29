@@ -159,12 +159,16 @@ impl AppState {
         self.asset_secondary = self.assets.get(hash).cloned();
     }
 
-    pub fn set_secondary_asset(&mut self, asset: SharedAsset) {
-        let hash = asset.hash().to_string();
+    pub fn set_secondary_asset(&mut self, asset: Option<SharedAsset>) {
+        if let Some(asset) = asset {
+            let hash = asset.hash().to_string();
 
-        self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
+            self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
 
-        self.asset_secondary = self.assets.get(&hash).cloned();
+            self.asset_secondary = self.assets.get(&hash).cloned();
+        } else {
+            self.asset_secondary = None;
+        }
 
         self.update_asset();
         self.validate_marquee_rect();

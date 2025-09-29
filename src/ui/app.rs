@@ -648,6 +648,7 @@ impl eframe::App for ViewerApp {
                     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                         let mut to_set_primary: Option<_> = None;
                         let mut to_set_secondary: Option<_> = None;
+                        let mut deselect_secondary = false;
                         let mut to_remove: HashSet<_> = HashSet::new();
                         let mut to_retain: HashSet<_> = HashSet::new();
 
@@ -701,10 +702,15 @@ impl eframe::App for ViewerApp {
                                         _ => {}
                                     }
                                 });
+
                                 if btn.clicked() {
                                     if ui.input(|i| i.modifiers.command) {
                                         // Ctrl/Cmd + Click: set secondary
-                                        to_set_secondary = Some(asset.clone());
+                                        if self.state.asset_secondary.as_ref().is_some_and(|a| Arc::ptr_eq(a, asset)) {
+                                            deselect_secondary = true;
+                                        } else {
+                                            to_set_secondary = Some(asset.clone());
+                                        }
                                     } else {
                                         // Normal click: set primary
                                         to_set_primary = Some(asset.clone());
@@ -714,10 +720,21 @@ impl eframe::App for ViewerApp {
                         });
 
                         if let Some(to_set_primary) = to_set_primary {
+                            if self
+                                .state
+                                .asset_secondary
+                                .as_ref()
+                                .is_some_and(|a| Arc::ptr_eq(a, &to_set_primary))
+                            {
+                                deselect_secondary = true;
+                            }
+
                             self.state.set_primary_asset(to_set_primary);
                         }
                         if let Some(to_set_secondary) = to_set_secondary {
-                            self.state.set_secondary_asset(to_set_secondary);
+                            self.state.set_secondary_asset(Some(to_set_secondary));
+                        } else if deselect_secondary {
+                            self.state.set_secondary_asset(None);
                         }
 
                         if to_retain.is_empty() {
