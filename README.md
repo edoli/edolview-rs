@@ -28,9 +28,14 @@ Designed for researchers, engineers, and graphics professionals who need **speed
   * `f11` : fullscreen mode
 
 * **Selection**
+  * `shift` + `drag` : Select rectangle region
   * `ctrl` + `a` : Select all region
   * `esc` : Deselect region
   * `ctrl` + `d` : Copy selected region
+
+* **Plot Selected Region**
+
+![Plot Demo](images/plot_demo.mp4)
 
 
 ## How to Build
