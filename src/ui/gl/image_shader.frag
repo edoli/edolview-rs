@@ -9,6 +9,7 @@ uniform vec2 u_image_size;
 uniform sampler2D u_texture;
 uniform int u_channel_index;
 
+uniform int u_use_alpha; // 0: off, 1: on
 uniform float u_offset;
 uniform float u_exposure;
 uniform float u_gamma;
@@ -161,18 +162,20 @@ void main()
         tex.g = (apply_scale_mode(tex.g, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
         tex.b = (apply_scale_mode(tex.b, u_scale_mode) - u_min_v) / (u_max_v - u_min_v);
     }
-    float alpha = tex.a;
 
     if (u_channel_index == 1) {
         tex.r = tex.g;
     } else if (u_channel_index == 2) {
         tex.r = tex.b;
     } else if (u_channel_index == 3) {
-        tex.r = alpha;
+        tex.r = tex.a;
     }
 
-    if (u_channel_index != -1) {
+    float alpha;
+    if (u_channel_index != -1 || u_use_alpha == 0) {
         alpha = 1.0;
+    } else {
+        alpha = tex.a;
     }
 
     %color_process%

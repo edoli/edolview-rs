@@ -27,6 +27,8 @@ pub struct ImageProgram {
     u_scale: glow::UniformLocation,
     u_position: glow::UniformLocation,
 
+    u_use_alpha: glow::UniformLocation,
+
     u_exposure: glow::UniformLocation,
     u_offset: glow::UniformLocation,
     u_gamma: glow::UniformLocation,
@@ -57,6 +59,7 @@ impl Default for ScaleMode {
 
 #[derive(Clone)]
 pub struct ShaderParams {
+    pub use_alpha: bool,
     pub offset: f32,
     pub exposure: f32,
     pub gamma: f32,
@@ -74,6 +77,7 @@ pub struct ShaderParams {
 impl Default for ShaderParams {
     fn default() -> Self {
         Self {
+            use_alpha: true,
             offset: 0.0,
             exposure: 0.0,
             gamma: 1.0,
@@ -189,6 +193,7 @@ impl ImageProgram {
             let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
             let u_position = gl.check_and_get_uniform_location(program, "u_position");
 
+            let u_use_alpha = gl.check_and_get_uniform_location(program, "u_use_alpha");
             let u_offset = gl.check_and_get_uniform_location(program, "u_offset");
             let u_exposure = gl.check_and_get_uniform_location(program, "u_exposure");
             let u_gamma = gl.check_and_get_uniform_location(program, "u_gamma");
@@ -219,6 +224,7 @@ impl ImageProgram {
                 u_scale,
                 u_position,
                 u_channel_index,
+                u_use_alpha,
                 u_offset,
                 u_exposure,
                 u_gamma,
@@ -244,6 +250,7 @@ impl ImageProgram {
         self.u_scale = gl.check_and_get_uniform_location(program, "u_scale");
         self.u_position = gl.check_and_get_uniform_location(program, "u_position");
 
+        self.u_use_alpha = gl.check_and_get_uniform_location(program, "u_use_alpha");
         self.u_offset = gl.check_and_get_uniform_location(program, "u_offset");
         self.u_exposure = gl.check_and_get_uniform_location(program, "u_exposure");
         self.u_gamma = gl.check_and_get_uniform_location(program, "u_gamma");
@@ -298,6 +305,8 @@ impl ImageProgram {
         gl.uniform_1_i32(Some(&self.u_channel_index), channel_index);
         gl.uniform_1_f32(Some(&self.u_scale), scale);
         gl.uniform_2_f32v(Some(&self.u_position), position);
+
+        gl.uniform_1_i32(Some(&self.u_use_alpha), if shader_params.use_alpha { 1 } else { 0 });
 
         gl.uniform_1_f32(Some(&self.u_exposure), shader_params.exposure);
         gl.uniform_1_f32(Some(&self.u_offset), shader_params.offset);

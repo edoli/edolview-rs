@@ -1,10 +1,18 @@
+use std::sync::Arc;
+
+use opencv::core::{MatTrait, MatTraitConst};
+
 use crate::model::{Image, MatImage};
 
+pub type SharedAsset = Arc<dyn Asset<MatImage>>;
+
+#[derive(PartialEq)]
 pub enum AssetType {
     File,
     Clipboard,
     Socket,
     Url,
+    Comparison,
 }
 
 pub trait Asset<T: Image> {
@@ -135,5 +143,68 @@ impl Asset<MatImage> for UrlAsset {
 
     fn asset_type(&self) -> AssetType {
         AssetType::Url
+    }
+}
+
+pub struct ComparisonAsset {
+    name: String,
+    image: MatImage,
+}
+
+impl ComparisonAsset {
+    pub fn new(asset_primary: SharedAsset, asset_secondary: SharedAsset) -> Self {
+        let name = format!("Comparison: {} vs {}", asset_primary.name(), asset_secondary.name());
+
+        let img1 = asset_primary.image();
+        let img2 = asset_secondary.image();
+
+        let mat1 = img1.mat();
+        let mat2 = img2.mat();
+
+        if mat1.channels() != mat2.channels() {
+            return Self {
+                name,
+                image: MatImage::new(opencv::core::Mat::default(), img1.spec().dtype),
+            };
+        }
+
+        let rect = opencv::core::Rect {
+            x: 0,
+            y: 0,
+            width: mat1.cols().min(mat2.cols()),
+            height: mat1.rows().min(mat2.rows()),
+        };
+        let mat1_roi = mat1.roi(rect).unwrap();
+        let mat2_roi = mat2.roi(rect).unwrap();
+
+        let mut mat = mat1.clone();
+        let mut mat_roi = mat.roi_mut(rect).unwrap();
+
+        opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
+
+        let comparison_image = MatImage::new(mat, img1.spec().dtype);
+
+        Self {
+            name,
+            image: comparison_image,
+        }
+    }
+}
+
+impl Asset<MatImage> for ComparisonAsset {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn image(&self) -> &MatImage {
+        &self.image
+    }
+
+    fn hash(&self) -> &str {
+        &self.name
+    }
+
+    fn asset_type(&self) -> AssetType {
+        AssetType::Comparison
     }
 }
