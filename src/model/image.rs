@@ -168,7 +168,7 @@ pub struct MatImage {
 impl MatImage {
     pub fn new(mat: opencv::core::Mat, dtype: i32) -> Self {
         let spec = ImageSpec::new(&mat, dtype);
-        assert!(mat.depth() == f32::typ());
+        assert!(mat.empty() || mat.depth() == f32::typ());
         Self {
             mat,
             spec,

@@ -161,6 +161,13 @@ impl ComparisonAsset {
         let mat1 = img1.mat();
         let mat2 = img2.mat();
 
+        if mat1.channels() != mat2.channels() {
+            return Self {
+                name,
+                image: MatImage::new(opencv::core::Mat::default(), img1.spec().dtype),
+            };
+        }
+
         let rect = opencv::core::Rect {
             x: 0,
             y: 0,
