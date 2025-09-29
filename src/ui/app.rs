@@ -700,7 +700,7 @@ impl eframe::App for ViewerApp {
                         });
 
                         if let Some(to_set) = to_set {
-                            self.state.set_asset(to_set);
+                            self.state.set_primary_asset(to_set);
                         }
 
                         if to_retain.is_empty() {
@@ -740,7 +740,7 @@ impl eframe::App for ViewerApp {
 
         match self.rx.try_recv() {
             Ok(asset) => {
-                self.state.set_asset(Arc::new(asset));
+                self.state.set_primary_asset(Arc::new(asset));
                 _ctx.request_repaint();
             }
             Err(mpsc::TryRecvError::Empty) => {}

@@ -7,16 +7,19 @@ use color_eyre::eyre::Result;
 use indexmap::IndexMap;
 
 use crate::{
-    model::{Asset, AssetType, ClipboardAsset, FileAsset, Image, MatImage, Recti, SocketInfo, SocketState},
+    model::{
+        AssetType, ClipboardAsset, ComparisonAsset, FileAsset, Image, MatImage, Recti, SharedAsset, SocketInfo,
+        SocketState,
+    },
     ui::gl::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
 };
 
-pub type SharedAsset = Arc<dyn Asset<MatImage>>;
-
 pub struct AppState {
     pub path: Option<PathBuf>,
     pub asset: Option<SharedAsset>,
+    pub asset_primary: Option<SharedAsset>,
+    pub asset_secondary: Option<SharedAsset>,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Recti,
@@ -71,6 +74,8 @@ impl AppState {
         Self {
             path: None,
             asset: None,
+            asset_primary: None,
+            asset_secondary: None,
             shader_params: ShaderParams::default(),
             cursor_pos: None,
             marquee_rect: Recti::ZERO,
@@ -100,9 +105,9 @@ impl AppState {
         let path_str = path.to_string_lossy().to_string();
 
         if self.assets.contains_key(&path_str) {
-            self.set_asset_by_hash(&path_str);
+            self.set_asset_primary_by_hash(&path_str);
         } else {
-            self.set_asset(Arc::new(FileAsset::new(path_str, MatImage::load_from_path(&path)?)));
+            self.set_primary_asset(Arc::new(FileAsset::new(path_str, MatImage::load_from_path(&path)?)));
         }
 
         self.path = Some(path.clone());
@@ -127,7 +132,7 @@ impl AppState {
 
         let image = MatImage::load_from_clipboard()
             .or_else(|_| MatImage::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()))?;
-        self.set_asset(Arc::new(ClipboardAsset::new(image)));
+        self.set_primary_asset(Arc::new(ClipboardAsset::new(image)));
 
         self.path = None;
         self.file_nav.clear();
@@ -135,22 +140,58 @@ impl AppState {
         Ok(())
     }
 
-    pub fn set_asset_by_hash(&mut self, hash: &str) {
-        self.asset = self.assets.get(hash).cloned();
+    pub fn set_asset_primary_by_hash(&mut self, hash: &str) {
+        self.asset_primary = self.assets.get(hash).cloned();
     }
 
-    pub fn set_asset(&mut self, asset: SharedAsset) {
+    pub fn set_primary_asset(&mut self, asset: SharedAsset) {
         let hash = asset.hash().to_string();
 
         self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
 
-        self.asset = self.assets.get(&hash).cloned();
+        self.asset_primary = self.assets.get(&hash).cloned();
 
+        self.update_asset();
         self.validate_marquee_rect();
+    }
+
+    pub fn set_asset_secondary_by_hash(&mut self, hash: &str) {
+        self.asset_secondary = self.assets.get(hash).cloned();
+    }
+
+    pub fn set_secondary_asset(&mut self, asset: SharedAsset) {
+        let hash = asset.hash().to_string();
+
+        self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
+
+        self.asset_secondary = self.assets.get(&hash).cloned();
+
+        self.update_asset();
+        self.validate_marquee_rect();
+    }
+
+    pub fn update_asset(&mut self) {
+        if let Some(asset_primary) = &self.asset_primary {
+            if let Some(asset_secondary) = &self.asset_secondary {
+                if asset_primary.hash() == asset_secondary.hash() {
+                    self.asset = Some(asset_primary.clone());
+                } else {
+                    // Different assets, create a comparison asset
+                    let comp_asset = ComparisonAsset::new(asset_primary.clone(), asset_secondary.clone());
+                    self.asset = Some(Arc::new(comp_asset));
+                }
+            } else {
+                self.asset = Some(asset_primary.clone());
+            }
+        } else {
+            self.asset = None;
+        }
     }
 
     pub fn clear_asset(&mut self) {
         self.asset = None;
+        self.asset_primary = None;
+        self.asset_secondary = None;
         self.path = None;
         self.file_nav.clear();
         self.marquee_rect = Recti::ZERO;

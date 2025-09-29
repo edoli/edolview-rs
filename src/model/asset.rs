@@ -1,10 +1,15 @@
+use std::sync::Arc;
+
 use crate::model::{Image, MatImage};
+
+pub type SharedAsset = Arc<dyn Asset<MatImage>>;
 
 pub enum AssetType {
     File,
     Clipboard,
     Socket,
     Url,
+    Comparison,
 }
 
 pub trait Asset<T: Image> {
@@ -135,5 +140,51 @@ impl Asset<MatImage> for UrlAsset {
 
     fn asset_type(&self) -> AssetType {
         AssetType::Url
+    }
+}
+
+pub struct ComparisonAsset {
+    name: String,
+    image: MatImage,
+}
+
+impl ComparisonAsset {
+    pub fn new(asset_primary: SharedAsset, asset_secondary: SharedAsset) -> Self {
+        let name = format!("Comparison: {} vs {}", asset_primary.name(), asset_secondary.name());
+
+        let img1 = asset_primary.image();
+        let img2 = asset_secondary.image();
+
+        let mat1 = img1.mat();
+        let mat2 = img2.mat();
+
+        let mut mat = opencv::core::Mat::default();
+
+        opencv::core::subtract(&mat1, &mat2, &mut mat, &opencv::core::no_array(), -1).unwrap();
+
+        let comparison_image = MatImage::new(mat, img1.spec().dtype);
+
+        Self {
+            name,
+            image: comparison_image,
+        }
+    }
+}
+
+impl Asset<MatImage> for ComparisonAsset {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn image(&self) -> &MatImage {
+        &self.image
+    }
+
+    fn hash(&self) -> &str {
+        &self.name
+    }
+
+    fn asset_type(&self) -> AssetType {
+        AssetType::Comparison
     }
 }
