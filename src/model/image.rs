@@ -130,6 +130,15 @@ impl MinMax {
         }
     }
 
+    #[inline]
+    pub fn max_abs(&self, channel: usize) -> f32 {
+        if channel >= self.maxs.len() {
+            0.0
+        } else {
+            f32::max(self.mins[channel].abs(), self.maxs[channel].abs())
+        }
+    }
+
     pub fn total_min(&self) -> f32 {
         self.total_min
             .get_or_init(|| {
@@ -152,6 +161,11 @@ impl MinMax {
                 }
             })
             .to_owned()
+    }
+
+    #[inline]
+    pub fn total_max_abs(&self) -> f32 {
+        f32::max(self.total_min().abs(), self.total_max().abs())
     }
 }
 

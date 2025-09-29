@@ -137,6 +137,9 @@ float apply_scale_mode(float v, int mode)
         // Log: log(v)
         float s = sign(v);
         return s * log(abs(v) + 1.0);
+    } else if (mode == 3) {
+        // Log: abs(v)
+        return abs(v);
     } else {
         // Linear: v
         return v;

@@ -49,6 +49,7 @@ pub enum ScaleMode {
     Linear = 0,
     Inverse = 1,
     Log = 2,
+    Abs = 3,
 }
 
 impl Default for ScaleMode {
@@ -314,16 +315,16 @@ impl ImageProgram {
 
         gl.uniform_1_i32(Some(&self.u_use_per_channel), if shader_params.use_per_channel { 1 } else { 0 });
 
+        let is_scale_mode_abs = shader_params.scale_mode == ScaleMode::Abs;
         if !shader_params.use_per_channel {
             let auto_minmax = shader_params.auto_minmax;
-            gl.uniform_1_f32(
-                Some(&self.u_min_v),
-                switch!(auto_minmax => min_max.total_min(), shader_params.min_v),
-            );
-            gl.uniform_1_f32(
-                Some(&self.u_max_v),
-                switch!(auto_minmax => min_max.total_max(), shader_params.max_v),
-            );
+            let min_v = switch!(auto_minmax => 
+                switch!(is_scale_mode_abs => 0.0, min_max.total_min()), shader_params.min_v);
+            let max_v = switch!(auto_minmax => 
+                switch!(is_scale_mode_abs => min_max.total_max_abs(), min_max.total_max()), shader_params.max_v);
+
+            gl.uniform_1_f32(Some(&self.u_min_v), min_v);
+            gl.uniform_1_f32(Some(&self.u_max_v), max_v);
             gl.uniform_1_i32(Some(&self.u_scale_mode), shader_params.scale_mode as i32);
         } else {
             let min_v_chs = &shader_params.min_v_channels;
@@ -332,8 +333,13 @@ impl ImageProgram {
 
             for i in 0..4 {
                 let auto_minmax = shader_params.auto_minmax_channels[i];
-                gl.uniform_1_f32(Some(&self.u_min_v_chs[i]), switch!(auto_minmax => min_max.min(i), min_v_chs[i]));
-                gl.uniform_1_f32(Some(&self.u_max_v_chs[i]), switch!(auto_minmax => min_max.max(i), max_v_chs[i]));
+                let min_v = switch!(auto_minmax => 
+                    switch!(is_scale_mode_abs => 0.0, min_max.min(i)), min_v_chs[i]);
+                let max_v = switch!(auto_minmax => 
+                    switch!(is_scale_mode_abs => min_max.max_abs(i), min_max.max(i)), max_v_chs[i]);
+
+                gl.uniform_1_f32(Some(&self.u_min_v_chs[i]), min_v);
+                gl.uniform_1_f32(Some(&self.u_max_v_chs[i]), max_v);
                 gl.uniform_1_i32(Some(&self.u_scale_mode_chs[i]), scale_mode_chs[i] as i32);
             }
         }
