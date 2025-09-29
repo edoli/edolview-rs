@@ -6,6 +6,7 @@ use crate::model::{Image, MatImage};
 
 pub type SharedAsset = Arc<dyn Asset<MatImage>>;
 
+#[derive(PartialEq)]
 pub enum AssetType {
     File,
     Clipboard,

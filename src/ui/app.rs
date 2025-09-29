@@ -10,7 +10,7 @@ use eframe::egui::{self, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
-    model::{start_server_with_retry, AppState, Image, MeanDim, Recti, SocketAsset},
+    model::{start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset},
     res::icons::Icons,
     ui::{
         component::{
@@ -634,15 +634,20 @@ impl eframe::App for ViewerApp {
                     ui.separator();
 
                     ui.heading("Image List");
-                    let asset = self.state.asset.clone();
-                    let asset_hash = if let Some(asset) = asset {
+                    let asset_primary_hash = if let Some(asset) = &self.state.asset_primary {
+                        Some(&asset.hash().to_string())
+                    } else {
+                        None
+                    };
+                    let asset_secondary_hash = if let Some(asset) = &self.state.asset_secondary {
                         Some(&asset.hash().to_string())
                     } else {
                         None
                     };
 
                     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
-                        let mut to_set: Option<_> = None;
+                        let mut to_set_primary: Option<_> = None;
+                        let mut to_set_secondary: Option<_> = None;
                         let mut to_remove: HashSet<_> = HashSet::new();
                         let mut to_retain: HashSet<_> = HashSet::new();
 
@@ -650,7 +655,10 @@ impl eframe::App for ViewerApp {
                             let name = asset.name();
 
                             ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                                let btn = if Some(hash) == asset_hash {
+                                let btn = if Some(hash) == asset_primary_hash {
+                                    ui.selectable_label(true, name)
+                                } else if Some(hash) == asset_secondary_hash {
+                                    ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(150, 80, 40);
                                     ui.selectable_label(true, name)
                                 } else {
                                     ui.selectable_label(false, name)
@@ -694,13 +702,22 @@ impl eframe::App for ViewerApp {
                                     }
                                 });
                                 if btn.clicked() {
-                                    to_set = Some(asset.clone());
+                                    if ui.input(|i| i.modifiers.command) {
+                                        // Ctrl/Cmd + Click: set secondary
+                                        to_set_secondary = Some(asset.clone());
+                                    } else {
+                                        // Normal click: set primary
+                                        to_set_primary = Some(asset.clone());
+                                    }
                                 }
                             });
                         });
 
-                        if let Some(to_set) = to_set {
-                            self.state.set_primary_asset(to_set);
+                        if let Some(to_set_primary) = to_set_primary {
+                            self.state.set_primary_asset(to_set_primary);
+                        }
+                        if let Some(to_set_secondary) = to_set_secondary {
+                            self.state.set_secondary_asset(to_set_secondary);
                         }
 
                         if to_retain.is_empty() {
@@ -710,7 +727,9 @@ impl eframe::App for ViewerApp {
                         }
 
                         if let Some(asset) = &self.state.asset {
-                            if !self.state.assets.contains_key(asset.hash()) {
+                            if asset.asset_type() != AssetType::Comparison
+                                && !self.state.assets.contains_key(asset.hash())
+                            {
                                 self.state.clear_asset();
                             }
                         }
