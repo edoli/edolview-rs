@@ -6,6 +6,7 @@ use std::{
     thread,
 };
 
+use color_eyre::eyre::Report;
 use eframe::egui::{self, vec2, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
@@ -16,6 +17,7 @@ use crate::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
+            Toast, ToastUi, ToastsExt,
         },
         ImageViewer,
     },
@@ -55,6 +57,8 @@ pub struct ViewerApp {
     plot_dim: PlotDim,
 
     icons: Icons,
+
+    toasts: Vec<Toast>,
 
     rx: mpsc::Receiver<SocketAsset>,
 }
@@ -97,6 +101,8 @@ impl ViewerApp {
 
             plot_dim: PlotDim::Auto,
 
+            toasts: Vec::new(),
+
             icons: Icons::new(),
 
             rx,
@@ -106,11 +112,17 @@ impl ViewerApp {
     #[inline]
     pub fn with_path(mut self, path: Option<PathBuf>) -> Self {
         if let Some(path) = path {
-            if let Err(e) = self.state.load_from_path(path) {
-                eprintln!("Failed to load image: {e}");
+            if let Err(e) = self.state.load_from_path(path.clone()) {
+                self.load_fail("Failed to load image", Some(&path), &e);
             }
         }
         self
+    }
+
+    fn load_fail(&mut self, message: &str, path: Option<&PathBuf>, e: &Report) {
+        eprintln!("{message}: {e}");
+        let path_str = path.map_or("<invalid>", |p| p.to_str().unwrap_or("<invalid>"));
+        self.toasts.add_error(format!("{message}: {path_str}"));
     }
 }
 
@@ -195,7 +207,7 @@ impl eframe::App for ViewerApp {
                     match self.state.load_from_path(path.clone()) {
                         Ok(_) => {}
                         Err(e) => {
-                            eprintln!("Failed to load dropped file: {e}");
+                            self.load_fail("Failed to load dropped file", Some(&path), &e);
                         }
                     }
                 }
@@ -216,7 +228,7 @@ impl eframe::App for ViewerApp {
                         {
                             match self.state.load_from_path(path.clone()) {
                                 Ok(_) => self.viewer.reset_view(),
-                                Err(e) => eprintln!("Failed to open file: {e}"),
+                                Err(e) => self.load_fail("Failed to open file", Some(&path), &e),
                             }
                         }
                     }
@@ -228,7 +240,7 @@ impl eframe::App for ViewerApp {
 
                 if ui.button("Clipboard").on_hover_text("Load image from clipboard").clicked() {
                     self.state.load_from_clipboard().unwrap_or_else(|e| {
-                        eprintln!("Failed to load image from clipboard: {e}");
+                        self.load_fail("Failed to load image from clipboard", None, &e);
                     });
                 }
 
@@ -768,6 +780,9 @@ impl eframe::App for ViewerApp {
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
                 self.viewer.show_image(ui, frame, &mut self.state);
+
+                self.toasts.retain_active();
+                ui.add(ToastUi::new(&mut self.toasts));
             });
 
         // Debug window
