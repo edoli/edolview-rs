@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 
-use eframe::egui::{self, Color32, ModifierNames, Rangef, Visuals};
+use eframe::egui::{self, vec2, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -420,7 +420,11 @@ impl eframe::App for ViewerApp {
                     let is_mono = self.state.channel_index != -1 || channels == 1;
 
                     ui.horizontal(|ui| {
-                        let sizes = ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0)]);
+                        let sizes = if is_mono {
+                            ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0), Size::exact(0.0)])
+                        } else {
+                            ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0), Size::exact(54.0)])
+                        };
                         ui.spacing_mut().combo_width = sizes[0];
                         let channel_values: Vec<i32> = (-1..channels).collect();
                         egui::ComboBox::from_id_salt("channel_index")
@@ -457,6 +461,12 @@ impl eframe::App for ViewerApp {
                         }
                         .response
                         .on_hover_text("Colormap");
+
+                        if !is_mono {
+                            ui.allocate_ui(vec2(sizes[2], ui.spacing().interact_size.y), |ui| {
+                                ui.checkbox(&mut self.state.shader_params.use_alpha, "Alpha");
+                            });
+                        }
                     });
 
                     ui.separator();
