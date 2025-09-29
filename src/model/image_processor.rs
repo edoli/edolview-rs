@@ -180,8 +180,8 @@ impl MeanProcessor {
     }
 
     fn compute_mat(&self, mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
-        let width = rect.width as usize;
-        let height = rect.height as usize;
+        let width = rect.width;
+        let height = rect.height;
 
         if width <= 0 || height <= 0 {
             return Ok(vec![]);
