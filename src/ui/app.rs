@@ -292,7 +292,7 @@ impl eframe::App for ViewerApp {
                 ui.toggle_icon(
                     &mut self.state.is_show_pixel_value,
                     self.icons.get_show_pixel_value(ctx),
-                    "Show Pixel Value",
+                    "Show Pixel Value (Zoom in to see values)",
                 );
                 ui.toggle_icon(
                     &mut self.state.is_show_crosshair,
