@@ -2,9 +2,12 @@ use std::ops::Range;
 
 use eframe::egui::Pos2;
 
-use crate::util::math_ext::{vec2i, Vec2i};
+use crate::{
+    switch,
+    util::math_ext::{vec2i, Vec2i},
+};
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct Recti {
     pub min: Vec2i,
     pub max: Vec2i,
@@ -85,10 +88,9 @@ impl Recti {
     #[inline]
     #[must_use]
     pub fn intersect(self, other: Self) -> Self {
-        Self {
-            min: self.min.max(other.min),
-            max: self.max.min(other.max),
-        }
+        let min = self.min.max(other.min);
+        let max = self.max.min(other.max);
+        switch!(min.x >= max.x || min.y >= max.y => Recti::ZERO, Self { min, max })
     }
 
     #[inline(always)]
