@@ -59,7 +59,13 @@ pub fn display_controls_ui(
             // Min control
             columns[0]
                 .add_enabled_ui(!locked, |ui| {
-                    ui.add(egui::DragValue::new(switch!(locked => &mut tmp_min, min_v)).speed(0.01));
+                    ui.add(egui::DragValue::new(switch!(locked => &mut tmp_min, min_v)).speed(0.01))
+                        .context_menu(|ui| {
+                            if ui.button("Reset").clicked() {
+                                *min_v = 0.0;
+                                ui.close();
+                            }
+                        });
                 })
                 .response
                 .on_hover_text("Min value");
@@ -76,11 +82,16 @@ pub fn display_controls_ui(
             // Max control
             columns[2]
                 .add_enabled_ui(!locked, |ui| {
-                    ui.add(egui::DragValue::new(switch!(locked => &mut tmp_max, max_v)).speed(0.01));
+                    ui.add(egui::DragValue::new(switch!(locked => &mut tmp_max, max_v)).speed(0.01))
+                        .context_menu(|ui| {
+                            if ui.button("Reset").clicked() {
+                                *max_v = 1.0;
+                                ui.close();
+                            }
+                        });
                 })
                 .response
                 .on_hover_text("Max value");
-
 
             // Auto min/max toggle
             columns[4].toggle_icon(
