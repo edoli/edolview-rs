@@ -659,7 +659,7 @@ impl eframe::App for ViewerApp {
                                 let btn = if Some(hash) == asset_primary_hash {
                                     ui.selectable_label(true, name)
                                 } else if Some(hash) == asset_secondary_hash {
-                                    ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(150, 80, 40);
+                                    ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(140, 70, 30);
                                     ui.selectable_label(true, name)
                                 } else {
                                     ui.selectable_label(false, name)
