@@ -28,6 +28,7 @@ flate2 = "1.1.2"
 
 # Only for debug
 egui_extras = "0.32"
+clipboard-rs = "0.3.0"
 
 [workspace]
 members = ["xtask"]

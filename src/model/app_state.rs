@@ -3,7 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use color_eyre::eyre::Result;
+use clipboard_rs::{Clipboard, ClipboardContext, ContentFormat};
+use color_eyre::eyre::{eyre, Result};
 use indexmap::IndexMap;
 
 use crate::{
@@ -131,8 +132,31 @@ impl AppState {
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from clipboard]");
 
         let image = MatImage::load_from_clipboard()
-            .or_else(|_| MatImage::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()))?;
-        self.set_primary_asset(Arc::new(ClipboardAsset::new(image)));
+            .or_else(|_| MatImage::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()));
+
+        if let Err(_) = &image {
+            let ctx = ClipboardContext::new().unwrap();
+
+            if !ctx.has(ContentFormat::Files) {
+                return Err(eyre!("Clipboard does not contain files"));
+            }
+            let uris = ctx.get_files().unwrap();
+            if uris.is_empty() {
+                return Err(eyre!("Clipboard does not contain image or file data"));
+            }
+
+            let paths: Vec<PathBuf> = uris.iter().map(|u| PathBuf::from(u)).collect();
+
+            for path in &paths {
+                if path.exists() && path.is_file() {
+                    let image = MatImage::load_from_path(path)?;
+                    let path_str = path.to_string_lossy().to_string();
+                    self.set_primary_asset(Arc::new(FileAsset::new(path_str, image)));
+                }
+            }
+        } else {
+            self.set_primary_asset(Arc::new(ClipboardAsset::new(image?)));
+        }
 
         self.path = None;
         self.file_nav.clear();
