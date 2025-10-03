@@ -1,7 +1,7 @@
 use crate::model::{MatImage, SocketAsset};
 use color_eyre::eyre::Result;
 use flate2::read::ZlibDecoder;
-use opencv::core::Size;
+use opencv::core::{Mat, MatExprTraitConst, MatTraitManual, Size};
 use std::{
     io::{self, Read},
     net::{TcpListener, TcpStream},
@@ -180,9 +180,8 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
 
     let mat = match extra.compression.as_str() {
         "zlib" => {
-            let mut z = ZlibDecoder::new(payload.as_slice());
-            let mut raw = Vec::with_capacity(extra.nbytes as usize);
-            z.read_to_end(&mut raw)?;
+            #[cfg(debug_assertions)]
+            let _timer = crate::util::timer::ScopedTimer::new("Zlib decode");
 
             let channel = if extra.shape.len() == 3 {
                 extra.shape[2] as i32
@@ -191,7 +190,12 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
             };
             let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
 
-            MatImage::from_bytes_size_type(&raw, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
+            let mut z = ZlibDecoder::new(payload.as_slice());
+            let mut mat = Mat::zeros(extra.shape[0] as i32, extra.shape[1] as i32, cv_type)?.to_mat()?;
+            let raw = mat.data_bytes_mut()?;
+            z.read_exact(raw)?;
+
+            MatImage::new(mat, dtype)
         }
         "png" => MatImage::from_bytes(&payload)?,
         "exr" => MatImage::from_bytes(&payload)?,
