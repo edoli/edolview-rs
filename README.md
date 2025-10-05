@@ -21,6 +21,8 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 
 ### Shortcuts
 
+* Color maps: https://github.com/edoli/edolview-rs/wiki/Color-Map
+
 * **Navigation**
   * `←` / `→` : navigate image files in current directory
   * `+` / `-`, `scroll` : zoom in / out
