@@ -655,7 +655,15 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    ui.heading("Image List");
+                    ui.horizontal(|ui| {
+                        ui.heading("Image List");
+                        ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
+                            ui.button("Clear").clicked().then(|| {
+                                self.state.assets.clear();
+                                self.state.clear_asset();
+                            });
+                        });
+                    });
                     let asset_primary_hash = if let Some(asset) = &self.state.asset_primary {
                         Some(&asset.hash().to_string())
                     } else {
