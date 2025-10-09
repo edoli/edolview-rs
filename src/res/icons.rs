@@ -65,82 +65,82 @@ impl Icons {
     pub fn get_show_background<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.show_background
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_background", SHOW_BACKGROUND))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_show_pixel_value<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.show_pixel_value
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_pixel_value", SHOW_PIXEL_VALUE))
-            .to_icon(ctx)
+            .to_icon()
     }
     #[inline]
     pub fn get_show_crosshair<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.show_crosshair
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_crosshair", SHOW_CROSSHAIR))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_scale_linear<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.scale_linear
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_linear", SCALE_LINEAR))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_scale_inverse<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.scale_inverse
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_inverse", SCALE_INVERSE))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_scale_log<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.scale_log
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_log", SCALE_LOG))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_scale_absolute<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.scale_absolute
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "scale_absolute", SCALE_ABSOLUTE))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_normalize<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.normalize
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "normalize", NORMALIZE))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_downloading<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.downloading
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "downloading", DOWNLOADING))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_reduce_column<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.reduce_column
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_column", REDUCE_COLUMN))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_reduce_row<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.reduce_row
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_row", REDUCE_ROW))
-            .to_icon(ctx)
+            .to_icon()
     }
 
     #[inline]
     pub fn get_reduce_auto<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.reduce_auto
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_auto", REDUCE_AUTO))
-            .to_icon(ctx)
+            .to_icon()
     }
 }
