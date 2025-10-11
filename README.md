@@ -9,7 +9,7 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 * 🎨 **Colormap Visualization**: Go beyond raw images with rich colormap-based data visualization
 * 🔧 **Flexible Display Controls**: Fine-tune normalization, exposure, gamma, and offset with ease
 
-![Screenshot](images/screenshot.png)
+![Screenshot](images/screenshot.jpg)
 
 ## Installation
 
