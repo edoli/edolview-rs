@@ -11,7 +11,7 @@ use eframe::egui::{self, vec2, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
-    model::{start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset},
+    model::{start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset, StatisticsWorker},
     res::icons::Icons,
     ui::{
         component::{
@@ -45,6 +45,10 @@ pub struct ViewerApp {
     marquee_rect_text: String,
     tmp_is_receiving: bool,
 
+    // Marquee change callbacks
+    last_marquee_rect_for_cb: Recti,
+    last_marquee_asset_hash: Option<String>,
+
     // Panel visibility toggles
     show_side_panel: bool,
     show_bottom_panel: bool,
@@ -61,6 +65,8 @@ pub struct ViewerApp {
     toasts: Vec<Toast>,
 
     rx: mpsc::Receiver<SocketAsset>,
+
+    statistics_worker: StatisticsWorker,
 }
 
 impl ViewerApp {
@@ -91,6 +97,9 @@ impl ViewerApp {
             marquee_rect_text: marquee_rect.to_string().into(),
             tmp_is_receiving: false,
 
+            last_marquee_rect_for_cb: marquee_rect,
+            last_marquee_asset_hash: None,
+
             show_side_panel: true,
             show_bottom_panel: true,
 
@@ -106,6 +115,8 @@ impl ViewerApp {
             icons: Icons::new(),
 
             rx,
+
+            statistics_worker: StatisticsWorker::new(),
         }
     }
 
@@ -123,6 +134,21 @@ impl ViewerApp {
         eprintln!("{message}: {e}");
         let path_str = path.map_or("<invalid>", |p| p.to_str().unwrap_or("<invalid>"));
         self.toasts.add_error(format!("{message}: {path_str}"));
+    }
+
+    fn on_marquee_changed(&mut self) {
+        let rect = self.state.marquee_rect.validate();
+        if let Some(a1) = &self.state.asset_primary {
+            let img1 = a1.image();
+            let img1_roi = opencv::core::Mat::roi(img1.mat(), rect.to_cv_rect()).unwrap();
+
+            if let Some(a2) = &self.state.asset_secondary {
+                let img2 = a2.image();
+                let img2_roi = opencv::core::Mat::roi(img2.mat(), rect.to_cv_rect()).unwrap();
+
+                self.statistics_worker.run_psnr(img1_roi, img2_roi, 1.0);
+            }
+        }
     }
 }
 
@@ -793,6 +819,23 @@ impl eframe::App for ViewerApp {
                 ui.add(ToastUi::new(&mut self.toasts));
             });
 
+        // Marquee change detection & callbacks (run once per frame after updates)
+        let current_rect = self.state.marquee_rect;
+        let current_asset_hash = self.state.asset.as_ref().map(|a| a.hash().to_string());
+
+        let rect_changed = current_rect != self.last_marquee_rect_for_cb;
+        let content_changed = rect_changed || current_asset_hash != self.last_marquee_asset_hash;
+        if rect_changed || content_changed {
+            self.on_marquee_changed();
+        }
+
+        if rect_changed {
+            self.last_marquee_rect_for_cb = current_rect;
+        }
+        if current_asset_hash != self.last_marquee_asset_hash {
+            self.last_marquee_asset_hash = current_asset_hash;
+        }
+
         // Debug window
         #[cfg(debug_assertions)]
         {
@@ -814,6 +857,11 @@ impl eframe::App for ViewerApp {
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {}
+        }
+
+        let updates = self.statistics_worker.invalidate();
+        if !updates.is_empty() {
+            _ctx.request_repaint();
         }
     }
 }
