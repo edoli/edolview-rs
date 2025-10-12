@@ -68,6 +68,9 @@ impl StatisticsWorker {
         let img2 = img2.clone_pointee();
 
         self.run(StatisticsType::PSNR, move || {
+            #[cfg(debug_assertions)]
+            let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
+
             opencv::core::psnr(&img1, &img2, data_range).map_err(|_| ())
         });
     }
