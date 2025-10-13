@@ -41,11 +41,10 @@ pub struct StatisticsResult {
     pub value: f64,
 }
 
-pub struct StatisticsWorker {
-    tx: Sender<StatisticsResult>,
-    rx: Receiver<StatisticsResult>,
-
-    processing: HashSet<StatisticsType>,
+pub struct StatisticsUpdate {
+    pub stat_type: StatisticsType,
+    pub value: f64,
+    pub is_pending: bool,
 }
 
 struct SSIMMatData {
@@ -90,6 +89,20 @@ impl SSIMMatData {
     }
 }
 
+#[derive(Default)]
+pub struct Statistics {
+    pub psnr: f64,
+    pub ssim: f64,
+}
+
+pub struct StatisticsWorker {
+    tx: Sender<StatisticsResult>,
+    rx: Receiver<StatisticsResult>,
+
+    processing: HashSet<StatisticsType>,
+    pending: HashSet<StatisticsType>,
+}
+
 impl StatisticsWorker {
     pub fn new() -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -98,6 +111,7 @@ impl StatisticsWorker {
             tx,
             rx,
             processing: HashSet::new(),
+            pending: HashSet::new(),
         }
     }
 
@@ -181,9 +195,12 @@ impl StatisticsWorker {
         E: std::error::Error,
     {
         if self.processing.contains(&stat_type) {
-            println!("StatisticsWorker: {} is already being processed", stat_type);
+            self.pending.insert(stat_type);
             return;
+        } else {
+            self.pending.remove(&stat_type);
         }
+
         self.processing.insert(stat_type.clone());
 
         let tx = self.tx.clone();
@@ -203,15 +220,20 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn invalidate(&mut self) -> Vec<StatisticsType> {
+    pub fn invalidate(&mut self) -> Vec<StatisticsUpdate> {
         let mut invalidated = Vec::new();
 
         loop {
             match self.rx.try_recv() {
                 Ok(msg) => {
-                    println!("StatisticsWorker: {} = {}", msg.stat_type, msg.value);
                     self.processing.remove(&msg.stat_type);
-                    invalidated.push(msg.stat_type);
+                    let is_pending = self.pending.contains(&msg.stat_type);
+
+                    invalidated.push(StatisticsUpdate {
+                        stat_type: msg.stat_type,
+                        value: msg.value,
+                        is_pending,
+                    });
                 }
                 Err(TryRecvError::Empty) => {
                     break;

@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use crate::{
     model::{
         AssetType, ClipboardAsset, ComparisonAsset, FileAsset, Image, MatImage, Recti, SharedAsset, SocketInfo,
-        SocketState,
+        SocketState, Statistics,
     },
     ui::gl::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
@@ -43,6 +43,8 @@ pub struct AppState {
 
     // File navigation + watcher
     pub file_nav: crate::model::FileNav,
+
+    pub statistics: Statistics,
 
     pub socket_state: Arc<SocketState>,
     pub socket_info: Arc<Mutex<SocketInfo>>,
@@ -93,6 +95,7 @@ impl AppState {
             is_show_statusbar: true,
             copy_use_original_size: true,
             file_nav: crate::model::FileNav::new(),
+            statistics: Statistics::default(),
             socket_state: Arc::new(SocketState::new()),
             socket_info: Arc::new(Mutex::new(SocketInfo::new())),
             assets: IndexMap::new(),
@@ -196,6 +199,14 @@ impl AppState {
 
         self.update_asset();
         self.validate_marquee_rect();
+    }
+
+    pub fn is_comparison(&self) -> bool {
+        if let Some(asset) = &self.asset {
+            asset.asset_type() == AssetType::Comparison
+        } else {
+            false
+        }
     }
 
     pub fn update_asset(&mut self) {

@@ -11,7 +11,10 @@ use eframe::egui::{self, vec2, Color32, ModifierNames, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
-    model::{start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset, StatisticsWorker},
+    model::{
+        start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset, StatisticsType,
+        StatisticsWorker,
+    },
     res::icons::Icons,
     ui::{
         component::{
@@ -136,7 +139,7 @@ impl ViewerApp {
         self.toasts.add_error(format!("{message}: {path_str}"));
     }
 
-    fn on_marquee_changed(&mut self) {
+    fn update_statistics(&mut self) {
         let rect = self.state.marquee_rect.validate();
         if let Some(a1) = &self.state.asset_primary {
             let img1 = a1.image();
@@ -150,6 +153,10 @@ impl ViewerApp {
                 self.statistics_worker.run_ssim(&img1_roi, &img2_roi);
             }
         }
+    }
+
+    fn on_marquee_changed(&mut self) {
+        self.update_statistics();
     }
 }
 
@@ -682,6 +689,19 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
+                    egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
+                        if self.state.is_comparison() {
+                            ui.label("PSNR:");
+                            ui.label(format!("{:.3} dB", self.state.statistics.psnr));
+                            ui.end_row();
+
+                            ui.label("SSIM:");
+                            ui.label(format!("{:.5}", self.state.statistics.ssim));
+                            ui.end_row();
+                        }
+                    });
+                    ui.separator();
+
                     ui.horizontal(|ui| {
                         ui.heading("Image List");
                         ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
@@ -862,7 +882,25 @@ impl eframe::App for ViewerApp {
 
         let updates = self.statistics_worker.invalidate();
         if !updates.is_empty() {
+            let mut is_pending_update = false;
+            for result in updates {
+                match result.stat_type {
+                    StatisticsType::PSNR => {
+                        is_pending_update |= result.is_pending;
+                        self.state.statistics.psnr = result.value;
+                    }
+                    StatisticsType::SSIM => {
+                        is_pending_update |= result.is_pending;
+                        self.state.statistics.ssim = result.value;
+                    }
+                    _ => {}
+                }
+            }
             _ctx.request_repaint();
+
+            if is_pending_update {
+                self.update_statistics();
+            }
         }
     }
 }
