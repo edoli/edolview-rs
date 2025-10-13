@@ -141,6 +141,15 @@ impl ViewerApp {
 
     fn update_statistics(&mut self) {
         let rect = self.state.marquee_rect.validate();
+
+        if let Some(asset) = &self.state.asset {
+            let img = asset.image();
+            let img_roi = opencv::core::Mat::roi(img.mat(), rect.to_cv_rect()).unwrap();
+
+            // single image statistics
+            self.statistics_worker.run_minmax(&img_roi, img.spec().dtype.alpha());
+        }
+
         if let Some(a1) = &self.state.asset_primary {
             let img1 = a1.image();
             let img1_roi = opencv::core::Mat::roi(img1.mat(), rect.to_cv_rect()).unwrap();
@@ -149,6 +158,7 @@ impl ViewerApp {
                 let img2 = a2.image();
                 let img2_roi = opencv::core::Mat::roi(img2.mat(), rect.to_cv_rect()).unwrap();
 
+                // two image statistics
                 self.statistics_worker.run_psnr(&img1_roi, &img2_roi, 1.0);
                 self.statistics_worker.run_ssim(&img1_roi, &img2_roi);
             }
@@ -690,9 +700,17 @@ impl eframe::App for ViewerApp {
                     ui.separator();
 
                     egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
+                        ui.label("Min:");
+                        ui.label(format!("{:.5}", self.state.statistics.min));
+                        ui.end_row();
+
+                        ui.label("Max:");
+                        ui.label(format!("{:.5}", self.state.statistics.max));
+                        ui.end_row();
+
                         if self.state.is_comparison() {
                             ui.label("PSNR:");
-                            ui.label(format!("{:.3} dB", self.state.statistics.psnr));
+                            ui.label(format!("{:.5} dB", self.state.statistics.psnr));
                             ui.end_row();
 
                             ui.label("SSIM:");
@@ -700,6 +718,7 @@ impl eframe::App for ViewerApp {
                             ui.end_row();
                         }
                     });
+
                     ui.separator();
 
                     ui.horizontal(|ui| {
@@ -887,11 +906,16 @@ impl eframe::App for ViewerApp {
                 match result.stat_type {
                     StatisticsType::PSNR => {
                         is_pending_update |= result.is_pending;
-                        self.state.statistics.psnr = result.value;
+                        self.state.statistics.psnr = result.value[0];
                     }
                     StatisticsType::SSIM => {
                         is_pending_update |= result.is_pending;
-                        self.state.statistics.ssim = result.value;
+                        self.state.statistics.ssim = result.value[0];
+                    }
+                    StatisticsType::MinMax => {
+                        is_pending_update |= result.is_pending;
+                        self.state.statistics.min = result.value[0];
+                        self.state.statistics.max = result.value[1];
                     }
                     _ => {}
                 }

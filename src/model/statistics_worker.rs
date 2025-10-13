@@ -20,6 +20,21 @@ pub enum StatisticsType {
     FSIM,
 }
 
+impl StatisticsType {
+    pub fn result_size(&self) -> usize {
+        match self {
+            StatisticsType::MinMax => 2,
+            StatisticsType::Std => 1,
+            StatisticsType::MSE => 1,
+            StatisticsType::MAE => 1,
+            StatisticsType::PSNR => 1,
+            StatisticsType::SSIM => 1,
+            StatisticsType::MSSSIM => 1,
+            StatisticsType::FSIM => 1,
+        }
+    }
+}
+
 impl std::fmt::Display for StatisticsType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -38,12 +53,12 @@ impl std::fmt::Display for StatisticsType {
 
 pub struct StatisticsResult {
     pub stat_type: StatisticsType,
-    pub value: f64,
+    pub value: Vec<f64>,
 }
 
 pub struct StatisticsUpdate {
     pub stat_type: StatisticsType,
-    pub value: f64,
+    pub value: Vec<f64>,
     pub is_pending: bool,
 }
 
@@ -93,6 +108,8 @@ impl SSIMMatData {
 pub struct Statistics {
     pub psnr: f64,
     pub ssim: f64,
+    pub min: f64,
+    pub max: f64,
 }
 
 pub struct StatisticsWorker {
@@ -115,6 +132,26 @@ impl StatisticsWorker {
         }
     }
 
+    pub fn run_minmax(&mut self, img: &BoxedRef<'_, Mat>, scale: f64) {
+        if img.empty() {
+            return;
+        }
+
+        let img = img.clone_pointee();
+
+        self.run(StatisticsType::MinMax, move || {
+            #[cfg(debug_assertions)]
+            let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMax");
+
+            let mut min_val = 0.0;
+            let mut max_val = 0.0;
+
+            cv::min_max_loc(&img, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
+
+            Ok::<Vec<f64>, opencv::Error>(vec![min_val * scale, max_val * scale])
+        });
+    }
+
     pub fn run_psnr(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>, data_range: f64) {
         if img1.empty() || img2.empty() {
             return;
@@ -127,7 +164,7 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            cv::psnr(&img1, &img2, data_range)
+            Ok::<Vec<f64>, opencv::Error>(vec![cv::psnr(&img1, &img2, data_range)?])
         });
     }
 
@@ -185,13 +222,15 @@ impl StatisticsWorker {
 
             let ssim_c = cv::mean_def(&t3)?;
 
-            Ok::<f64, opencv::Error>((ssim_c[0] + ssim_c[1] + ssim_c[2] + ssim_c[3]) / img1_img2.channels() as f64)
+            Ok::<Vec<f64>, opencv::Error>(vec![
+                (ssim_c[0] + ssim_c[1] + ssim_c[2] + ssim_c[3]) / img1_img2.channels() as f64,
+            ])
         });
     }
 
     pub fn run<F, E>(&mut self, stat_type: StatisticsType, func: F)
     where
-        F: FnOnce() -> Result<f64, E> + Send + 'static,
+        F: FnOnce() -> Result<Vec<f64>, E> + Send + 'static,
         E: std::error::Error,
     {
         if self.processing.contains(&stat_type) {
@@ -211,9 +250,10 @@ impl StatisticsWorker {
                 }
                 Err(e) => {
                     eprintln!("StatisticsWorker: Error computing {}: {:?}", stat_type, e);
+                    let result_size = stat_type.result_size();
                     let _ = tx.send(StatisticsResult {
                         stat_type,
-                        value: f64::NAN,
+                        value: vec![f64::NAN; result_size],
                     });
                 }
             };
