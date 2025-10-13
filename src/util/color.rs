@@ -3,17 +3,17 @@ use eframe::egui::Color32;
 
 fn to_color32(color: &Vec<f32>) -> Color32 {
     if color.len() == 1 {
-        Color32::from_gray((color[0] * 255.0) as u8)
+        Color32::from_gray((color[0] * 255.0).round() as u8)
     } else if color.len() == 2 {
-        Color32::from_rgb((color[0] * 255.0) as u8, (color[1] * 255.0) as u8, 0)
+        Color32::from_rgb((color[0] * 255.0).round() as u8, (color[1] * 255.0).round() as u8, 0)
     } else if color.len() == 3 {
-        Color32::from_rgb((color[0] * 255.0) as u8, (color[1] * 255.0) as u8, (color[2] * 255.0) as u8)
+        Color32::from_rgb((color[0] * 255.0).round() as u8, (color[1] * 255.0).round() as u8, (color[2] * 255.0).round() as u8)
     } else if color.len() == 4 {
         Color32::from_rgba_premultiplied(
-            (color[0] * 255.0) as u8,
-            (color[1] * 255.0) as u8,
-            (color[2] * 255.0) as u8,
-            (color[3] * 255.0) as u8,
+            (color[0] * 255.0).round() as u8,
+            (color[1] * 255.0).round() as u8,
+            (color[2] * 255.0).round() as u8,
+            (color[3] * 255.0).round() as u8,
         )
     } else {
         Color32::BLACK
@@ -22,23 +22,23 @@ fn to_color32(color: &Vec<f32>) -> Color32 {
 
 fn to_hex_string(color: &Vec<f32>) -> String {
     if color.len() == 1 {
-        format!("#{:02X}", (color[0] * 255.0) as u8)
+        format!("#{:02X}", (color[0] * 255.0).round() as u8)
     } else if color.len() == 2 {
-        format!("#{:02X}{:02X}", (color[0] * 255.0) as u8, (color[1] * 255.0) as u8)
+        format!("#{:02X}{:02X}", (color[0] * 255.0).round() as u8, (color[1] * 255.0).round() as u8)
     } else if color.len() == 3 {
         format!(
             "#{:02X}{:02X}{:02X}",
-            (color[0] * 255.0) as u8,
-            (color[1] * 255.0) as u8,
-            (color[2] * 255.0) as u8
+            (color[0] * 255.0).round() as u8,
+            (color[1] * 255.0).round() as u8,
+            (color[2] * 255.0).round() as u8
         )
     } else if color.len() == 4 {
         format!(
             "#{:02X}{:02X}{:02X}{:02X}",
-            (color[0] * 255.0) as u8,
-            (color[1] * 255.0) as u8,
-            (color[2] * 255.0) as u8,
-            (color[3] * 255.0) as u8
+            (color[0] * 255.0).round() as u8,
+            (color[1] * 255.0).round() as u8,
+            (color[2] * 255.0).round() as u8,
+            (color[3] * 255.0).round() as u8
         )
     } else {
         String::from("#000000")
@@ -54,7 +54,7 @@ fn to_rgba_int_string(color: &Vec<f32>, alpha: f64) -> String {
         "({})",
         color
             .iter()
-            .map(|c| (((*c as f64) * alpha) as i32).to_string())
+            .map(|c| (((*c as f64) * alpha).round() as i32).to_string())
             .collect::<Vec<_>>()
             .join(", ")
     )
