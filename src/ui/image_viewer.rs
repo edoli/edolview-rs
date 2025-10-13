@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::model::{AppState, Image, Recti, EMPTY_MINMAX};
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
+use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
 
@@ -529,7 +530,11 @@ impl ImageViewer {
                                             _ => egui::Color32::GRAY,
                                         };
 
-                                        let text = format!("{:.4}", v);
+                                        let text = if spec.dtype.cv_type_is_floating() {
+                                            format!("{:.4}", (*v as f64) * spec.dtype.alpha())
+                                        } else {
+                                            format!("{:.0}", (*v as f64) * spec.dtype.alpha())
+                                        };
                                         painter.text(pos, egui::Align2::CENTER_CENTER, text, font_id.clone(), color);
                                     }
                                 }
