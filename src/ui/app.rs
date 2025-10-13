@@ -56,10 +56,12 @@ pub struct ViewerApp {
     show_side_panel: bool,
     show_bottom_panel: bool,
 
+    show_plot_channels: [bool; 4],
+
     show_histogram: bool,
     show_histogram_channels: [bool; 4],
 
-    show_plot_channels: [bool; 4],
+    show_statistics: bool,
 
     plot_dim: PlotDim,
 
@@ -106,10 +108,12 @@ impl ViewerApp {
             show_side_panel: true,
             show_bottom_panel: true,
 
+            show_plot_channels: [true, true, true, false],
+
             show_histogram: false,
             show_histogram_channels: [true, true, true, false],
 
-            show_plot_channels: [true, true, true, false],
+            show_statistics: false,
 
             plot_dim: PlotDim::Auto,
 
@@ -140,6 +144,9 @@ impl ViewerApp {
     }
 
     fn update_statistics(&mut self) {
+        if !self.show_statistics {
+            return;
+        }
         let rect = self.state.marquee_rect.validate();
 
         if let Some(asset) = &self.state.asset {
@@ -159,7 +166,8 @@ impl ViewerApp {
                 let img2_roi = opencv::core::Mat::roi(img2.mat(), rect.to_cv_rect()).unwrap();
 
                 // two image statistics
-                self.statistics_worker.run_psnr(&img1_roi, &img2_roi, 1.0);
+                self.statistics_worker
+                    .run_psnr(&img1_roi, &img2_roi, 1.0, img1.spec().dtype.alpha());
                 self.statistics_worker.run_ssim(&img1_roi, &img2_roi);
             }
         }
@@ -699,25 +707,35 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
-                        ui.label("Min:");
-                        ui.label(format!("{:.5}", self.state.statistics.min));
-                        ui.end_row();
-
-                        ui.label("Max:");
-                        ui.label(format!("{:.5}", self.state.statistics.max));
-                        ui.end_row();
-
-                        if self.state.is_comparison() {
-                            ui.label("PSNR:");
-                            ui.label(format!("{:.5} dB", self.state.statistics.psnr));
-                            ui.end_row();
-
-                            ui.label("SSIM:");
-                            ui.label(format!("{:.5}", self.state.statistics.ssim));
-                            ui.end_row();
+                    if ui.checkbox(&mut self.show_statistics, "Show Statistics").clicked() {
+                        if self.show_statistics {
+                            self.update_statistics();
                         }
-                    });
+                    };
+
+                    if self.show_statistics {
+                        egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
+                            ui.label("Min:");
+                            ui.label(format!("{:.4}", self.state.statistics.min));
+
+                            ui.label("Max:");
+                            ui.label(format!("{:.4}", self.state.statistics.max));
+                            ui.end_row();
+
+                            if self.state.is_comparison() {
+                                ui.label("RMSE:");
+                                ui.label(format!("{:.4}", self.state.statistics.rmse));
+
+                                ui.label("PSNR:");
+                                ui.label(format!("{:.4} dB", self.state.statistics.psnr));
+                                ui.end_row();
+
+                                ui.label("SSIM:");
+                                ui.label(format!("{:.4}", self.state.statistics.ssim));
+                                ui.end_row();
+                            }
+                        });
+                    }
 
                     ui.separator();
 
@@ -904,9 +922,10 @@ impl eframe::App for ViewerApp {
             let mut is_pending_update = false;
             for result in updates {
                 match result.stat_type {
-                    StatisticsType::PSNR => {
+                    StatisticsType::PSNRRMSE => {
                         is_pending_update |= result.is_pending;
                         self.state.statistics.psnr = result.value[0];
+                        self.state.statistics.rmse = result.value[1];
                     }
                     StatisticsType::SSIM => {
                         is_pending_update |= result.is_pending;

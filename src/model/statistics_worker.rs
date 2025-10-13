@@ -14,7 +14,7 @@ pub enum StatisticsType {
     Std,
     MSE,
     MAE,
-    PSNR,
+    PSNRRMSE,
     SSIM,
     MSSSIM,
     FSIM,
@@ -27,7 +27,7 @@ impl StatisticsType {
             StatisticsType::Std => 1,
             StatisticsType::MSE => 1,
             StatisticsType::MAE => 1,
-            StatisticsType::PSNR => 1,
+            StatisticsType::PSNRRMSE => 2,
             StatisticsType::SSIM => 1,
             StatisticsType::MSSSIM => 1,
             StatisticsType::FSIM => 1,
@@ -42,7 +42,7 @@ impl std::fmt::Display for StatisticsType {
             StatisticsType::Std => "Std Dev",
             StatisticsType::MSE => "MSE",
             StatisticsType::MAE => "MAE",
-            StatisticsType::PSNR => "PSNR",
+            StatisticsType::PSNRRMSE => "PSNR/MSE",
             StatisticsType::SSIM => "SSIM",
             StatisticsType::MSSSIM => "MSSSIM",
             StatisticsType::FSIM => "FSIM",
@@ -106,6 +106,7 @@ impl SSIMMatData {
 
 #[derive(Default)]
 pub struct Statistics {
+    pub rmse: f64,
     pub psnr: f64,
     pub ssim: f64,
     pub min: f64,
@@ -152,7 +153,7 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_psnr(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>, data_range: f64) {
+    pub fn run_psnr(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>, data_range: f64, scale: f64) {
         if img1.empty() || img2.empty() {
             return;
         }
@@ -160,11 +161,15 @@ impl StatisticsWorker {
         let img1 = img1.clone_pointee();
         let img2 = img2.clone_pointee();
 
-        self.run(StatisticsType::PSNR, move || {
+        self.run(StatisticsType::PSNRRMSE, move || {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            Ok::<Vec<f64>, opencv::Error>(vec![cv::psnr(&img1, &img2, data_range)?])
+            let psnr = cv::psnr(&img1, &img2, data_range)?;
+
+            let rmse = scale / 10.0_f64.powf(psnr / 20.0);
+
+            Ok::<Vec<f64>, opencv::Error>(vec![psnr, rmse])
         });
     }
 
