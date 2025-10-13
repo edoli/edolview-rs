@@ -1,6 +1,6 @@
 use opencv::{
     boxed_ref::BoxedRef,
-    core::{Mat, MatTraitConst},
+    core::{self as cv, Mat, MatTraitConst, ModifyInplace, Scalar, Size},
 };
 use std::{
     collections::HashSet,
@@ -48,6 +48,48 @@ pub struct StatisticsWorker {
     processing: HashSet<StatisticsType>,
 }
 
+struct SSIMMatData {
+    img: Mat,
+    img2: Mat,
+    mu: Mat,
+    mu2: Mat,
+    sigma2: Mat,
+}
+
+fn ssim_blur(mat: &Mat) -> opencv::Result<Mat> {
+    let mut blurred = Mat::default();
+    let ksize = Size { width: 11, height: 11 };
+    let sigma = 1.5;
+    opencv::imgproc::gaussian_blur_def(mat, &mut blurred, ksize, sigma)?;
+    Ok(blurred)
+}
+
+impl SSIMMatData {
+    fn new(mat: &Mat) -> opencv::Result<Self> {
+        let img = mat.clone();
+
+        let mut img2 = Mat::default();
+        cv::multiply_def(&img, &img, &mut img2)?;
+
+        let mu = ssim_blur(&img)?;
+        let mut mu2 = Mat::default();
+        cv::multiply_def(&mu, &mu, &mut mu2)?;
+
+        let mut sigma2 = ssim_blur(&img2)?;
+        unsafe {
+            sigma2.modify_inplace(|i, o| cv::subtract_def(i, &mu2, o))?;
+        }
+
+        Ok(Self {
+            img,
+            img2,
+            mu,
+            mu2,
+            sigma2,
+        })
+    }
+}
+
 impl StatisticsWorker {
     pub fn new() -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -59,7 +101,7 @@ impl StatisticsWorker {
         }
     }
 
-    pub fn run_psnr(&mut self, img1: BoxedRef<'_, Mat>, img2: BoxedRef<'_, Mat>, data_range: f64) {
+    pub fn run_psnr(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>, data_range: f64) {
         if img1.empty() || img2.empty() {
             return;
         }
@@ -71,13 +113,72 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            opencv::core::psnr(&img1, &img2, data_range).map_err(|_| ())
+            cv::psnr(&img1, &img2, data_range)
         });
     }
 
-    pub fn run<F>(&mut self, stat_type: StatisticsType, func: F)
+    pub fn run_ssim(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>) {
+        if img1.empty() || img2.empty() {
+            return;
+        }
+
+        let img1 = img1.clone_pointee();
+        let img2 = img2.clone_pointee();
+
+        self.run(StatisticsType::SSIM, move || unsafe {
+            #[cfg(debug_assertions)]
+            let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIM");
+
+            let lhs = SSIMMatData::new(&img1)?;
+            let rhs = SSIMMatData::new(&img2)?;
+
+            let c1: f64 = 0.0001; // c1 = 0.01^2 = 0.0001
+            let c2: f64 = 0.0009; // c2 = 0.03^2 = 0.0009
+
+            let mut img1_img2 = Mat::default();
+            let mut mu1_mu2 = Mat::default();
+            let mut t1 = Mat::default();
+            let mut t2 = Mat::default();
+            let mut t3 = Mat::default();
+            let mut sigma12 = Mat::default();
+
+            cv::multiply_def(&lhs.img, &rhs.img, &mut img1_img2)?;
+            cv::multiply_def(&lhs.mu, &rhs.mu, &mut mu1_mu2)?;
+            cv::subtract_def(&ssim_blur(&img1_img2)?, &mu1_mu2, &mut sigma12)?;
+
+            // t3 = ((2*mu1_mu2 + C1).*(2*sigma12 + C2))
+            cv::multiply_def(&mu1_mu2, &Scalar::all(2.0), &mut t1)?;
+            t1.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c1), o))?;
+
+            cv::multiply_def(&sigma12, &Scalar::all(2.0), &mut t2)?;
+            t2.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c2), o))?;
+
+            // t3 = t1 * t2
+            cv::multiply_def(&t1, &t2, &mut t3)?;
+
+            // t1 =((mu1_2 + mu2_2 + C1).*(sigma1_2 + sigma2_2 + C2))
+            cv::add_def(&lhs.mu2, &rhs.mu2, &mut t1)?;
+            t1.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c1), o))?;
+
+            cv::add_def(&lhs.sigma2, &rhs.sigma2, &mut t2)?;
+            t2.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c2), o))?;
+
+            // t1 *= t2
+            t1.modify_inplace(|i, o| cv::multiply_def(i, &t2, o))?;
+
+            // quality map: t3 /= t1
+            t3.modify_inplace(|i, o| cv::divide2_def(i, &t1, o))?;
+
+            let ssim_c = cv::mean_def(&t3)?;
+
+            Ok::<f64, opencv::Error>((ssim_c[0] + ssim_c[1] + ssim_c[2] + ssim_c[3]) / img1_img2.channels() as f64)
+        });
+    }
+
+    pub fn run<F, E>(&mut self, stat_type: StatisticsType, func: F)
     where
-        F: FnOnce() -> Result<f64, ()> + Send + 'static,
+        F: FnOnce() -> Result<f64, E> + Send + 'static,
+        E: std::error::Error,
     {
         if self.processing.contains(&stat_type) {
             println!("StatisticsWorker: {} is already being processed", stat_type);

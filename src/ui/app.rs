@@ -146,7 +146,8 @@ impl ViewerApp {
                 let img2 = a2.image();
                 let img2_roi = opencv::core::Mat::roi(img2.mat(), rect.to_cv_rect()).unwrap();
 
-                self.statistics_worker.run_psnr(img1_roi, img2_roi, 1.0);
+                self.statistics_worker.run_psnr(&img1_roi, &img2_roi, 1.0);
+                self.statistics_worker.run_ssim(&img1_roi, &img2_roi);
             }
         }
     }
