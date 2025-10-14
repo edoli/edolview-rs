@@ -7,7 +7,7 @@ use std::{
 };
 
 use color_eyre::eyre::Report;
-use eframe::egui::{self, vec2, Color32, ModifierNames, Rangef, Visuals};
+use eframe::egui::{self, vec2, Color32, Key, KeyboardShortcut, ModifierNames, Modifiers, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -29,9 +29,9 @@ use crate::{
 
 pub const IS_MAC: bool = cfg!(target_os = "macos");
 
-pub const SELECT_ALL_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
-pub const SELECT_NONE_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
-pub const COPY_SC: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::D);
+pub const SELECT_ALL_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
+pub const SELECT_NONE_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Escape);
+pub const COPY_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::D);
 
 #[derive(PartialEq, Clone)]
 enum PlotDim {
@@ -196,7 +196,7 @@ impl eframe::App for ViewerApp {
             }
         }
 
-        if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
+        if ctx.input(|i| i.key_pressed(Key::F11)) {
             let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
         }
@@ -218,23 +218,23 @@ impl eframe::App for ViewerApp {
                 if i.consume_shortcut(&COPY_SC) {
                     self.viewer.request_copy();
                 }
-                if i.key_pressed(egui::Key::ArrowLeft) {
+                if i.key_pressed(Key::ArrowLeft) {
                     if let Err(e) = self.state.navigate_prev() {
                         eprintln!("Failed to navigate prev: {e}");
                     }
                 }
-                if i.key_pressed(egui::Key::ArrowRight) {
+                if i.key_pressed(Key::ArrowRight) {
                     if let Err(e) = self.state.navigate_next() {
                         eprintln!("Failed to navigate next: {e}");
                     }
                 }
-                if i.key_pressed(egui::Key::R) {
+                if i.key_pressed(Key::R) {
                     self.viewer.reset_view();
                 }
-                if i.key_pressed(egui::Key::Plus) {
+                if i.key_pressed(Key::Plus) {
                     self.viewer.zoom_in(1.0, None);
                 }
-                if i.key_pressed(egui::Key::Minus) {
+                if i.key_pressed(Key::Minus) {
                     self.viewer.zoom_in(-1.0, None);
                 }
             });
