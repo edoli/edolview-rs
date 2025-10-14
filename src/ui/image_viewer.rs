@@ -1,5 +1,5 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui::{self, vec2};
+use eframe::egui::{self, vec2, ModifierNames};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::{Arc, Mutex};
 
@@ -169,7 +169,13 @@ impl ImageViewer {
 
             // Context menu (right-click)
             resp.context_menu(|ui| {
-                if ui.button("Copy Selected Image").clicked() {
+                if ui
+                    .button(format!(
+                        "Copy Selected Image ({})",
+                        crate::ui::app::COPY_SC.format(&ModifierNames::NAMES, crate::ui::app::IS_MAC)
+                    ))
+                    .clicked()
+                {
                     self.request_copy();
                     ui.close();
                 }
@@ -181,17 +187,25 @@ impl ImageViewer {
                             let is_float = spec.dtype.cv_type_is_floating();
                             let mut parts: Vec<String> = Vec::with_capacity(vals.len());
                             for v in vals.iter() {
-                                if is_float { parts.push(format!("{:.4}", (*v as f64) * alpha)); } else { parts.push(format!("{:.0}", (*v as f64) * alpha)); }
+                                if is_float {
+                                    parts.push(format!("{:.4}", (*v as f64) * alpha));
+                                } else {
+                                    parts.push(format!("{:.0}", (*v as f64) * alpha));
+                                }
                             }
                             let text = parts.join(", ");
-                            if let Ok(mut cb) = arboard::Clipboard::new() { let _ = cb.set_text(text); }
+                            if let Ok(mut cb) = arboard::Clipboard::new() {
+                                let _ = cb.set_text(text);
+                            }
                         }
                     }
                     ui.close();
                 }
                 if ui.button("Copy Cursor").clicked() {
                     if let Some(cursor_pos) = app_state.cursor_pos {
-                        if let Ok(mut cb) = arboard::Clipboard::new() { let _ = cb.set_text(format!("{}, {}", cursor_pos.x, cursor_pos.y)); }
+                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                            let _ = cb.set_text(format!("{}, {}", cursor_pos.x, cursor_pos.y));
+                        }
                     }
                     ui.close();
                 }
