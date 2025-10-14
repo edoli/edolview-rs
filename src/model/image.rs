@@ -444,15 +444,13 @@ impl MatImage {
         Ok(MatImage::new(mat_f32, dtype))
     }
 
-    fn postprocess(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<core::Mat> {
+    pub fn postprocess(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<core::Mat> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");
 
-        let mut mat_f32 = core::Mat::default();
-
         let dtype = mat.depth();
 
-        if bgr_convert {
+        let tmp  = if bgr_convert {
             let channels = mat.channels();
             let mut tmp = core::Mat::default();
 
@@ -467,13 +465,21 @@ impl MatImage {
 
             if color_convert != -1 {
                 imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
-                tmp.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
+                tmp
             } else {
-                mat.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
+                mat
             }
         } else {
-            mat.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
-        }
+            mat
+        };
+
+        let mat_f32 = if dtype != f32::typ() {
+            let mut mat_f32 = core::Mat::default();
+            tmp.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
+            mat_f32
+        } else {
+            tmp
+        };
 
         Ok(mat_f32)
     }
