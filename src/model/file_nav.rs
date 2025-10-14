@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::mpsc,
     time::{Duration, Instant},
 };
@@ -72,7 +72,7 @@ impl FileNav {
     }
 
     pub fn refresh_dir_listing_for(&mut self, dir: PathBuf) {
-        let dir_abs = std::fs::canonicalize(&dir).unwrap_or(dir.clone());
+        let dir_abs = canonicalize_friendly(&dir).unwrap_or(dir.clone());
         self.dir_path = Some(dir_abs.clone());
         let mut files = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&dir_abs) {
@@ -131,7 +131,7 @@ impl FileNav {
         self.pending_changed = false;
         self.last_change_instant = None;
         self.staged_set = None;
-        let dir_abs = std::fs::canonicalize(&dir).unwrap_or(dir.clone());
+        let dir_abs = canonicalize_friendly(&dir).unwrap_or(dir.clone());
         let (tx, rx) = mpsc::channel::<Result<notify::Event, notify::Error>>();
         let mut watcher = recommended_watcher(move |res| {
             let _ = tx.send(res);
@@ -250,5 +250,20 @@ impl FileNav {
         self.dir_path = None;
         self.files_in_dir.clear();
         self.current_file_index = None;
+    }
+}
+
+/// Canonicalize a path but strip Windows verbatim prefixes ("\\\\?\\" or "\\\\?\\UNC\\")
+/// so that UI display is cleaner. Falls back to standard canonicalize if dunce fails
+/// (e.g., on non-existent path) and finally to the original input.
+fn canonicalize_friendly(p: &Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let can = dunce::canonicalize(p).ok().or_else(|| std::fs::canonicalize(p).ok());
+        can.or_else(|| Some(p.to_path_buf()))
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::canonicalize(p).ok().or_else(|| Some(p.to_path_buf()))
     }
 }

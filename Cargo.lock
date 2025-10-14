@@ -1128,6 +1128,7 @@ dependencies = [
  "clap",
  "clipboard-rs",
  "color-eyre",
+ "dunce",
  "eframe",
  "egui_extras",
  "egui_glow",
