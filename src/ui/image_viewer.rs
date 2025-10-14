@@ -113,7 +113,8 @@ impl ImageViewer {
             }
 
             let available_points = ui.available_size();
-            let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::drag());
+            // Enable both drag (for panning / marquee) and click (for context menu)
+            let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::click_and_drag());
             let pixel_per_point = ui.ctx().pixels_per_point();
             let rect_pixels = rect * pixel_per_point;
 
@@ -127,7 +128,10 @@ impl ImageViewer {
                 (r * k).translate(self.pan / pixel_per_point + rect.min.to_vec2())
             };
 
-            if resp.hovered() {
+            // Detect if the built-in context menu popup for this response is open
+            let context_menu_open = resp.context_menu_opened();
+
+            if resp.hovered() && !context_menu_open {
                 let scroll = ui.input(|i| i.raw_scroll_delta.y);
                 if scroll.abs() > 0.0 {
                     // Compute old scale before applying zoom change
@@ -162,6 +166,36 @@ impl ImageViewer {
                     }
                 }
             }
+
+            // Context menu (right-click)
+            resp.context_menu(|ui| {
+                if ui.button("Copy Selected Image").clicked() {
+                    self.request_copy();
+                    ui.close();
+                }
+                if ui.button("Copy Cursor Color").clicked() {
+                    if let Some(cursor_pos) = app_state.cursor_pos {
+                        if let Ok(vals) = image.get_pixel_at(cursor_pos.x, cursor_pos.y) {
+                            let spec = image.spec();
+                            let alpha = spec.dtype.alpha();
+                            let is_float = spec.dtype.cv_type_is_floating();
+                            let mut parts: Vec<String> = Vec::with_capacity(vals.len());
+                            for v in vals.iter() {
+                                if is_float { parts.push(format!("{:.4}", (*v as f64) * alpha)); } else { parts.push(format!("{:.0}", (*v as f64) * alpha)); }
+                            }
+                            let text = parts.join(", ");
+                            if let Ok(mut cb) = arboard::Clipboard::new() { let _ = cb.set_text(text); }
+                        }
+                    }
+                    ui.close();
+                }
+                if ui.button("Copy Cursor").clicked() {
+                    if let Some(cursor_pos) = app_state.cursor_pos {
+                        if let Ok(mut cb) = arboard::Clipboard::new() { let _ = cb.set_text(format!("{}, {}", cursor_pos.x, cursor_pos.y)); }
+                    }
+                    ui.close();
+                }
+            });
 
             if resp.drag_started() {
                 self.dragging = true;
