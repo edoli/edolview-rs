@@ -5,7 +5,6 @@ use half::f16;
 use opencv::core::Size;
 use opencv::prelude::*;
 use opencv::{core, imgcodecs, imgproc};
-use std::ffi::c_void;
 use std::sync::{LazyLock, Mutex};
 use std::{
     fs, mem,
