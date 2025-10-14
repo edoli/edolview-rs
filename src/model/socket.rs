@@ -195,7 +195,7 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
             let raw = mat.data_bytes_mut()?;
             z.read_exact(raw)?;
 
-            MatImage::new(mat, dtype)
+            MatImage::new(MatImage::postprocess(mat, 1.0, false)?, dtype)
         }
         "png" => MatImage::from_bytes(&payload)?,
         "exr" => MatImage::from_bytes(&payload)?,

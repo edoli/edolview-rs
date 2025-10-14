@@ -134,7 +134,7 @@ impl MinMax {
     pub fn min_abs(&self, channel: usize) -> f32 {
         let channel_min = self.min(channel);
         let channel_max = self.max(channel);
-        
+
         if f32::signum(channel_min) != f32::signum(channel_max) {
             0.0
         } else {
@@ -302,19 +302,14 @@ impl MatImage {
 
 impl MatImage {
     pub fn from_bytes_size_type(bytes: &Vec<u8>, size: Size, dtype: i32) -> Result<MatImage> {
-        let channels = dtype.cv_type_channels();
-        let mat = unsafe {
-            core::Mat::new_rows_cols_with_data_unsafe_def(
-                size.height,
-                size.width,
-                dtype,
-                bytes.as_ptr().cast::<c_void>().cast_mut(),
-            )?
-        };
-        let mat = mat.reshape(channels, size.height)?.clone_pointee().clone();
+        let mut mat = unsafe { core::Mat::new_rows_cols(size.height, size.width, dtype)? };
+
         if mat.empty() {
             return Err(eyre!("Failed to load image"));
         }
+
+        let raw = mat.data_bytes_mut()?;
+        raw.copy_from_slice(bytes);
 
         let mat_f32 = Self::postprocess(mat, 1.0, false)?;
 
@@ -450,7 +445,7 @@ impl MatImage {
 
         let dtype = mat.depth();
 
-        let tmp  = if bgr_convert {
+        let tmp = if bgr_convert {
             let channels = mat.channels();
             let mut tmp = core::Mat::default();
 
