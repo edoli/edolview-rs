@@ -169,6 +169,9 @@ impl AppState {
 
     pub fn set_asset_primary_by_hash(&mut self, hash: &str) {
         self.asset_primary = self.assets.get(hash).cloned();
+
+        self.update_asset();
+        self.validate_marquee_rect();
     }
 
     pub fn set_primary_asset(&mut self, asset: SharedAsset) {
@@ -184,6 +187,9 @@ impl AppState {
 
     pub fn set_asset_secondary_by_hash(&mut self, hash: &str) {
         self.asset_secondary = self.assets.get(hash).cloned();
+
+        self.update_asset();
+        self.validate_marquee_rect();
     }
 
     pub fn set_secondary_asset(&mut self, asset: Option<SharedAsset>) {
