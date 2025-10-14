@@ -1,12 +1,11 @@
-use opencv::{
-    boxed_ref::BoxedRef,
-    core::{self as cv, Mat, MatTraitConst, ModifyInplace, Scalar, Size},
-};
+use opencv::core::{self as cv, Mat, MatTraitConst, ModifyInplace, Scalar, Size};
 use std::{
     collections::HashSet,
     sync::mpsc::{Receiver, Sender, TryRecvError},
     thread,
 };
+
+use crate::util::cv_ext::MatExt;
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum StatisticsType {
@@ -79,8 +78,8 @@ fn ssim_blur(mat: &Mat) -> opencv::Result<Mat> {
 }
 
 impl SSIMMatData {
-    fn new(mat: &Mat) -> opencv::Result<Self> {
-        let img = mat.clone();
+    fn new(mat: Mat) -> opencv::Result<Self> {
+        let img = mat;
 
         let mut img2 = Mat::default();
         cv::multiply_def(&img, &img, &mut img2)?;
@@ -133,12 +132,12 @@ impl StatisticsWorker {
         }
     }
 
-    pub fn run_minmax(&mut self, img: &BoxedRef<'_, Mat>, scale: f64) {
-        if img.empty() {
+    pub fn run_minmax(&mut self, mat: &Mat, scale: f64, rect: cv::Rect) {
+        let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
+        if mat.empty() {
             return;
         }
-
-        let img = img.clone_pointee();
+        let mat = mat.shallow_clone().unwrap();
 
         self.run(StatisticsType::MinMax, move || {
             #[cfg(debug_assertions)]
@@ -147,25 +146,29 @@ impl StatisticsWorker {
             let mut min_val = 0.0;
             let mut max_val = 0.0;
 
-            cv::min_max_loc(&img, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
+            let mat_roi = Mat::roi(&mat, rect)?;
+            cv::min_max_loc(&mat_roi, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
 
             Ok::<Vec<f64>, opencv::Error>(vec![min_val * scale, max_val * scale])
         });
     }
 
-    pub fn run_psnr(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>, data_range: f64, scale: f64) {
-        if img1.empty() || img2.empty() {
+    pub fn run_psnr(&mut self, mat1: &Mat, mat2: &Mat, data_range: f64, scale: f64, rect: cv::Rect) {
+        let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
+        if mat1.empty() || mat2.empty() {
             return;
         }
 
-        let img1 = img1.clone_pointee();
-        let img2 = img2.clone_pointee();
+        let mat1 = mat1.shallow_clone().unwrap();
+        let mat2 = mat2.shallow_clone().unwrap();
 
         self.run(StatisticsType::PSNRRMSE, move || {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            let psnr = cv::psnr(&img1, &img2, data_range)?;
+            let mat1_roi = Mat::roi(&mat1, rect)?;
+            let mat2_roi = Mat::roi(&mat2, rect)?;
+            let psnr = cv::psnr(&mat1_roi, &mat2_roi, data_range)?;
 
             let rmse = scale / 10.0_f64.powf(psnr / 20.0);
 
@@ -173,20 +176,23 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_ssim(&mut self, img1: &BoxedRef<'_, Mat>, img2: &BoxedRef<'_, Mat>) {
-        if img1.empty() || img2.empty() {
+    pub fn run_ssim(&mut self, mat1: &Mat, mat2: &Mat, rect: cv::Rect) {
+        if mat1.empty() || mat2.empty() {
             return;
         }
 
-        let img1 = img1.clone_pointee();
-        let img2 = img2.clone_pointee();
+        let mat1 = mat1.shallow_clone().unwrap();
+        let mat2 = mat2.shallow_clone().unwrap();
 
         self.run(StatisticsType::SSIM, move || unsafe {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIM");
 
-            let lhs = SSIMMatData::new(&img1)?;
-            let rhs = SSIMMatData::new(&img2)?;
+            let mat1_roi = Mat::roi(&mat1, rect)?;
+            let mat2_roi = Mat::roi(&mat2, rect)?;
+
+            let lhs = SSIMMatData::new(mat1_roi.clone_pointee())?;
+            let rhs = SSIMMatData::new(mat2_roi.clone_pointee())?;
 
             let c1: f64 = 0.0001; // c1 = 0.01^2 = 0.0001
             let c2: f64 = 0.0009; // c2 = 0.03^2 = 0.0009

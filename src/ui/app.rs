@@ -151,24 +151,29 @@ impl ViewerApp {
 
         if let Some(asset) = &self.state.asset {
             let img = asset.image();
-            let img_roi = opencv::core::Mat::roi(img.mat(), rect.to_cv_rect()).unwrap();
 
             // single image statistics
-            self.statistics_worker.run_minmax(&img_roi, img.spec().dtype.alpha());
+            self.statistics_worker
+                .run_minmax(img.mat(), img.spec().dtype.alpha(), rect.to_cv_rect());
         }
 
         if let Some(a1) = &self.state.asset_primary {
             let img1 = a1.image();
-            let img1_roi = opencv::core::Mat::roi(img1.mat(), rect.to_cv_rect()).unwrap();
 
             if let Some(a2) = &self.state.asset_secondary {
                 let img2 = a2.image();
-                let img2_roi = opencv::core::Mat::roi(img2.mat(), rect.to_cv_rect()).unwrap();
 
                 // two image statistics
-                self.statistics_worker
-                    .run_psnr(&img1_roi, &img2_roi, 1.0, img1.spec().dtype.alpha());
-                self.statistics_worker.run_ssim(&img1_roi, &img2_roi);
+                self.statistics_worker.run_psnr(
+                    img1.mat(),
+                    img2.mat(),
+                    1.0,
+                    img1.spec().dtype.alpha(),
+                    rect.to_cv_rect(),
+                );
+
+                // Temporarily disable SSIM due to performance issue
+                // self.statistics_worker.run_ssim(img1.mat(), img2.mat(), rect.to_cv_rect());
             }
         }
     }
@@ -730,9 +735,9 @@ impl eframe::App for ViewerApp {
                                 ui.label(format!("{:.4} dB", self.state.statistics.psnr));
                                 ui.end_row();
 
-                                ui.label("SSIM:");
-                                ui.label(format!("{:.4}", self.state.statistics.ssim));
-                                ui.end_row();
+                                // ui.label("SSIM:");
+                                // ui.label(format!("{:.4}", self.state.statistics.ssim));
+                                // ui.end_row();
                             }
                         });
                     }
