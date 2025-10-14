@@ -408,8 +408,8 @@ impl MatImage {
             return Err(eyre!("Invalid clipboard image dimensions or channels"));
         }
 
-        let mat = core::Mat::new_rows_cols_with_data(height, width * channels, &bytes)?.clone_pointee();
-        let mat = mat.reshape(channels, height)?.clone_pointee().clone();
+        let mat = core::Mat::new_rows_cols_with_data(height, width * channels, &bytes)?;
+        let mat = mat.reshape(channels, height)?.clone_pointee();
 
         if mat.empty() {
             return Err(eyre!("Failed to load image"));
