@@ -588,6 +588,162 @@ impl ImageViewer {
                         }
                     }
                 }
+
+                // Draw a continuous-position arrow on the viewport edge pointing toward the offscreen image
+                // when the image is fully outside the viewport.
+                {
+                    let scale = self.zoom();
+                    let image_rect_view = {
+                        let min_view = rect.min + (self.pan) / pixel_per_point;
+                        let max_view = rect.min
+                            + (self.pan
+                                + egui::vec2(spec.width as f32 * scale, spec.height as f32 * scale))
+                                / pixel_per_point;
+                        egui::Rect::from_min_max(min_view, max_view)
+                    };
+
+                    let fully_outside =
+                        image_rect_view.max.x < rect.min.x || image_rect_view.min.x > rect.max.x ||
+                        image_rect_view.max.y < rect.min.y || image_rect_view.min.y > rect.max.y;
+
+                    if fully_outside {
+                        let painter = ui.painter();
+                        let view_bounds = rect;
+                        let img_center = image_rect_view.center();
+                        let view_center = view_bounds.center();
+                        let dir = (img_center - view_center).normalized();
+                        if dir.length_sq() > 0.0 {
+                            // Find intersection of ray from center along dir with the viewport rectangle.
+                            // Parameterize: p(t) = view_center + dir * t, find smallest t >= 0 where p is on an edge.
+                            let mut t_candidates: Vec<f32> = Vec::with_capacity(4);
+                            if dir.x.abs() > 1e-6 {
+                                // Left edge x = view_bounds.min.x
+                                let t = (view_bounds.min.x - view_center.x) / dir.x;
+                                if t > 0.0 {
+                                    let y = view_center.y + dir.y * t;
+                                    if y >= view_bounds.min.y && y <= view_bounds.max.y { t_candidates.push(t); }
+                                }
+                                // Right edge
+                                let t = (view_bounds.max.x - view_center.x) / dir.x;
+                                if t > 0.0 {
+                                    let y = view_center.y + dir.y * t;
+                                    if y >= view_bounds.min.y && y <= view_bounds.max.y { t_candidates.push(t); }
+                                }
+                            }
+                            if dir.y.abs() > 1e-6 {
+                                // Top edge
+                                let t = (view_bounds.min.y - view_center.y) / dir.y;
+                                if t > 0.0 {
+                                    let x = view_center.x + dir.x * t;
+                                    if x >= view_bounds.min.x && x <= view_bounds.max.x { t_candidates.push(t); }
+                                }
+                                // Bottom edge
+                                let t = (view_bounds.max.y - view_center.y) / dir.y;
+                                if t > 0.0 {
+                                    let x = view_center.x + dir.x * t;
+                                    if x >= view_bounds.min.x && x <= view_bounds.max.x { t_candidates.push(t); }
+                                }
+                            }
+                            if let Some(&t_edge) = t_candidates.iter().min_by(|a,b| a.partial_cmp(b).unwrap()) {
+                                // Place arrow tip on an inset rectangle (shrunken viewport) instead of moving back along the ray.
+                                let inset: f32 = 16.0;
+                                let outer_tip = view_center + dir * t_edge; // actual intersection with outer edge
+                                // Build inset rectangle
+                                let inset_rect = egui::Rect::from_min_max(
+                                    egui::pos2(view_bounds.min.x + inset, view_bounds.min.y + inset),
+                                    egui::pos2(view_bounds.max.x - inset, view_bounds.max.y - inset),
+                                );
+                                // Project a line from center to outer_tip; find intersection with inset_rect boundary.
+                                // We reuse the parametric form; compute t for inset edges and choose smallest positive that lies on inset_rect perimeter.
+                                let mut t_inset_candidates: Vec<f32> = Vec::with_capacity(4);
+                                let vc = view_center;
+                                if dir.x.abs() > 1e-6 {
+                                    // left inset edge
+                                    let t = (inset_rect.min.x - vc.x) / dir.x;
+                                    if t > 0.0 {
+                                        let y = vc.y + dir.y * t;
+                                        if y >= inset_rect.min.y && y <= inset_rect.max.y { t_inset_candidates.push(t); }
+                                    }
+                                    // right inset edge
+                                    let t = (inset_rect.max.x - vc.x) / dir.x;
+                                    if t > 0.0 {
+                                        let y = vc.y + dir.y * t;
+                                        if y >= inset_rect.min.y && y <= inset_rect.max.y { t_inset_candidates.push(t); }
+                                    }
+                                }
+                                if dir.y.abs() > 1e-6 {
+                                    // top inset edge
+                                    let t = (inset_rect.min.y - vc.y) / dir.y;
+                                    if t > 0.0 {
+                                        let x = vc.x + dir.x * t;
+                                        if x >= inset_rect.min.x && x <= inset_rect.max.x { t_inset_candidates.push(t); }
+                                    }
+                                    // bottom inset edge
+                                    let t = (inset_rect.max.y - vc.y) / dir.y;
+                                    if t > 0.0 {
+                                        let x = vc.x + dir.x * t;
+                                        if x >= inset_rect.min.x && x <= inset_rect.max.x { t_inset_candidates.push(t); }
+                                    }
+                                }
+                                let tip = if let Some(&t_inset) = t_inset_candidates.iter().min_by(|a,b| a.partial_cmp(b).unwrap()) {
+                                    vc + dir * t_inset
+                                } else {
+                                    // Fallback: if something goes wrong, just put at outer intersection minus a tiny epsilon
+                                    outer_tip - dir * 2.0
+                                };
+
+                                // Arrow dimensions
+                                let shaft_len = 72.0; // total arrow length ~ shaft_len + head depth portion
+                                let shaft_thickness = 8.0;
+                                let head_len = 32.0;
+                                let head_width = 32.0;
+                                let stroke_col = egui::Color32::from_black_alpha(150);
+                                let fill_col = egui::Color32::from_white_alpha(235);
+                                let shadow_col = egui::Color32::from_black_alpha(40);
+
+                                let d = dir;
+                                let perp = egui::vec2(-d.y, d.x);
+
+                                // Points: build arrow pointing in +d. We'll draw from base toward tip.
+                                let total_len = shaft_len;
+                                let base = tip - d * total_len;
+                                let shaft_end = tip - d * head_len; // where head starts
+                                let half_thickness = shaft_thickness * 0.5;
+                                let half_head_w = head_width * 0.5;
+
+                                // Shaft rectangle (4 points)
+                                let s0 = base + perp * half_thickness;
+                                let s1 = base - perp * half_thickness;
+                                let s2 = shaft_end - perp * half_thickness;
+                                let s3 = shaft_end + perp * half_thickness;
+
+                                // Head triangle
+                                let h0 = shaft_end + perp * half_head_w;
+                                let h1 = shaft_end - perp * half_head_w;
+                                let h2 = tip;
+
+                                // Optional subtle shadow (draw first)
+                                let shadow_offset = egui::vec2(1.0, 1.0);
+                                let shadow_poly = vec![s0+shadow_offset, s1+shadow_offset, s2+shadow_offset, s3+shadow_offset];
+                                painter.add(egui::Shape::convex_polygon(shadow_poly, shadow_col, egui::Stroke::NONE));
+                                painter.add(egui::Shape::convex_polygon(vec![h0+shadow_offset, h1+shadow_offset, h2+shadow_offset], shadow_col, egui::Stroke::NONE));
+
+                                // Main shapes
+                                let shaft = vec![s0, s1, s2, s3];
+                                painter.add(egui::Shape::convex_polygon(
+                                    shaft,
+                                    fill_col,
+                                    egui::Stroke { width: 1.0, color: stroke_col },
+                                ));
+                                painter.add(egui::Shape::convex_polygon(
+                                    vec![h0, h1, h2],
+                                    fill_col,
+                                    egui::Stroke { width: 1.0, color: stroke_col },
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         } else {
             ui.colored_label(egui::Color32::RED, "No texture uploaded");
