@@ -7,7 +7,7 @@ use std::{
 };
 
 use color_eyre::eyre::Report;
-use eframe::egui::{self, vec2, Color32, Rangef, Visuals};
+use eframe::egui::{self, vec2, Color32, FontData, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -66,6 +66,10 @@ pub struct ViewerApp {
     rx: mpsc::Receiver<SocketAsset>,
 
     statistics_worker: StatisticsWorker,
+
+    // Async font loading: receiver for fallback font bytes (if any)
+    font_rx: Option<mpsc::Receiver<FontData>>,
+    fallback_font_applied: bool,
 }
 
 impl ViewerApp {
@@ -85,6 +89,30 @@ impl ViewerApp {
                 eprintln!("Failed to start socket server: {e}");
             });
         });
+
+        // Spawn async loader for optional fallback font placed next to the executable.
+        // If a file named "fallback_font.ttf" exists beside the executable, we read it on a
+        // background thread and later (non-blocking) apply it as a fallback font in egui.
+        let font_rx = (|| {
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(dir) = exe_path.parent() {
+                    let font_path = dir.join("fallback_font.ttf");
+                    if font_path.exists() {
+                        let (tx_font, rx_font) = mpsc::channel();
+                        std::thread::spawn(move || match std::fs::read(&font_path) {
+                            Ok(bytes) => {
+                                let _ = tx_font.send(FontData::from_owned(bytes));
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to read fallback font '{}': {e}", font_path.display());
+                            }
+                        });
+                        return Some(rx_font);
+                    }
+                }
+            }
+            None
+        })();
 
         Self {
             state,
@@ -118,6 +146,9 @@ impl ViewerApp {
             rx,
 
             statistics_worker: StatisticsWorker::new(),
+
+            font_rx,
+            fallback_font_applied: false,
         }
     }
 
@@ -180,6 +211,36 @@ impl ViewerApp {
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.set_visuals(Visuals::dark());
+
+        // Non-blocking check for fallback font data and apply once.
+        if !self.fallback_font_applied {
+            if let Some(rx) = &self.font_rx {
+                match rx.try_recv() {
+                    Ok(font_data) => {
+                        let mut fonts = egui::FontDefinitions::default();
+                        // Insert the user-provided fallback font.
+                        fonts.font_data.insert("user_fallback".to_owned(), font_data.into());
+                        // Append to both proportional & monospace families so it's used only when
+                        // glyphs are missing in earlier fonts.
+                        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                            family.push("user_fallback".to_owned());
+                        }
+                        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+                            family.push("user_fallback".to_owned());
+                        }
+                        ctx.set_fonts(fonts);
+                        self.fallback_font_applied = true;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        // Channel failed; avoid retry spam.
+                        self.fallback_font_applied = true;
+                    }
+                }
+            } else {
+                self.fallback_font_applied = true; // No font to load.
+            }
+        }
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
