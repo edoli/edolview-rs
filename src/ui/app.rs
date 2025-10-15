@@ -7,7 +7,7 @@ use std::{
 };
 
 use color_eyre::eyre::Report;
-use eframe::egui::{self, vec2, Color32, Key, KeyboardShortcut, ModifierNames, Modifiers, Rangef, Visuals};
+use eframe::egui::{self, vec2, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
         start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset, StatisticsType,
         StatisticsWorker,
     },
-    res::icons::Icons,
+    res::{icons::Icons, KeyboardShortcutExt},
     ui::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
@@ -26,12 +26,6 @@ use crate::{
     },
     util::{cv_ext::CvIntExt, math_ext::vec2i},
 };
-
-pub const IS_MAC: bool = cfg!(target_os = "macos");
-
-pub const SELECT_ALL_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
-pub const SELECT_NONE_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Escape);
-pub const COPY_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::D);
 
 #[derive(PartialEq, Clone)]
 enum PlotDim {
@@ -196,14 +190,14 @@ impl eframe::App for ViewerApp {
             }
         }
 
-        if ctx.input(|i| i.key_pressed(Key::F11)) {
+        if ctx.input_mut(|i| i.consume_shortcut(&crate::res::FULLSCREEN_TOGGLE)) {
             let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
         }
 
         if !ctx.wants_keyboard_input() {
             ctx.input_mut(|i| {
-                if i.consume_shortcut(&SELECT_ALL_SC) {
+                if i.consume_shortcut(&crate::res::SELECT_ALL_SC) {
                     if let Some(asset) = &self.state.asset {
                         let spec = asset.image().spec();
                         let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
@@ -212,29 +206,29 @@ impl eframe::App for ViewerApp {
                         self.marquee_rect_text = img_rect.to_string().into();
                     }
                 }
-                if i.consume_shortcut(&SELECT_NONE_SC) {
+                if i.consume_shortcut(&crate::res::SELECT_NONE_SC) {
                     self.state.reset_marquee_rect();
                 }
-                if i.consume_shortcut(&COPY_SC) {
+                if i.consume_shortcut(&crate::res::COPY_SC) {
                     self.viewer.request_copy();
                 }
-                if i.key_pressed(Key::ArrowLeft) {
+                if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
                         eprintln!("Failed to navigate prev: {e}");
                     }
                 }
-                if i.key_pressed(Key::ArrowRight) {
+                if i.consume_shortcut(&crate::res::NAVIGATE_NEXT) {
                     if let Err(e) = self.state.navigate_next() {
                         eprintln!("Failed to navigate next: {e}");
                     }
                 }
-                if i.key_pressed(Key::R) {
+                if i.consume_shortcut(&crate::res::RESET_VIEW) {
                     self.viewer.reset_view();
                 }
-                if i.key_pressed(Key::Plus) {
+                if i.consume_shortcut(&crate::res::ZOOM_IN) {
                     self.viewer.zoom_in(1.0, None);
                 }
-                if i.key_pressed(Key::Minus) {
+                if i.consume_shortcut(&crate::res::ZOOM_OUT) {
                     self.viewer.zoom_in(-1.0, None);
                 }
             });
@@ -339,7 +333,7 @@ impl eframe::App for ViewerApp {
                 ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size")
                     .on_hover_text(format!(
                         "When enabled, {} copies marquee at image pixel size (ignores zoom).",
-                        COPY_SC.format(&ModifierNames::NAMES, IS_MAC)
+                        crate::res::COPY_SC.format_sys()
                     ));
                 ui.toggle_icon(
                     &mut self.state.is_show_background,

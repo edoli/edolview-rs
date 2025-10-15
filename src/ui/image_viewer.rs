@@ -1,9 +1,10 @@
 use color_eyre::eyre::{eyre, Result};
-use eframe::egui::{self, vec2, ModifierNames};
+use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::{Arc, Mutex};
 
 use crate::model::{AppState, Image, Recti, EMPTY_MINMAX};
+use crate::res::KeyboardShortcutExt;
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
 use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
@@ -170,10 +171,7 @@ impl ImageViewer {
             // Context menu (right-click)
             resp.context_menu(|ui| {
                 if ui
-                    .button(format!(
-                        "Copy Selected Image ({})",
-                        crate::ui::app::COPY_SC.format(&ModifierNames::NAMES, crate::ui::app::IS_MAC)
-                    ))
+                    .button(format!("Copy Selected Image ({})", crate::res::COPY_SC.format_sys()))
                     .clicked()
                 {
                     self.request_copy();
