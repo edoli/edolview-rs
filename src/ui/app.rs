@@ -677,7 +677,7 @@ impl eframe::App for ViewerApp {
                         for i in 0..channels {
                             let mut channel_data = Vec::with_capacity(reduced_value.len() / channels);
                             for j in 0..(reduced_value.len() / channels) {
-                                channel_data.push(reduced_value[j * channels + i] as f32);
+                                channel_data.push(reduced_value[j * channels + i]);
                             }
                             plot_data.push(channel_data);
                         }
@@ -688,9 +688,16 @@ impl eframe::App for ViewerApp {
                                 desired_size_plot,
                                 &(0..channels).map(|i| &plot_data[i]).collect(),
                                 &self.show_plot_channels,
+                                asset.image().spec().dtype.alpha(),
                             );
                         } else {
-                            draw_multi_line_plot(ui, desired_size_plot, &vec![&plot_data[0]], &[true]);
+                            draw_multi_line_plot(
+                                ui,
+                                desired_size_plot,
+                                &vec![&plot_data[0]],
+                                &[true],
+                                asset.image().spec().dtype.alpha(),
+                            );
                         }
 
                         ui.horizontal(|ui| {

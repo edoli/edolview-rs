@@ -8,7 +8,7 @@ use std::{
 
 use color_eyre::eyre::{eyre, Result};
 use opencv::{
-    core::{self, MatTraitConst, MatTraitConstManual},
+    core::{self, MatTraitConst, MatTraitConstManual, ModifyInplace},
     imgproc,
 };
 
@@ -115,6 +115,11 @@ impl MeanProcessor {
                 let mut col_sums = core::Mat::default();
                 core::subtract(&d_right, &d_left, &mut col_sums, &no_mask, -1)?;
 
+                unsafe {
+                    let f = 1.0 / (height as f64);
+                    col_sums.modify_inplace(|i, o| core::multiply_def(i, &core::Scalar::new(f, f, f, f), o))?;
+                }
+
                 Ok(col_sums.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
             }
             MeanDim::Row => {
@@ -144,6 +149,11 @@ impl MeanProcessor {
 
                 let mut row_sums = core::Mat::default();
                 core::subtract(&d_bot, &d_top, &mut row_sums, &no_mask, -1)?;
+
+                unsafe {
+                    let f = 1.0 / (width as f64);
+                    row_sums.modify_inplace(|i, o| core::multiply_def(i, &core::Scalar::new(f, f, f, f), o))?;
+                }
 
                 Ok(row_sums.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
             }
