@@ -12,9 +12,17 @@ use crate::util::math_ext::vec2i;
 
 enum DragMode {
     None,
-    Panning { last_pixel_pos: egui::Pos2 },
-    Marquee { start_image_pos: egui::Pos2 },
-    Resizing { handle: ResizeHandle, start_rect: Recti },
+    Panning {
+        last_pixel_pos: egui::Pos2,
+    },
+    Marquee {
+        start_image_pos: egui::Pos2,
+    },
+    Resizing {
+        handle: ResizeHandle,
+        start_rect: Recti,
+        start_pointer_image_pos: egui::Pos2,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,7 +217,30 @@ impl ImageViewer {
                 }
             });
 
-            if resp.drag_started() {
+            // Begin interactions
+            // 1) If the primary mouse button was just pressed on a handle, start resizing immediately (no drag threshold).
+            if !self.dragging && resp.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+                if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
+                    // If a marquee exists and a corner handle is pressed, start resizing right away
+                    let handle_under_mouse =
+                        if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
+                            hit_test_handles(selection_rect_view, pos)
+                        } else {
+                            None
+                        };
+
+                    if let Some(handle) = handle_under_mouse {
+                        self.dragging = true;
+                        self.drag_mode = DragMode::Resizing {
+                            handle,
+                            start_rect: app_state.marquee_rect,
+                            start_pointer_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
+                        };
+                    }
+                }
+            }
+
+            if !self.dragging && resp.drag_started() {
                 self.dragging = true;
                 if let Some(pos) = resp.interact_pointer_pos() {
                     // If a marquee exists and a corner handle is grabbed, start resizing
@@ -224,6 +255,7 @@ impl ImageViewer {
                         DragMode::Resizing {
                             handle,
                             start_rect: app_state.marquee_rect,
+                            start_pointer_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
                         }
                     } else if ui.input(|i| i.modifiers.shift) {
                         // Start marquee creation
@@ -240,7 +272,8 @@ impl ImageViewer {
             }
 
             if self.dragging {
-                if let Some(pos) = resp.interact_pointer_pos() {
+                let pos_opt = resp.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.hover_pos()));
+                if let Some(pos) = pos_opt {
                     if let DragMode::Marquee { start_image_pos } = self.drag_mode {
                         // If Ctrl pressed, constrain to square relative to start
                         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
@@ -256,26 +289,47 @@ impl ImageViewer {
                         let delta = pos - last_pos;
                         self.drag_mode = DragMode::Panning { last_pixel_pos: pos };
                         self.pan += egui::vec2(delta.x, delta.y);
-                    } else if let DragMode::Resizing { handle, start_rect } = self.drag_mode {
-                        // Determine the fixed (opposite) corner from the start_rect
-                        let (ax, ay) = match handle {
-                            ResizeHandle::TopLeft => (start_rect.max.x as f32, start_rect.max.y as f32),
-                            ResizeHandle::TopRight => (start_rect.min.x as f32, start_rect.max.y as f32),
-                            ResizeHandle::BottomLeft => (start_rect.max.x as f32, start_rect.min.y as f32),
-                            ResizeHandle::BottomRight => (start_rect.min.x as f32, start_rect.min.y as f32),
+                    } else if let DragMode::Resizing {
+                        handle,
+                        start_rect,
+                        start_pointer_image_pos,
+                    } = self.drag_mode
+                    {
+                        // Compute delta in image space from the initial press
+                        let curr_img = self.view_to_image_coords(pos, rect, pixel_per_point);
+                        let delta =
+                            egui::vec2(curr_img.x - start_pointer_image_pos.x, curr_img.y - start_pointer_image_pos.y);
+
+                        // Prepare moving and anchor corners in image space (f32)
+                        let mut moving = match handle {
+                            ResizeHandle::TopLeft => egui::pos2(start_rect.min.x as f32, start_rect.min.y as f32),
+                            ResizeHandle::TopRight => egui::pos2(start_rect.max.x as f32, start_rect.min.y as f32),
+                            ResizeHandle::BottomLeft => egui::pos2(start_rect.min.x as f32, start_rect.max.y as f32),
+                            ResizeHandle::BottomRight => egui::pos2(start_rect.max.x as f32, start_rect.max.y as f32),
                         };
-                        let anchor = egui::pos2(ax, ay);
+                        let anchor = match handle {
+                            ResizeHandle::TopLeft => egui::pos2(start_rect.max.x as f32, start_rect.max.y as f32),
+                            ResizeHandle::TopRight => egui::pos2(start_rect.min.x as f32, start_rect.max.y as f32),
+                            ResizeHandle::BottomLeft => egui::pos2(start_rect.max.x as f32, start_rect.min.y as f32),
+                            ResizeHandle::BottomRight => egui::pos2(start_rect.min.x as f32, start_rect.min.y as f32),
+                        };
+
+                        // Apply delta to moving corner
+                        moving.x += delta.x;
+                        moving.y += delta.y;
 
                         // If Ctrl pressed, constrain to square relative to anchor
                         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
-                        let image_pos = self
-                            .view_to_image_coords(pos, rect, pixel_per_point)
-                            .cond_map(is_ctrl, |image_pos| enforce_square_from_anchor(anchor, image_pos));
-                        app_state.set_marquee_rect(Recti::bound_two_pos(anchor, image_pos));
+                        if is_ctrl {
+                            moving = enforce_square_from_anchor(anchor, moving);
+                        }
+
+                        app_state.set_marquee_rect(Recti::bound_two_pos(anchor, moving));
                     }
                 }
 
-                if resp.drag_stopped() {
+                // End dragging either when egui reports drag stopped, or when primary is released
+                if resp.drag_stopped() || ui.input(|i| i.pointer.primary_released()) {
                     self.dragging = false;
                     self.drag_mode = DragMode::None;
                 }
@@ -596,15 +650,15 @@ impl ImageViewer {
                     let image_rect_view = {
                         let min_view = rect.min + (self.pan) / pixel_per_point;
                         let max_view = rect.min
-                            + (self.pan
-                                + egui::vec2(spec.width as f32 * scale, spec.height as f32 * scale))
+                            + (self.pan + egui::vec2(spec.width as f32 * scale, spec.height as f32 * scale))
                                 / pixel_per_point;
                         egui::Rect::from_min_max(min_view, max_view)
                     };
 
-                    let fully_outside =
-                        image_rect_view.max.x < rect.min.x || image_rect_view.min.x > rect.max.x ||
-                        image_rect_view.max.y < rect.min.y || image_rect_view.min.y > rect.max.y;
+                    let fully_outside = image_rect_view.max.x < rect.min.x
+                        || image_rect_view.min.x > rect.max.x
+                        || image_rect_view.max.y < rect.min.y
+                        || image_rect_view.min.y > rect.max.y;
 
                     if fully_outside {
                         let painter = ui.painter();
@@ -621,13 +675,17 @@ impl ImageViewer {
                                 let t = (view_bounds.min.x - view_center.x) / dir.x;
                                 if t > 0.0 {
                                     let y = view_center.y + dir.y * t;
-                                    if y >= view_bounds.min.y && y <= view_bounds.max.y { t_candidates.push(t); }
+                                    if y >= view_bounds.min.y && y <= view_bounds.max.y {
+                                        t_candidates.push(t);
+                                    }
                                 }
                                 // Right edge
                                 let t = (view_bounds.max.x - view_center.x) / dir.x;
                                 if t > 0.0 {
                                     let y = view_center.y + dir.y * t;
-                                    if y >= view_bounds.min.y && y <= view_bounds.max.y { t_candidates.push(t); }
+                                    if y >= view_bounds.min.y && y <= view_bounds.max.y {
+                                        t_candidates.push(t);
+                                    }
                                 }
                             }
                             if dir.y.abs() > 1e-6 {
@@ -635,20 +693,24 @@ impl ImageViewer {
                                 let t = (view_bounds.min.y - view_center.y) / dir.y;
                                 if t > 0.0 {
                                     let x = view_center.x + dir.x * t;
-                                    if x >= view_bounds.min.x && x <= view_bounds.max.x { t_candidates.push(t); }
+                                    if x >= view_bounds.min.x && x <= view_bounds.max.x {
+                                        t_candidates.push(t);
+                                    }
                                 }
                                 // Bottom edge
                                 let t = (view_bounds.max.y - view_center.y) / dir.y;
                                 if t > 0.0 {
                                     let x = view_center.x + dir.x * t;
-                                    if x >= view_bounds.min.x && x <= view_bounds.max.x { t_candidates.push(t); }
+                                    if x >= view_bounds.min.x && x <= view_bounds.max.x {
+                                        t_candidates.push(t);
+                                    }
                                 }
                             }
-                            if let Some(&t_edge) = t_candidates.iter().min_by(|a,b| a.partial_cmp(b).unwrap()) {
+                            if let Some(&t_edge) = t_candidates.iter().min_by(|a, b| a.partial_cmp(b).unwrap()) {
                                 // Place arrow tip on an inset rectangle (shrunken viewport) instead of moving back along the ray.
                                 let inset: f32 = 16.0;
                                 let outer_tip = view_center + dir * t_edge; // actual intersection with outer edge
-                                // Build inset rectangle
+                                                                            // Build inset rectangle
                                 let inset_rect = egui::Rect::from_min_max(
                                     egui::pos2(view_bounds.min.x + inset, view_bounds.min.y + inset),
                                     egui::pos2(view_bounds.max.x - inset, view_bounds.max.y - inset),
@@ -662,13 +724,17 @@ impl ImageViewer {
                                     let t = (inset_rect.min.x - vc.x) / dir.x;
                                     if t > 0.0 {
                                         let y = vc.y + dir.y * t;
-                                        if y >= inset_rect.min.y && y <= inset_rect.max.y { t_inset_candidates.push(t); }
+                                        if y >= inset_rect.min.y && y <= inset_rect.max.y {
+                                            t_inset_candidates.push(t);
+                                        }
                                     }
                                     // right inset edge
                                     let t = (inset_rect.max.x - vc.x) / dir.x;
                                     if t > 0.0 {
                                         let y = vc.y + dir.y * t;
-                                        if y >= inset_rect.min.y && y <= inset_rect.max.y { t_inset_candidates.push(t); }
+                                        if y >= inset_rect.min.y && y <= inset_rect.max.y {
+                                            t_inset_candidates.push(t);
+                                        }
                                     }
                                 }
                                 if dir.y.abs() > 1e-6 {
@@ -676,16 +742,22 @@ impl ImageViewer {
                                     let t = (inset_rect.min.y - vc.y) / dir.y;
                                     if t > 0.0 {
                                         let x = vc.x + dir.x * t;
-                                        if x >= inset_rect.min.x && x <= inset_rect.max.x { t_inset_candidates.push(t); }
+                                        if x >= inset_rect.min.x && x <= inset_rect.max.x {
+                                            t_inset_candidates.push(t);
+                                        }
                                     }
                                     // bottom inset edge
                                     let t = (inset_rect.max.y - vc.y) / dir.y;
                                     if t > 0.0 {
                                         let x = vc.x + dir.x * t;
-                                        if x >= inset_rect.min.x && x <= inset_rect.max.x { t_inset_candidates.push(t); }
+                                        if x >= inset_rect.min.x && x <= inset_rect.max.x {
+                                            t_inset_candidates.push(t);
+                                        }
                                     }
                                 }
-                                let tip = if let Some(&t_inset) = t_inset_candidates.iter().min_by(|a,b| a.partial_cmp(b).unwrap()) {
+                                let tip = if let Some(&t_inset) =
+                                    t_inset_candidates.iter().min_by(|a, b| a.partial_cmp(b).unwrap())
+                                {
                                     vc + dir * t_inset
                                 } else {
                                     // Fallback: if something goes wrong, just put at outer intersection minus a tiny epsilon
@@ -724,21 +796,36 @@ impl ImageViewer {
 
                                 // Optional subtle shadow (draw first)
                                 let shadow_offset = egui::vec2(1.0, 1.0);
-                                let shadow_poly = vec![s0+shadow_offset, s1+shadow_offset, s2+shadow_offset, s3+shadow_offset];
+                                let shadow_poly = vec![
+                                    s0 + shadow_offset,
+                                    s1 + shadow_offset,
+                                    s2 + shadow_offset,
+                                    s3 + shadow_offset,
+                                ];
                                 painter.add(egui::Shape::convex_polygon(shadow_poly, shadow_col, egui::Stroke::NONE));
-                                painter.add(egui::Shape::convex_polygon(vec![h0+shadow_offset, h1+shadow_offset, h2+shadow_offset], shadow_col, egui::Stroke::NONE));
+                                painter.add(egui::Shape::convex_polygon(
+                                    vec![h0 + shadow_offset, h1 + shadow_offset, h2 + shadow_offset],
+                                    shadow_col,
+                                    egui::Stroke::NONE,
+                                ));
 
                                 // Main shapes
                                 let shaft = vec![s0, s1, s2, s3];
                                 painter.add(egui::Shape::convex_polygon(
                                     shaft,
                                     fill_col,
-                                    egui::Stroke { width: 1.0, color: stroke_col },
+                                    egui::Stroke {
+                                        width: 1.0,
+                                        color: stroke_col,
+                                    },
                                 ));
                                 painter.add(egui::Shape::convex_polygon(
                                     vec![h0, h1, h2],
                                     fill_col,
-                                    egui::Stroke { width: 1.0, color: stroke_col },
+                                    egui::Stroke {
+                                        width: 1.0,
+                                        color: stroke_col,
+                                    },
                                 ));
                             }
                         }
@@ -884,7 +971,8 @@ fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::Native
 }
 
 fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<ResizeHandle> {
-    let handle_size = 10.0; // hit area in points
+    // Slightly larger hit area than the visual handle for easier grabbing.
+    let handle_size = 16.0; // hit area in points
     let corners = [
         (selection_rect.min, ResizeHandle::TopLeft),
         (egui::pos2(selection_rect.max.x, selection_rect.min.y), ResizeHandle::TopRight),
