@@ -3,7 +3,7 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{atomic::Ordering, mpsc, Arc},
-    thread,
+    thread, vec,
 };
 
 use color_eyre::eyre::Report;
@@ -545,29 +545,35 @@ impl eframe::App for ViewerApp {
 
                     ui.horizontal(|ui| {
                         let sizes = if is_mono {
-                            ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0), Size::exact(0.0)])
+                            ui.calc_sizes([Size::exact(58.0), Size::remainder(1.0), Size::exact(0.0)])
                         } else {
-                            ui.calc_sizes([Size::exact(50.0), Size::remainder(1.0), Size::exact(54.0)])
+                            ui.calc_sizes([Size::exact(58.0), Size::remainder(1.0), Size::exact(54.0)])
                         };
                         ui.spacing_mut().combo_width = sizes[0];
-                        let channel_values: Vec<i32> = (-1..channels).collect();
-                        egui::ComboBox::from_id_salt("channel_index")
-                            .combo_i32_with(ui, &mut self.state.channel_index, &channel_values, |v| match v {
-                                -1 => "All".to_string(),
-                                0 => {
-                                    if channels > 1 {
-                                        "R".to_string()
-                                    } else {
-                                        "C".to_string()
+                        let channel_values: Vec<i32> = if channels > 1 {
+                            (-1..channels).collect()
+                        } else {
+                            vec![-1]
+                        };
+                        ui.add_enabled_ui(channels > 1, |ui| {
+                            egui::ComboBox::from_id_salt("channel_index")
+                                .combo_i32_with(ui, &mut self.state.channel_index, &channel_values, |v| match v {
+                                    -1 => {
+                                        if channels > 1 {
+                                            "Color".to_string()
+                                        } else {
+                                            "Mono".to_string()
+                                        }
                                     }
-                                }
-                                1 => "G".to_string(),
-                                2 => "B".to_string(),
-                                3 => "A".to_string(),
-                                _ => format!("C{}", v),
-                            })
-                            .response
-                            .on_hover_text("Channel to display");
+                                    0 => "Red".to_string(),
+                                    1 => "Green".to_string(),
+                                    2 => "Blue".to_string(),
+                                    3 => "Alpha".to_string(),
+                                    _ => format!("C{}", v),
+                                })
+                                .response
+                                .on_hover_text("Channel to display");
+                        });
 
                         ui.spacing_mut().combo_width = sizes[1];
                         if is_mono {

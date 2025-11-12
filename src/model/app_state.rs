@@ -230,10 +230,12 @@ impl AppState {
             }
 
             let num_channels = asset_primary.image().spec().channels as i32;
-            if self.channel_index >= num_channels {
+            
+            if num_channels == 1 {
+                self.channel_index = -1;
+            } else if self.channel_index >= num_channels {
                 self.channel_index = num_channels - 1;
             }
-            
         } else {
             self.asset = None;
         }
