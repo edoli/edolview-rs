@@ -64,6 +64,21 @@ impl ImageSpec {
     pub fn bytes_per_pixel(&self) -> usize {
         (self.channels as usize) * mem::size_of::<f32>()
     }
+
+    pub fn pixel_values_to_string<T: Into<f64> + Copy>(&self, vals: &[T]) -> String {
+        let alpha = self.dtype.alpha();
+        let is_float = self.dtype.cv_type_is_floating();
+        let mut parts: Vec<String> = Vec::with_capacity(vals.len());
+        for &v in vals.iter() {
+            let vf: f64 = v.into();
+            if is_float {
+                parts.push(format!("{:.4}", vf * alpha));
+            } else {
+                parts.push(format!("{:.0}", vf * alpha));
+            }
+        }
+        parts.join(", ")
+    }
 }
 
 pub trait Image {

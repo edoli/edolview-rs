@@ -3,7 +3,7 @@ use eframe::egui::{self, vec2};
 use eframe::glow::{self as GL, HasContext};
 use std::sync::{Arc, Mutex};
 
-use crate::model::{AppState, Image, Recti, EMPTY_MINMAX};
+use crate::model::{AppState, Image, MeanDim, Recti, EMPTY_MINMAX};
 use crate::res::KeyboardShortcutExt;
 use crate::ui::gl::{BackgroundProgram, ImageProgram};
 use crate::util::cv_ext::CvIntExt;
@@ -185,21 +185,12 @@ impl ImageViewer {
                     self.request_copy();
                     ui.close();
                 }
+                ui.separator();
                 if ui.button("Copy Cursor Color").clicked() {
                     if let Some(cursor_pos) = app_state.cursor_pos {
                         if let Ok(vals) = image.get_pixel_at(cursor_pos.x, cursor_pos.y) {
                             let spec = image.spec();
-                            let alpha = spec.dtype.alpha();
-                            let is_float = spec.dtype.cv_type_is_floating();
-                            let mut parts: Vec<String> = Vec::with_capacity(vals.len());
-                            for v in vals.iter() {
-                                if is_float {
-                                    parts.push(format!("{:.4}", (*v as f64) * alpha));
-                                } else {
-                                    parts.push(format!("{:.0}", (*v as f64) * alpha));
-                                }
-                            }
-                            let text = parts.join(", ");
+                            let text = spec.pixel_values_to_string(vals);
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 let _ = cb.set_text(text);
                             }
@@ -207,11 +198,28 @@ impl ImageViewer {
                     }
                     ui.close();
                 }
-                if ui.button("Copy Cursor").clicked() {
+                if ui.button("Copy Cursor Position").clicked() {
                     if let Some(cursor_pos) = app_state.cursor_pos {
                         if let Ok(mut cb) = arboard::Clipboard::new() {
                             let _ = cb.set_text(format!("{}, {}", cursor_pos.x, cursor_pos.y));
                         }
+                    }
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Copy Rect Mean Color").clicked() {
+                    if let Ok(vals) = image.mean_value_in_rect(app_state.marquee_rect.to_cv_rect(), MeanDim::All) {
+                        let spec = image.spec();
+                        let text = spec.pixel_values_to_string(&vals);
+                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                            let _ = cb.set_text(text);
+                        }
+                    }
+                    ui.close();
+                }
+                if ui.button("Copy Rect Bound").clicked() {
+                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                        let _ = cb.set_text(app_state.marquee_rect.to_string());
                     }
                     ui.close();
                 }
