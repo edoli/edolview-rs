@@ -1,14 +1,13 @@
+use color_eyre::eyre::Report;
 use core::f32;
+use eframe::egui::{self, vec2, Color32, FontData, Rangef, Visuals};
+use rfd::FileDialog;
 use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{atomic::Ordering, mpsc, Arc},
     thread, vec,
 };
-
-use color_eyre::eyre::Report;
-use eframe::egui::{self, vec2, Color32, FontData, Rangef, Visuals};
-use rfd::FileDialog;
 
 use crate::{
     model::{
@@ -788,19 +787,35 @@ impl eframe::App for ViewerApp {
 
                     if self.show_statistics {
                         egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
-                            ui.label("Min:");
-                            ui.label(format!("{:.4}", self.state.statistics.min));
+                            let num_channels = self.state.statistics.min.len();
 
-                            ui.label("Max:");
-                            ui.label(format!("{:.4}", self.state.statistics.max));
-                            ui.end_row();
+                            if num_channels == 1 {
+                                ui.label("Min:");
+                                ui.label(format!("{:.4}", self.state.statistics.min[0]));
+
+                                ui.label("Max:");
+                                ui.label(format!("{:.4}", self.state.statistics.max[0]));
+                                ui.end_row();
+                            } else {
+                                ui.label("Min:");
+                                for i in 0..self.state.statistics.min.len() {
+                                    ui.label(format!("{:.4}", self.state.statistics.min[i]));
+                                }
+                                ui.end_row();
+
+                                ui.label("Max:");
+                                for i in 0..self.state.statistics.max.len() {
+                                    ui.label(format!("{:.4}", self.state.statistics.max[i]));
+                                }
+                                ui.end_row();
+                            }
 
                             if self.state.is_comparison() {
                                 ui.label("RMSE:");
                                 ui.label(format!("{:.4}", self.state.statistics.rmse));
 
                                 ui.label("PSNR:");
-                                ui.label(format!("{:.4} dB", self.state.statistics.psnr));
+                                ui.label(format!("{:.4}", self.state.statistics.psnr));
                                 ui.end_row();
 
                                 // ui.label("SSIM:");
@@ -1006,8 +1021,8 @@ impl eframe::App for ViewerApp {
                     }
                     StatisticsType::MinMax => {
                         is_pending_update |= result.is_pending;
-                        self.state.statistics.min = result.value[0];
-                        self.state.statistics.max = result.value[1];
+                        self.state.statistics.min = result.value.iter().step_by(2).cloned().collect();
+                        self.state.statistics.max = result.value.iter().skip(1).step_by(2).cloned().collect();
                     }
                     _ => {}
                 }

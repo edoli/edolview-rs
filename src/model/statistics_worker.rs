@@ -108,8 +108,8 @@ pub struct Statistics {
     pub rmse: f64,
     pub psnr: f64,
     pub ssim: f64,
-    pub min: f64,
-    pub max: f64,
+    pub min: Vec<f64>,
+    pub max: Vec<f64>,
 }
 
 pub struct StatisticsWorker {
@@ -143,13 +143,41 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMax");
 
-            let mut min_val = 0.0;
-            let mut max_val = 0.0;
+            let mat_roi = cv::Mat::roi(&mat, rect)?;
 
-            let mat_roi = Mat::roi(&mat, rect)?;
-            cv::min_max_loc(&mat_roi, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
+            let mut result = Vec::new();
 
-            Ok::<Vec<f64>, opencv::Error>(vec![min_val * scale, max_val * scale])
+            // For single channel image
+            if mat.channels() == 1 {
+                let mut min_val = 0.0;
+                let mut max_val = 0.0;
+
+                cv::min_max_loc(&mat_roi, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
+
+                result.push(min_val * scale);
+                result.push(max_val * scale);
+
+                return Ok::<Vec<f64>, opencv::Error>(result);
+            }
+
+            // For multi-channel image
+            let mut channels = cv::Vector::<cv::Mat>::new();
+            // TODO: split copy data. split should be avoided for performance
+            cv::split(&mat_roi, &mut channels)?;
+
+            for i in 0..channels.len() {
+                let ch = channels.get(i)?;
+
+                let mut min_val = 0.0;
+                let mut max_val = 0.0;
+
+                cv::min_max_loc(&ch, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
+
+                result.push(min_val * scale);
+                result.push(max_val * scale);
+            }
+
+            Ok::<Vec<f64>, opencv::Error>(result)
         });
     }
 
