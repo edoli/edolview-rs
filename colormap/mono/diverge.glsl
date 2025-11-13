@@ -30,6 +30,7 @@ vec3 msh2rgb(vec3 msh) {
 }
 
 vec3 colormap(float t) {
+    t = clamp(t, 0.0, 1.0);
     vec3 low_color = vec3(0.230, 0.299, 0.754);
     vec3 high_color = vec3(0.706, 0.016, 0.150);
     vec3 low_msh = vec3(80.0154, 1.0797, -1.1002);

@@ -13,7 +13,6 @@ const COLOR_PROCESS_RGB_COLORMAP: &str = r#"
 
 const COLOR_PROCESS_MONO_COLORMAP: &str = r#"
     float v = color_proc(tex.r);
-    v = clamp(v, 0.0, 1.0);
     vec3 cm = colormap(v);
 "#;
 
