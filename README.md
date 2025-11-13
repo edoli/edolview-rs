@@ -138,6 +138,8 @@ $env:OPENCV_LINK_STATIC = "1"
 ### 3) Build the viewer
 
 ```bash
+# generate resources for the app
+cargo run -p xtask -- icons
 # from project root
 cargo build --release
 # or run directly
