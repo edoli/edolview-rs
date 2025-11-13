@@ -1,10 +1,12 @@
 use crate::model::{MeanDim, MeanProcessor};
 use crate::util::cv_ext::{CvIntExt, MatExt};
 use color_eyre::eyre::{eyre, Result};
+use eframe::emath::Numeric;
 use half::f16;
 use opencv::core::Size;
 use opencv::prelude::*;
 use opencv::{core, imgcodecs, imgproc};
+use std::f64;
 use std::sync::{LazyLock, Mutex};
 use std::{
     fs, mem,
@@ -299,9 +301,20 @@ impl MatImage {
         for ch in 0..channels {
             let mut dst = core::Mat::default();
             core::extract_channel(&self.mat, &mut dst, ch).expect("extract_channel failed");
+
+            // Ignore INFINITY and NEG_INFINITY values for min/max computation using mask
+            let mut mask = Mat::default();
+            core::in_range(
+                &dst,
+                &core::Scalar::all(f32::MIN.to_f64()),
+                &core::Scalar::all(f32::MAX.to_f64()),
+                &mut mask,
+            )
+            .expect("in_range failed");
+
             let mut min_val = 0f64;
             let mut max_val = 0f64;
-            let _ = core::min_max_loc(&dst, Some(&mut min_val), Some(&mut max_val), None, None, &core::no_array());
+            let _ = core::min_max_loc(&dst, Some(&mut min_val), Some(&mut max_val), None, None, &mask);
             mins[ch as usize] = min_val as f32;
             maxs[ch as usize] = max_val as f32;
         }
