@@ -93,7 +93,7 @@ sudo apt-get install -y --no-install-recommends \
   clang libclang-dev llvm-dev nasm
 
 git clone -b release https://github.com/edoli/opencv-edolview.git opencv
-cv opencv
+cd opencv
 sh cmake_script.sh
 
 export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH}"
@@ -107,7 +107,7 @@ brew update
 brew install cmake llvm git pkg-config nasm
 
 git clone -b release https://github.com/edoli/opencv-edolview.git opencv
-cv opencv
+cd opencv
 sh cmake_script.sh
 
 export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH}"
@@ -138,6 +138,8 @@ $env:OPENCV_LINK_STATIC = "1"
 ### 3) Build the viewer
 
 ```bash
+# generate resources for the app
+cargo run -p xtask -- icons
 # from project root
 cargo build --release
 # or run directly
