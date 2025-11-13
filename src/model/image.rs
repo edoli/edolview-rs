@@ -482,7 +482,7 @@ impl MatImage {
             mat
         };
 
-        let mat_f32 = if dtype != f32::typ() {
+        let mat_f32 = if dtype != f32::typ() || scale != 1.0 {
             let mut mat_f32 = core::Mat::default();
             tmp.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
             mat_f32
