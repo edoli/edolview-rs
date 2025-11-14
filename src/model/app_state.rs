@@ -177,7 +177,7 @@ impl AppState {
     pub fn set_primary_asset(&mut self, asset: SharedAsset) {
         let hash = asset.hash().to_string();
 
-        self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
+        self.assets.insert(hash.clone(), asset.clone());
 
         self.asset_primary = self.assets.get(&hash).cloned();
 
@@ -196,7 +196,7 @@ impl AppState {
         if let Some(asset) = asset {
             let hash = asset.hash().to_string();
 
-            self.assets.entry(hash.clone()).or_insert_with(|| asset.clone());
+            self.assets.insert(hash.clone(), asset.clone());
 
             self.asset_secondary = self.assets.get(&hash).cloned();
         } else {
