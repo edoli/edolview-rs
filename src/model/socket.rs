@@ -1,4 +1,7 @@
-use crate::model::{MatImage, SocketAsset};
+use crate::{
+    model::{MatImage, SocketAsset},
+    util::concurrency::NotifierSender,
+};
 use color_eyre::eyre::Result;
 use flate2::read::ZlibDecoder;
 use opencv::core::{Mat, MatExprTraitConst, MatTraitManual, Size};
@@ -7,7 +10,6 @@ use std::{
     net::{TcpListener, TcpStream},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
@@ -51,7 +53,7 @@ pub struct SocketServer {
 
 pub fn start_socket_listener(
     addr: &str,
-    tx: Sender<SocketAsset>,
+    tx: NotifierSender<SocketAsset>,
     socket_state: Arc<SocketState>,
 ) -> io::Result<SocketServer> {
     let listener = TcpListener::bind(addr)?;
@@ -96,7 +98,7 @@ pub fn start_socket_listener(
 pub fn start_server_with_retry(
     host: &str,
     mut port: u16,
-    tx: Sender<SocketAsset>,
+    tx: NotifierSender<SocketAsset>,
     socket_state: Arc<SocketState>,
     socket_info: Arc<Mutex<SocketInfo>>,
 ) -> io::Result<()> {

@@ -306,6 +306,9 @@ impl StatisticsWorker {
             match self.rx.try_recv() {
                 Ok(msg) => {
                     self.processing.remove(&msg.stat_type);
+
+                    // When statistics in calculated while another request is pending,
+                    // mark it as pending again
                     let is_pending = self.pending.contains(&msg.stat_type);
 
                     invalidated.push(StatisticsUpdate {

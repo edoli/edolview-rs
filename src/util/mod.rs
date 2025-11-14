@@ -1,5 +1,6 @@
 pub mod bool_ext;
 pub mod color;
+pub mod concurrency;
 pub mod cv_ext;
 pub mod func_ext;
 pub mod math_ext;

@@ -5,14 +5,16 @@ use rfd::FileDialog;
 use std::{
     collections::HashSet,
     path::PathBuf,
-    sync::{atomic::Ordering, mpsc, Arc},
-    thread, vec,
+    sync::{atomic::Ordering, mpsc, Arc, Mutex},
+    thread,
+    time::Duration,
+    vec,
 };
 
 use crate::{
     model::{
         start_server_with_retry, AppState, AssetType, Image, MeanDim, Recti, SocketAsset, StatisticsType,
-        StatisticsWorker,
+        StatisticsUpdate, StatisticsWorker,
     },
     res::{icons::Icons, KeyboardShortcutExt},
     ui::{
@@ -23,7 +25,7 @@ use crate::{
         },
         ImageViewer,
     },
-    util::{cv_ext::CvIntExt, math_ext::vec2i},
+    util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i},
 };
 
 #[derive(PartialEq, Clone)]
@@ -39,7 +41,7 @@ pub struct ViewerApp {
     last_path: Option<PathBuf>,
     tmp_marquee_rect: Recti,
     marquee_rect_text: String,
-    tmp_is_receiving: bool,
+    is_start_background_event_handlers_called: bool,
 
     // Marquee change callbacks
     last_marquee_rect_for_cb: Recti,
@@ -62,9 +64,12 @@ pub struct ViewerApp {
 
     toasts: Vec<Toast>,
 
-    rx: mpsc::Receiver<SocketAsset>,
+    socket_rx: mpsc::Receiver<SocketAsset>,
+    socket_nx: Option<mpsc::Receiver<()>>,
 
-    statistics_worker: StatisticsWorker,
+    statistics_worker: Arc<Mutex<StatisticsWorker>>,
+    statistics_tx: mpsc::Sender<Vec<StatisticsUpdate>>,
+    statistics_rx: mpsc::Receiver<Vec<StatisticsUpdate>>,
 
     // Async font loading: receiver for fallback font bytes (if any)
     font_rx: Option<mpsc::Receiver<FontData>>,
@@ -79,12 +84,14 @@ impl ViewerApp {
         // Start socket server for receiving images
         let host = "127.0.0.1";
         let port = 21734;
-        let (tx, rx) = mpsc::channel::<SocketAsset>();
+        let (socket_tx, socket_rx, socket_nx) = mpsc_with_notify::<SocketAsset>();
         let socket_state = state.socket_state.clone();
         let socket_info = state.socket_info.clone();
 
+        let (statistics_tx, statistics_rx) = mpsc::channel::<Vec<StatisticsUpdate>>();
+
         thread::spawn(move || {
-            start_server_with_retry(host, port, tx, socket_state, socket_info).unwrap_or_else(|e| {
+            start_server_with_retry(host, port, socket_tx, socket_state, socket_info).unwrap_or_else(|e| {
                 eprintln!("Failed to start socket server: {e}");
             });
         });
@@ -121,7 +128,7 @@ impl ViewerApp {
 
             tmp_marquee_rect: marquee_rect.clone(),
             marquee_rect_text: marquee_rect.to_string().into(),
-            tmp_is_receiving: false,
+            is_start_background_event_handlers_called: false,
 
             last_marquee_rect_for_cb: marquee_rect,
             last_marquee_asset_hash: None,
@@ -142,9 +149,13 @@ impl ViewerApp {
 
             icons: Icons::new(),
 
-            rx,
+            socket_rx,
+            socket_nx: Some(socket_nx),
 
-            statistics_worker: StatisticsWorker::new(),
+            statistics_tx,
+            statistics_rx,
+
+            statistics_worker: Arc::new(Mutex::new(StatisticsWorker::new())),
 
             font_rx,
             fallback_font_applied: false,
@@ -178,6 +189,8 @@ impl ViewerApp {
 
             // single image statistics
             self.statistics_worker
+                .lock()
+                .unwrap()
                 .run_minmax(img.mat(), img.spec().dtype.alpha(), rect.to_cv_rect());
         }
 
@@ -188,7 +201,7 @@ impl ViewerApp {
                 let img2 = a2.image();
 
                 // two image statistics
-                self.statistics_worker.run_psnr(
+                self.statistics_worker.lock().unwrap().run_psnr(
                     img1.mat(),
                     img2.mat(),
                     1.0,
@@ -205,11 +218,84 @@ impl ViewerApp {
     fn on_marquee_changed(&mut self) {
         self.update_statistics();
     }
-}
 
-impl eframe::App for ViewerApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        ctx.set_visuals(Visuals::dark());
+    fn start_background_event_handlers(&mut self, ctx: &egui::Context) {
+        let state = &self.state;
+        let _ctx = ctx.clone();
+
+        let socket_nx = self.socket_nx.take().unwrap();
+        let socket_state = state.socket_state.clone();
+        let statistics_worker = Arc::clone(&self.statistics_worker);
+        let statistics_tx = self.statistics_tx.clone();
+
+        thread::spawn(move || {
+            let mut tmp_is_receiving = false;
+
+            loop {
+                let current_is_receiving = socket_state.is_socket_receiving.load(Ordering::Relaxed);
+                if tmp_is_receiving != current_is_receiving {
+                    _ctx.request_repaint();
+                    tmp_is_receiving = current_is_receiving;
+                }
+
+                match socket_nx.try_recv() {
+                    Ok(()) => {
+                        _ctx.request_repaint();
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {}
+                }
+
+                let updates = statistics_worker.lock().unwrap().invalidate();
+                if !updates.is_empty() {
+                    statistics_tx.send(updates).unwrap();
+                    _ctx.request_repaint();
+                }
+
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
+    }
+
+    fn handle_event(&mut self, ctx: &egui::Context) {
+        match self.socket_rx.try_recv() {
+            Ok(asset) => {
+                self.state.set_primary_asset(Arc::new(asset));
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {}
+        }
+
+        match self.statistics_rx.try_recv() {
+            Ok(updates) => {
+                let mut is_pending_update = false;
+                for result in updates {
+                    match result.stat_type {
+                        StatisticsType::PSNRRMSE => {
+                            is_pending_update |= result.is_pending;
+                            self.state.statistics.psnr = result.value[0];
+                            self.state.statistics.rmse = result.value[1];
+                        }
+                        StatisticsType::SSIM => {
+                            is_pending_update |= result.is_pending;
+                            self.state.statistics.ssim = result.value[0];
+                        }
+                        StatisticsType::MinMax => {
+                            is_pending_update |= result.is_pending;
+                            self.state.statistics.min = result.value.iter().step_by(2).cloned().collect();
+                            self.state.statistics.max = result.value.iter().skip(1).step_by(2).cloned().collect();
+                        }
+                        _ => {}
+                    }
+                }
+
+                if is_pending_update {
+                    self.update_statistics();
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {}
+        }
 
         // Non-blocking check for fallback font data and apply once.
         if !self.fallback_font_applied {
@@ -240,6 +326,19 @@ impl eframe::App for ViewerApp {
                 self.fallback_font_applied = true; // No font to load.
             }
         }
+    }
+}
+
+impl eframe::App for ViewerApp {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        ctx.set_visuals(Visuals::dark());
+
+        if !self.is_start_background_event_handlers_called {
+            self.start_background_event_handlers(ctx);
+            self.is_start_background_event_handlers_called = true;
+        }
+
+        self.handle_event(ctx);
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
@@ -986,52 +1085,6 @@ impl eframe::App for ViewerApp {
         #[cfg(debug_assertions)]
         {
             crate::debug::debug_window(ctx);
-        }
-    }
-
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {
-        let current_is_receiving = self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed);
-        if self.tmp_is_receiving != current_is_receiving {
-            _ctx.request_repaint();
-            self.tmp_is_receiving = current_is_receiving;
-        }
-
-        match self.rx.try_recv() {
-            Ok(asset) => {
-                self.state.set_primary_asset(Arc::new(asset));
-                _ctx.request_repaint();
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {}
-        }
-
-        let updates = self.statistics_worker.invalidate();
-        if !updates.is_empty() {
-            let mut is_pending_update = false;
-            for result in updates {
-                match result.stat_type {
-                    StatisticsType::PSNRRMSE => {
-                        is_pending_update |= result.is_pending;
-                        self.state.statistics.psnr = result.value[0];
-                        self.state.statistics.rmse = result.value[1];
-                    }
-                    StatisticsType::SSIM => {
-                        is_pending_update |= result.is_pending;
-                        self.state.statistics.ssim = result.value[0];
-                    }
-                    StatisticsType::MinMax => {
-                        is_pending_update |= result.is_pending;
-                        self.state.statistics.min = result.value.iter().step_by(2).cloned().collect();
-                        self.state.statistics.max = result.value.iter().skip(1).step_by(2).cloned().collect();
-                    }
-                    _ => {}
-                }
-            }
-            _ctx.request_repaint();
-
-            if is_pending_update {
-                self.update_statistics();
-            }
         }
     }
 }
