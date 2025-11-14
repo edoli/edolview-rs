@@ -107,11 +107,12 @@ impl AppState {
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from path]");
 
         let path_str = path.to_string_lossy().to_string();
+        let hash_str = FileAsset::hash_from_path(&path)?;
 
-        if self.assets.contains_key(&path_str) {
-            self.set_asset_primary_by_hash(&path_str);
+        if self.assets.contains_key(&hash_str) {
+            self.set_asset_primary_by_hash(&hash_str);
         } else {
-            self.set_primary_asset(Arc::new(FileAsset::new(path_str, MatImage::load_from_path(&path)?)));
+            self.set_primary_asset(Arc::new(FileAsset::new(path_str, hash_str, MatImage::load_from_path(&path)?)));
         }
 
         self.path = Some(path.clone());
@@ -154,7 +155,8 @@ impl AppState {
                 if path.exists() && path.is_file() {
                     let image = MatImage::load_from_path(path)?;
                     let path_str = path.to_string_lossy().to_string();
-                    self.set_primary_asset(Arc::new(FileAsset::new(path_str, image)));
+                    let hash_str = FileAsset::hash_from_path(path)?;
+                    self.set_primary_asset(Arc::new(FileAsset::new(path_str, hash_str, image)));
                 }
             }
         } else {
@@ -230,7 +232,7 @@ impl AppState {
             }
 
             let num_channels = asset_primary.image().spec().channels as i32;
-            
+
             if num_channels == 1 {
                 self.channel_index = -1;
             } else if self.channel_index >= num_channels {

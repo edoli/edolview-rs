@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use opencv::core::{MatTrait, MatTraitConst};
 
@@ -24,12 +24,25 @@ pub trait Asset<T: Image> {
 
 pub struct FileAsset {
     path: String,
+    hash: String,
     image: MatImage,
 }
 
 impl FileAsset {
-    pub fn new(path: String, image: MatImage) -> Self {
-        Self { path, image }
+    pub fn new(path: String, hash: String, image: MatImage) -> Self {
+        Self { path, hash, image }
+    }
+
+    pub fn hash_from_path(path: &PathBuf) -> std::io::Result<String> {
+        let meta = std::fs::metadata(path)?;
+        let modified = meta.modified()?;
+        let duration = modified.duration_since(std::time::UNIX_EPOCH).unwrap();
+
+        let modified_ns = duration.as_nanos();
+        let len = meta.len();
+
+        // key: "path|mtime_ns|len"
+        Ok(format!("{}|{}|{}", path.to_string_lossy(), modified_ns, len))
     }
 }
 
@@ -43,7 +56,7 @@ impl Asset<MatImage> for FileAsset {
     }
 
     fn hash(&self) -> &str {
-        &self.path
+        &self.hash
     }
 
     fn asset_type(&self) -> AssetType {
