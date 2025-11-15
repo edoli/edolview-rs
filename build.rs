@@ -5,5 +5,9 @@ fn main() {
         // Use the generated .ico
         res.set_icon("icons/app.ico");
         res.compile().expect("Failed to embed Windows icon");
+        
+        println!("cargo:rustc-link-lib=static=libwebpdemux");
+        println!("cargo:rustc-link-lib=static=libsharpyuv");
+        println!("cargo:rustc-link-lib=static=libwebpmux");
     }
 }
