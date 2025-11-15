@@ -373,6 +373,7 @@ impl MatImage {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
 
         let mut scale_abs = 1.0f64;
+        let mut bgr_convert = true;
 
         let mat = {
             #[cfg(debug_assertions)]
@@ -390,6 +391,7 @@ impl MatImage {
 
                     fs::copy(&path, &temp_path).map_err(|e| eyre!("Failed to copy file: {e}"))?;
                 }
+                bgr_convert = true;
                 imgcodecs::imread(temp_path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
             } else if ext == "heic" || ext == "heif" {
                 unsafe {
@@ -481,6 +483,7 @@ impl MatImage {
                     libheif_sys::heif_image_handle_release(handle);
                     libheif_sys::heif_context_free(ctx);
                     
+                    bgr_convert = false;
                     mat
                 }
             } else if ext == "pfm" || ext == "flo" {
@@ -493,9 +496,11 @@ impl MatImage {
                     return Ok(MatImage::new(decode_flo_to_mat(&bytes)?, core::CV_32F));
                 }
                 let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
+                bgr_convert = true;
                 imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?
             } else {
                 // Read image using imread fails on paths with non-ASCII characters.
+                bgr_convert = true;
                 imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
             }
         };
@@ -505,7 +510,7 @@ impl MatImage {
         }
 
         let dtype = mat.depth();
-        let mat_f32 = Self::postprocess(mat, scale_abs, true)?;
+        let mat_f32 = Self::postprocess(mat, scale_abs, bgr_convert)?;
 
         Ok(MatImage::new(mat_f32, dtype))
     }
