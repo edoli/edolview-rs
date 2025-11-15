@@ -1,4 +1,5 @@
 use crate::model::{MeanDim, MeanProcessor};
+use crate::util;
 use crate::util::cv_ext::{CvIntExt, MatExt};
 use color_eyre::eyre::{eyre, Result};
 use eframe::emath::Numeric;
@@ -385,7 +386,7 @@ impl MatImage {
                 imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
             } else if ext == "exr" {
                 // Copy file to temp file with ASCII path and read it
-                let temp_dir = std::env::temp_dir();
+                let temp_dir = util::path_ext::safe_temp_dir();
                 let temp_path = temp_dir.join("edolview_temp.exr");
                 {
                     #[cfg(debug_assertions)]
