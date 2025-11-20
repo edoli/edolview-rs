@@ -381,7 +381,11 @@ impl MatImage {
 
             let contains_non_ascii = Self::contains_non_ascii(path);
 
-            if ext == "exr" && contains_non_ascii {
+            if !contains_non_ascii && ext != "pfm" && ext != "flo" {
+                // Read image using imread fails on paths with non-ASCII characters.
+                bgr_convert = true;
+                imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
+            } else if ext == "exr" {
                 // Copy file to temp file with ASCII path and read it
                 let temp_dir = std::env::temp_dir();
                 let temp_path = temp_dir.join("edolview_temp.exr");
@@ -486,7 +490,7 @@ impl MatImage {
                     bgr_convert = false;
                     mat
                 }
-            } else if ext == "pfm" || ext == "flo" {
+            } else {
                 let mut bytes = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
 
                 if ext == "pfm" {
@@ -498,10 +502,6 @@ impl MatImage {
                 let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
                 bgr_convert = true;
                 imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?
-            } else {
-                // Read image using imread fails on paths with non-ASCII characters.
-                bgr_convert = true;
-                imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
             }
         };
 
