@@ -1,9 +1,12 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-fn is_unicode_path(path: &Path) -> bool {
-    path.as_os_str().to_os_string().into_string().is_ok()
+pub fn is_unicode_path(path: &PathBuf) -> bool {
+    match path.to_str() {
+        Some(s) => s.chars().all(|c| c.is_ascii()),
+        None => false,
+    }
 }
 
 /// Crossplatform safe temporary directory path
