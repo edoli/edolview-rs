@@ -43,3 +43,8 @@ winres = "0.1"
 name = "Edolview"
 identifier = "kr.edoli.edolview"
 icon = ["icons/Edolview.icns"]
+
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+branch = "master"
+dependencies = ["libheif:x64-windows-static-md"]

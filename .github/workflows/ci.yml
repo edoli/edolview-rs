@@ -208,6 +208,11 @@ jobs:
           
           Get-Content -Path $Env:GITHUB_ENV
 
+      - name: Run vcpkg build
+        run: |
+          cargo install cargo-vcpkg
+          cargo vcpkg -v build
+
       - name: Run icon generation
         run: cargo run -p xtask -- icons
 
