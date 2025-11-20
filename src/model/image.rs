@@ -381,7 +381,7 @@ impl MatImage {
 
             let contains_non_ascii = Self::contains_non_ascii(path);
 
-            if !contains_non_ascii && ext != "pfm" && ext != "flo" {
+            if !contains_non_ascii && ext != "pfm" && ext != "flo" && ext != "heic" && ext != "heif" {
                 // Read image using imread fails on paths with non-ASCII characters.
                 bgr_convert = true;
                 imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
