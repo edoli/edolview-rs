@@ -208,6 +208,21 @@ jobs:
           
           Get-Content -Path $Env:GITHUB_ENV
 
+      - name: Run vcpkg build
+        run: |
+          cargo install cargo-vcpkg
+          cargo vcpkg -v build
+          
+      - name: Add vcpkg pkgconfig to PKG_CONFIG_PATH (Ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        run: |
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/target/vcpkg/installed/x64-linux-release/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Add vcpkg pkgconfig to PKG_CONFIG_PATH (macOS)
+        if: startsWith(runner.os, 'macOS')
+        run: |
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/target/vcpkg/installed/arm64-osx-release/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          
       - name: Run icon generation
         run: cargo run -p xtask -- icons
 
