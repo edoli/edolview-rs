@@ -47,7 +47,7 @@ icon = ["icons/Edolview.icns"]
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
 branch = "master"
-dependencies = ["libheif"]
+dependencies = ["libheif[core]"]
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md-release" }
