@@ -4,5 +4,6 @@ pub mod concurrency;
 pub mod cv_ext;
 pub mod func_ext;
 pub mod math_ext;
+pub mod path_ext;
 pub mod str_ext;
 pub mod timer;
