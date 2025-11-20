@@ -48,3 +48,24 @@ icon = ["icons/Edolview.icns"]
 git = "https://github.com/microsoft/vcpkg"
 branch = "master"
 dependencies = ["libheif:x64-windows-static-md"]
+# Per-target vcpkg triplet selection
+# Adjust triplet names if you use custom/community triplets.
+
+[target.x86_64-pc-windows-msvc]
+env = { VCPKG_TARGET_TRIPLET = "x64-windows-static-md" }
+
+[target.x86_64-unknown-linux-gnu]
+# "x64-linux" is common; you may prefer "x86_64-linux" or leave unset for default.
+env = { VCPKG_TARGET_TRIPLET = "x64-linux" }
+
+[target.aarch64-unknown-linux-gnu]
+# Example for ARM64 Linux (adjust if needed)
+env = { VCPKG_TARGET_TRIPLET = "arm64-linux" }
+
+[target.x86_64-apple-darwin]
+# macOS Intel
+env = { VCPKG_TARGET_TRIPLET = "x64-osx" }
+
+[target.aarch64-apple-darwin]
+# macOS Apple Silicon
+env = { VCPKG_TARGET_TRIPLET = "arm64-osx" }
