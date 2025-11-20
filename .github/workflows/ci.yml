@@ -221,7 +221,7 @@ jobs:
       - name: Add vcpkg pkgconfig to PKG_CONFIG_PATH (macOS)
         if: startsWith(runner.os, 'macOS')
         run: |
-          echo "PKG_CONFIG_PATH=${{ github.workspace }}/target/vcpkg/packages/libheif_arm64-osx-release/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/target/vcpkg/installed/arm64-osx-release/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           
       - name: Run icon generation
         run: cargo run -p xtask -- icons
