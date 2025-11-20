@@ -1,5 +1,4 @@
 use crate::model::{MeanDim, MeanProcessor};
-use crate::util;
 use crate::util::cv_ext::{CvIntExt, MatExt};
 use color_eyre::eyre::{eyre, Result};
 use eframe::emath::Numeric;
@@ -372,14 +371,14 @@ impl MatImage {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Image read");
 
-            let is_unicode_path = util::path_ext::is_unicode_path(path);
+            let is_unicode_path = crate::util::path_ext::is_unicode_path(path);
 
             if is_unicode_path && ext != "pfm" && ext != "flo" {
                 // Read image using imread fails on paths with non-ASCII characters.
                 imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
             } else if ext == "exr" {
                 // Copy file to temp file with ASCII path and read it
-                let temp_dir = util::path_ext::safe_temp_dir();
+                let temp_dir = crate::util::path_ext::safe_temp_dir();
                 let temp_path = temp_dir.join("edolview_temp.exr");
                 {
                     #[cfg(debug_assertions)]
