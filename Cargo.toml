@@ -47,7 +47,7 @@ icon = ["icons/Edolview.icns"]
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
 branch = "master"
-dependencies = ["libheif:x64-windows-static-md"]
+dependencies = ["libheif"]
 # Per-target vcpkg triplet selection
 # Adjust triplet names if you use custom/community triplets.
 
