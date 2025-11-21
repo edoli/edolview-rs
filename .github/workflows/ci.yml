@@ -51,6 +51,39 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # ----- Cache vcpkg installations to speed up dependency builds -----
+      - name: Cache vcpkg (Linux)
+        if: startsWith(runner.os, 'Linux')
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/vcpkg/installed/x64-linux-release
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Cache vcpkg (macOS)
+        if: startsWith(runner.os, 'macOS')
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/vcpkg/installed/arm64-osx-release
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Cache vcpkg (Windows)
+        if: startsWith(runner.os, 'Windows')
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/vcpkg/installed/x64-windows-static-md
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+              
+
       # ----- Cache OpenCV install directories -----
       - name: Cache OpenCV install (Ubuntu)
         if: startsWith(runner.os, 'Linux')
@@ -78,6 +111,18 @@ jobs:
           key: opencv4-${{ runner.os }}-4.12.0
           restore-keys: |
             opencv4-${{ runner.os }}-
+
+      # ----- Cache Chocolatey packages (Windows) -----
+      - name: Cache Chocolatey packages (Windows)
+        if: startsWith(runner.os, 'Windows')
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\ProgramData\chocolatey\lib
+            C:\ProgramData\chocolatey\bin
+          key: choco-${{ runner.os }}-llvm-cmake-ninja-git-curl-unzip-nasm-v1
+          restore-keys: |
+            choco-${{ runner.os }}-
 
       # ----- Linux (Ubuntu) OpenCV deps -----
       - name: Install OpenCV deps (Ubuntu)
