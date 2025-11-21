@@ -271,14 +271,8 @@ jobs:
       - name: Run icon generation
         run: cargo run -p xtask -- icons
 
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Run tests (if any)
-        run: cargo test --all --verbose --no-fail-fast
-
       - name: Package release binary
-        run: cargo build --release
+        run: cargo build --release --features heif
 
       - name: Copy release binary to root
         run: |

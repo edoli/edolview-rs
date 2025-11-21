@@ -27,11 +27,14 @@ opener = "0.8.3"
 flate2 = { version = "1.1.2", features = ["zlib-rs"], default-features = false }
 clipboard-rs = "0.3.0"
 dunce = "1.0.5"
-libheif-sys = { version = "4.1", features = ["v1_19"] }
-ffi = "0.1.1"
+libheif-sys = { version = "4.1", features = ["v1_19"], optional = true }
 
 # Only for debug
 egui_extras = "0.32"
+
+[features]
+default = []
+heif = ["libheif-sys"]
 
 [workspace]
 members = ["xtask"]

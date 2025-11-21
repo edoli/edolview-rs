@@ -2,6 +2,7 @@ mod app_state;
 mod asset;
 mod file_nav;
 mod image;
+mod image_io;
 mod image_processor;
 mod recti;
 mod socket;
