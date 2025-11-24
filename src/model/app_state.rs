@@ -122,6 +122,10 @@ impl AppState {
 
         // Refresh directory listing and select current index
         if let Some(dir) = path.parent() {
+            if self.file_nav.check_is_current_dir(dir) {
+                // Same directory, no need to refresh
+                return Ok(());
+            }
             self.file_nav.refresh_dir_listing_for(dir.to_path_buf());
             self.file_nav.select_index_for_path(&path);
             let _ = self.file_nav.start_dir_watcher(dir.to_path_buf());

@@ -71,6 +71,14 @@ impl FileNav {
         });
     }
 
+    pub fn check_is_current_dir(&self, dir: &Path) -> bool {
+        let dir_abs = canonicalize_friendly(dir).unwrap_or(dir.to_path_buf());
+        match &self.dir_path {
+            Some(current_dir) => *current_dir == dir_abs,
+            None => false,
+        }
+    }
+
     pub fn refresh_dir_listing_for(&mut self, dir: PathBuf) {
         let dir_abs = canonicalize_friendly(&dir).unwrap_or(dir.clone());
         self.dir_path = Some(dir_abs.clone());
