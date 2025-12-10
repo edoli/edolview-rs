@@ -955,15 +955,56 @@ impl eframe::App for ViewerApp {
 
                         self.state.assets.iter().for_each(|(hash, asset)| {
                             let name = asset.name();
+                            let available_width = ui.available_width();
+
+                            let style = ui.style();
+                            let font_id = style.text_styles.get(&egui::TextStyle::Button).cloned().unwrap_or_default();
+                            let padding = style.spacing.button_padding.x * 2.0;
+                            let target_width = (available_width - padding).max(0.0);
+
+                            // Truncate name with ellipsis if too long. Example: "very_long_filename.png" -> "...lename.png"
+                            let display_name = ui.fonts(|fonts| {
+                                let name_width = fonts
+                                    .layout_no_wrap(name.to_string(), font_id.clone(), Color32::WHITE)
+                                    .rect
+                                    .width();
+
+                                if name_width <= target_width {
+                                    name.to_string()
+                                } else {
+                                    let dots_width = fonts
+                                        .layout_no_wrap("...".to_string(), font_id.clone(), Color32::WHITE)
+                                        .rect
+                                        .width();
+                                    let content_width = target_width - dots_width;
+
+                                    if content_width <= 0.0 {
+                                        return "...".to_string();
+                                    }
+
+                                    let mut current_width = 0.0;
+                                    let mut start_index = name.len();
+
+                                    for (i, c) in name.char_indices().rev() {
+                                        let char_width = fonts.glyph_width(&font_id, c);
+                                        if current_width + char_width > content_width {
+                                            break;
+                                        }
+                                        current_width += char_width;
+                                        start_index = i;
+                                    }
+                                    format!("...{}", &name[start_index..])
+                                }
+                            });
 
                             ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                                 let btn = if Some(hash) == asset_primary_hash {
-                                    ui.selectable_label(true, name)
+                                    ui.selectable_label(true, &display_name)
                                 } else if Some(hash) == asset_secondary_hash {
                                     ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(140, 70, 30);
-                                    ui.selectable_label(true, name)
+                                    ui.selectable_label(true, &display_name)
                                 } else {
-                                    ui.selectable_label(false, name)
+                                    ui.selectable_label(false, &display_name)
                                 };
                                 btn.context_menu(|ui| {
                                     ui.visuals_mut().override_text_color = Some(Color32::from_rgb(255, 100, 100));
