@@ -960,7 +960,7 @@ impl eframe::App for ViewerApp {
                             let style = ui.style();
                             let font_id = style.text_styles.get(&egui::TextStyle::Button).cloned().unwrap_or_default();
                             let padding = style.spacing.button_padding.x * 2.0;
-                            let target_width = (available_width - padding).max(0.0);
+                            let target_width = (available_width - padding - 5.0).max(0.0);
 
                             // Truncate name with ellipsis if too long. Example: "very_long_filename.png" -> "...lename.png"
                             let display_name = ui.fonts(|fonts| {
@@ -986,7 +986,7 @@ impl eframe::App for ViewerApp {
                                     let mut start_index = name.len();
 
                                     for (i, c) in name.char_indices().rev() {
-                                        let char_width = fonts.glyph_width(&font_id, c);
+                                        let char_width = fonts.glyph_width(&font_id, c) + 0.075;
                                         if current_width + char_width > content_width {
                                             break;
                                         }
