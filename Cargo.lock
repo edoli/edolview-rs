@@ -1153,6 +1153,7 @@ dependencies = [
  "resvg",
  "rfd",
  "ureq",
+ "winit",
  "winres",
 ]
 

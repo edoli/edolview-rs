@@ -1010,3 +1010,104 @@ fn enforce_square_from_anchor(anchor: egui::Pos2, free: egui::Pos2) -> egui::Pos
     let sy = if dy >= 0.0 { 1.0 } else { -1.0 };
     egui::pos2(anchor.x + sx * side, anchor.y + sy * side)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::AppState;
+    use eframe::egui;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+
+    struct PerfApp {
+        state: AppState,
+        viewer: ImageViewer,
+        start: Option<Instant>,
+        has_started_load: bool,
+        image_path: PathBuf,
+        result: Arc<Mutex<Option<std::time::Duration>>>,
+    }
+
+    impl eframe::App for PerfApp {
+        fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+            if !self.has_started_load {
+                self.has_started_load = true;
+                self.start = Some(Instant::now());
+                self.state
+                    .load_from_path(self.image_path.clone())
+                    .expect("failed to load image");
+            }
+
+            egui::CentralPanel::default().show(ctx, |ui| {
+                self.viewer.show_image(ui, frame, &mut self.state);
+            });
+
+            if self.viewer.gl_raw_tex.is_some() && self.result.lock().unwrap().is_none() {
+                let elapsed = self.start.expect("missing timer start").elapsed();
+                *self.result.lock().unwrap() = Some(elapsed);
+                {
+                    let mut debug_state = crate::debug::DEBUG_STATE.lock().unwrap();
+                    debug_state.sort_timings();
+                    eprintln!("---- ScopedTimer timings ----");
+                    for (name, duration) in debug_state.iter_timings() {
+                        eprintln!("{name}: {:.3?}", duration);
+                    }
+                    eprintln!("-----------------------------");
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_load_to_first_frame_display_time() {
+        let image_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("images/voortrekker_interior_8k.hdr");
+        assert!(
+            image_path.exists(),
+            "missing test image at {}",
+            image_path.display()
+        );
+
+        let result = Arc::new(Mutex::new(None));
+        let result_for_app = Arc::clone(&result);
+
+        let mut native_options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(1280.0, 720.0)),
+            ..Default::default()
+        };
+
+        #[cfg(target_os = "windows")]
+        {
+            use winit::platform::windows::EventLoopBuilderExtWindows;
+            native_options.event_loop_builder = Some(Box::new(|builder| {
+                builder.with_any_thread(true);
+            }));
+        }
+
+        let run_result = eframe::run_native(
+            "perf_load_to_first_frame_display_time",
+            native_options,
+            Box::new(move |_cc| {
+                let state = AppState::empty();
+                Ok(Box::new(PerfApp {
+                    state,
+                    viewer: ImageViewer::new(),
+                    start: None,
+                    has_started_load: false,
+                    image_path: image_path.clone(),
+                    result: Arc::clone(&result_for_app),
+                }))
+            }),
+        );
+
+        assert!(run_result.is_ok(), "eframe run failed");
+
+        let elapsed = result
+            .lock()
+            .unwrap()
+            .expect("did not capture display time");
+        eprintln!("load->gpu upload->first frame took: {:.2?}", elapsed);
+    }
+}
