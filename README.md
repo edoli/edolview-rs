@@ -176,6 +176,7 @@ EdolView internally uses OpenCV for image loading, so image formats supported by
 * BMP (\*.bmp)
 * WEBP (\*.webp)
 * GIF (\*.gif)
+* HEIC/HEIF (\*.heic, \*.heif)
 
 ## License
 EdolView is available under the MIT license.
