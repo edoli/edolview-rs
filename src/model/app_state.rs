@@ -52,8 +52,10 @@ pub struct AppState {
     pub assets: IndexMap<String, SharedAsset>,
 }
 
-fn list_colormaps(dir: &PathBuf) -> Vec<String> {
+fn list_colormaps(rel_dir: &str) -> Vec<String> {
     // get file names ending with .glsl in the directory; silently ignore IO errors
+    let base_dir = crate::util::path_ext::exe_dir_or_cwd();
+    let dir = base_dir.join(rel_dir);
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry_res in entries {
@@ -85,8 +87,8 @@ impl AppState {
             channel_index: -1,
             colormap_rgb: String::from("rgb"),
             colormap_mono: String::from("gray"),
-            colormap_rgb_list: list_colormaps(&PathBuf::from("colormap/rgb")),
-            colormap_mono_list: list_colormaps(&PathBuf::from("colormap/mono")),
+            colormap_rgb_list: list_colormaps("colormap/rgb"),
+            colormap_mono_list: list_colormaps("colormap/mono"),
             is_show_background: true,
             is_show_pixel_tooltip: true,
             is_show_pixel_value: true,

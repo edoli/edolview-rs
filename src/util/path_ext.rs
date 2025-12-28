@@ -47,3 +47,12 @@ pub fn safe_temp_dir() -> PathBuf {
     let _ = fs::create_dir_all(&p);
     p
 }
+
+pub fn exe_dir_or_cwd() -> PathBuf {
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            return dir.to_path_buf();
+        }
+    }
+    env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
