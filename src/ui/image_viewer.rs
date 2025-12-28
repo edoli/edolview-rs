@@ -45,6 +45,9 @@ pub struct ImageViewer {
     copy_requested: bool,
     last_image_id: Option<u64>, // cache key to know when to re-upload texture
     last_viewport_size_px: Option<egui::Vec2>,
+
+    last_shader_error: Option<String>,
+    last_reported_shader_error: Option<String>,
 }
 
 impl ImageViewer {
@@ -61,10 +64,13 @@ impl ImageViewer {
             copy_requested: false,
             last_image_id: None,
             last_viewport_size_px: None,
+            last_shader_error: None,
+            last_reported_shader_error: None,
         }
     }
 
     pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, app_state: &mut AppState) {
+        self.refresh_shader_error();
         let Some(asset) = app_state.asset.as_ref() else {
             ui.centered_and_justified(|ui| {
                 ui.label("Drag & Drop an image file here.");
@@ -115,8 +121,13 @@ impl ImageViewer {
 
             if self.image_prog.is_none() {
                 if let Some(gl) = frame.gl() {
-                    if let Ok(p) = ImageProgram::new(gl) {
-                        self.image_prog = Some(Arc::new(Mutex::new(p)));
+                    match ImageProgram::new(gl) {
+                        Ok(p) => {
+                            self.image_prog = Some(Arc::new(Mutex::new(p)));
+                        }
+                        Err(e) => {
+                            self.last_shader_error = Some(e.to_string());
+                        }
                     }
                 }
             }
@@ -922,6 +933,30 @@ impl ImageViewer {
 
     pub fn request_copy(&mut self) {
         self.copy_requested = true;
+    }
+
+    pub fn take_shader_error(&mut self) -> Option<String> {
+        if self.last_shader_error.is_none() {
+            self.last_reported_shader_error = None;
+            return None;
+        }
+        if self.last_shader_error != self.last_reported_shader_error {
+            self.last_reported_shader_error = self.last_shader_error.clone();
+            return self.last_shader_error.clone();
+        }
+        None
+    }
+
+    fn refresh_shader_error(&mut self) {
+        if let Some(image_prog) = &self.image_prog {
+            if let Ok(program) = image_prog.lock() {
+                self.last_shader_error = program.last_error().cloned();
+            }
+        }
+
+        if self.last_shader_error.is_none() {
+            self.last_reported_shader_error = None;
+        }
     }
 }
 

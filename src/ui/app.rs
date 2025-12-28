@@ -1100,6 +1100,9 @@ impl eframe::App for ViewerApp {
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
                 self.viewer.show_image(ui, frame, &mut self.state);
+                if let Some(err) = self.viewer.take_shader_error() {
+                    self.toasts.add_error(format!("Shader error: {err}"));
+                }
 
                 self.toasts.retain_active();
                 ui.add(ToastUi::new(&mut self.toasts));

@@ -42,6 +42,8 @@ pub struct ImageProgram {
     u_min_v_chs: [glow::UniformLocation; 4],
     u_max_v_chs: [glow::UniformLocation; 4],
     u_scale_mode_chs: [glow::UniformLocation; 4],
+
+    last_error: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -126,20 +128,25 @@ unsafe fn compile_colormap_shader(
     gl.shader_source(vs, VERT_SRC);
     gl.compile_shader(vs);
     if !gl.get_shader_compile_status(vs) {
-        return Err(eyre!(gl.get_shader_info_log(vs)));
+        return Err(eyre!("Vertex shader compile failed: {}", gl.get_shader_info_log(vs)));
     }
 
     let fs = gl.create_shader(glow::FRAGMENT_SHADER).unwrap();
-    gl.shader_source(fs, shader_builder.build(colormap_name, is_mono).as_str());
+    let fs_src = shader_builder.build(colormap_name, is_mono)?;
+    gl.shader_source(fs, fs_src.as_str());
     gl.compile_shader(fs);
     if !gl.get_shader_compile_status(fs) {
-        return Err(eyre!(gl.get_shader_info_log(fs)));
+        return Err(eyre!(
+            "Fragment shader compile failed for colormap '{}': {}",
+            colormap_name,
+            gl.get_shader_info_log(fs)
+        ));
     }
     gl.attach_shader(program, vs);
     gl.attach_shader(program, fs);
     gl.link_program(program);
     if !gl.get_program_link_status(program) {
-        return Err(eyre!(gl.get_program_info_log(program)));
+        return Err(eyre!("Shader program link failed: {}", gl.get_program_info_log(program)));
     }
     gl.detach_shader(program, vs);
     gl.detach_shader(program, fs);
@@ -236,6 +243,7 @@ impl ImageProgram {
                 u_min_v_chs,
                 u_max_v_chs,
                 u_scale_mode_chs,
+                last_error: None,
             })
         }
     }
@@ -282,14 +290,20 @@ impl ImageProgram {
         shader_params: &ShaderParams,
     ) {
         if self.last_color_map_name != colormap_name || self.last_is_mono != is_mono {
-            if let Ok(new_program) = compile_colormap_shader(gl, &self.shader_builder, colormap_name, is_mono) {
-                gl.delete_program(self.program);
-                self.program = new_program;
-                self.update_uniforms(gl);
-                self.last_color_map_name = colormap_name.to_string();
-                self.last_is_mono = is_mono;
-            } else {
-                eprintln!("Failed to compile colormap shader: {}", colormap_name);
+            match compile_colormap_shader(gl, &self.shader_builder, colormap_name, is_mono) {
+                Ok(new_program) => {
+                    gl.delete_program(self.program);
+                    self.program = new_program;
+                    self.update_uniforms(gl);
+                    self.last_color_map_name = colormap_name.to_string();
+                    self.last_is_mono = is_mono;
+                    self.last_error = None;
+                }
+                Err(e) => {
+                    let message = format!("{e}");
+                    eprintln!("{message}");
+                    self.last_error = Some(message);
+                }
             }
         }
 
@@ -356,5 +370,9 @@ impl ImageProgram {
         gl.delete_vertex_array(self.vao);
         gl.delete_buffer(self.vbo);
         gl.delete_buffer(self.ebo);
+    }
+
+    pub fn last_error(&self) -> Option<&String> {
+        self.last_error.as_ref()
     }
 }

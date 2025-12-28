@@ -1,3 +1,5 @@
+use color_eyre::eyre::{eyre, Result};
+
 pub struct ShaderBuilder {
     base_rgb_shader: String,
     base_mono_shader: String,
@@ -28,22 +30,21 @@ impl ShaderBuilder {
         }
     }
 
-    pub fn build(&self, colormap_name: &str, is_mono: bool) -> String {
+    pub fn build(&self, colormap_name: &str, is_mono: bool) -> Result<String> {
         let base_dir = crate::util::path_ext::exe_dir_or_cwd();
-        let colormap_code = if is_mono {
-            std::fs::read_to_string(base_dir.join(format!("colormap/mono/{}.glsl", colormap_name)))
-                .unwrap_or_else(|_| String::new())
+        let path = if is_mono {
+            base_dir.join(format!("colormap/mono/{}.glsl", colormap_name))
         } else {
-            std::fs::read_to_string(base_dir.join(format!("colormap/rgb/{}.glsl", colormap_name)))
-                .unwrap_or_else(|_| String::new())
+            base_dir.join(format!("colormap/rgb/{}.glsl", colormap_name))
         };
-        // TODO: show error if colormap file not found
+        let colormap_code = std::fs::read_to_string(&path)
+            .map_err(|e| eyre!("Failed to read colormap file '{}': {e}", path.display()))?;
 
         let shader = if is_mono {
             self.base_mono_shader.replace("%colormap_function%", &colormap_code)
         } else {
             self.base_rgb_shader.replace("%colormap_function%", &colormap_code)
         };
-        shader
+        Ok(shader)
     }
 }
