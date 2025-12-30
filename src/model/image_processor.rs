@@ -25,9 +25,12 @@ pub enum MeanDim {
 }
 
 pub struct MeanProcessor {
+    // Cached integral image for the current MatImage (built asynchronously).
     integral_image: Arc<Mutex<OnceLock<core::Mat>>>,
+    // Set once precompute starts; used to avoid repeated spawns.
     is_precompute_begin: AtomicBool,
 
+    // Tracks which image the cache belongs to.
     last_image_id: u64,
 }
 
@@ -40,6 +43,8 @@ impl MeanProcessor {
         }
     }
 
+    // Build integral image for fast mean queries.
+    // Note: cost is paid once per image; results are reused by fast_compute().
     fn precompute(mat: &core::Mat) -> Result<core::Mat> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("MeanProcessor::precompute");
@@ -49,6 +54,8 @@ impl MeanProcessor {
         Ok(integral_image)
     }
 
+    // Fast mean using precomputed integral image.
+    // Returns error if the integral image is not ready.
     fn fast_compute(&self, mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("MeanProcessor::fast_compute");
@@ -160,6 +167,8 @@ impl MeanProcessor {
         }
     }
 
+    // Slow path for first frame or if integral image is unavailable.
+    // Uses OpenCV reduce/mean on the ROI.
     fn fallback_compute(mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("MeanProcessor::fallback_compute");
@@ -189,6 +198,8 @@ impl MeanProcessor {
         }
     }
 
+    // Compute mean, preferring fast path when precompute is ready.
+    // If precompute has not started, spawn it and return fallback result.
     fn compute_mat(&self, mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         let width = rect.width;
         let height = rect.height;
@@ -216,6 +227,8 @@ impl MeanProcessor {
         }
     }
 
+    // Public entry point for computing means. Resets cache when image changes.
+    // Note: first call may still hit the fallback path.
     pub fn compute(&mut self, image: &MatImage, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         let image_id = image.id();
         let last_image_id = self.last_image_id;
@@ -230,6 +243,9 @@ impl MeanProcessor {
         self.compute_mat(&image.mat(), rect, dim)
     }
 
+    // Kick off integral image computation without blocking.
+    // Useful to hide the first-frame cost before any marquee interaction.
+    // Thread-safety: concurrent callers may race but will converge on one cache.
     pub fn precompute_async(&mut self, image: &MatImage) {
         let image_id = image.id();
         if image_id != self.last_image_id {
