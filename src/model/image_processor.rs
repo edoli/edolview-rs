@@ -229,4 +229,29 @@ impl MeanProcessor {
         }
         self.compute_mat(&image.mat(), rect, dim)
     }
+
+    pub fn precompute_async(&mut self, image: &MatImage) {
+        let image_id = image.id();
+        if image_id != self.last_image_id {
+            self.last_image_id = image_id;
+            self.is_precompute_begin.store(false, Ordering::Relaxed);
+            let _ = self.integral_image.lock().unwrap().take();
+        }
+
+        if self.is_precompute_begin.load(Ordering::Relaxed) {
+            return;
+        }
+
+        self.is_precompute_begin.store(true, Ordering::Relaxed);
+        let mat_clone = match image.mat().shallow_clone() {
+            Ok(mat) => mat,
+            Err(_) => return,
+        };
+        let slot = Arc::clone(&self.integral_image);
+        thread::spawn(move || {
+            if let Ok(ii) = Self::precompute(&mat_clone) {
+                let _ = slot.lock().unwrap().set(ii);
+            }
+        });
+    }
 }

@@ -244,6 +244,13 @@ impl AppState {
             } else if self.channel_index >= num_channels {
                 self.channel_index = num_channels - 1;
             }
+
+            if let Some(asset) = &self.asset {
+                crate::model::image::MEAN_PROCESSOR
+                    .lock()
+                    .unwrap()
+                    .precompute_async(asset.image());
+            }
         } else {
             self.asset = None;
         }
