@@ -24,7 +24,11 @@ pub fn display_controls_ui(
     max_v: &mut f32,
 ) {
     let ctx = ui.ctx().clone();
-    let locked = *auto_minmax;
+    let normalize_enabled = scale_mode.auto_normalize_enabled();
+    if !normalize_enabled && *auto_minmax {
+        *auto_minmax = false;
+    }
+    let locked = *auto_minmax && normalize_enabled;
 
     ui.radio_icon(scale_mode, ScaleMode::Linear, icons.get_scale_linear(&ctx), "Linear");
     ui.radio_icon(scale_mode, ScaleMode::Absolute, icons.get_scale_absolute(&ctx), "Absolute");
@@ -101,11 +105,14 @@ pub fn display_controls_ui(
             });
 
             // Auto min/max toggle
-            columns[4].toggle_icon(
-                auto_minmax,
-                icons.get_normalize(&ctx),
-                "Use min / max values of image for normalization",
-            );
+            let auto_tip = if normalize_enabled {
+                "Use min / max values of image for normalization"
+            } else {
+                "Auto min/max disabled for Inverse/Log modes"
+            };
+            columns[4].add_enabled_ui(normalize_enabled, |ui| {
+                ui.toggle_icon(auto_minmax, icons.get_normalize(&ctx), auto_tip);
+            });
         },
     );
 }

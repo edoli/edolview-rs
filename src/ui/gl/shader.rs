@@ -5,7 +5,6 @@ use glow::HasContext;
 
 use crate::{
     model::MinMax,
-    switch,
     ui::gl::{gl_ext::GlExt, ShaderBuilder},
 };
 
@@ -57,6 +56,12 @@ pub enum ScaleMode {
 impl Default for ScaleMode {
     fn default() -> Self {
         ScaleMode::Linear
+    }
+}
+
+impl ScaleMode {
+    pub fn auto_normalize_enabled(self) -> bool {
+        matches!(self, ScaleMode::Linear | ScaleMode::Absolute)
     }
 }
 
@@ -329,13 +334,18 @@ impl ImageProgram {
 
         gl.uniform_1_i32(Some(&self.u_use_per_channel), if shader_params.use_per_channel { 1 } else { 0 });
 
-        let is_scale_mode_abs = shader_params.scale_mode == ScaleMode::Absolute;
         if !shader_params.use_per_channel {
-            let auto_minmax = shader_params.auto_minmax;
-            let min_v = switch!(auto_minmax => 
-                switch!(is_scale_mode_abs => min_max.total_min_abs(), min_max.total_min()), shader_params.min_v);
-            let max_v = switch!(auto_minmax => 
-                switch!(is_scale_mode_abs => min_max.total_max_abs(), min_max.total_max()), shader_params.max_v);
+            let normalize_enabled = shader_params.scale_mode.auto_normalize_enabled();
+            let auto_minmax = shader_params.auto_minmax && normalize_enabled;
+            let (min_v, max_v) = if auto_minmax {
+                if shader_params.scale_mode == ScaleMode::Absolute {
+                    (min_max.total_min_abs(), min_max.total_max_abs())
+                } else {
+                    (min_max.total_min(), min_max.total_max())
+                }
+            } else {
+                (shader_params.min_v, shader_params.max_v)
+            };
 
             gl.uniform_1_f32(Some(&self.u_min_v), min_v);
             gl.uniform_1_f32(Some(&self.u_max_v), max_v);
@@ -346,11 +356,17 @@ impl ImageProgram {
             let scale_mode_chs = &shader_params.scale_mode_channels;
 
             for i in 0..4 {
-                let auto_minmax = shader_params.auto_minmax_channels[i];
-                let min_v = switch!(auto_minmax => 
-                    switch!(is_scale_mode_abs => min_max.min_abs(i), min_max.min(i)), min_v_chs[i]);
-                let max_v = switch!(auto_minmax => 
-                    switch!(is_scale_mode_abs => min_max.max_abs(i), min_max.max(i)), max_v_chs[i]);
+                let normalize_enabled = scale_mode_chs[i].auto_normalize_enabled();
+                let auto_minmax = shader_params.auto_minmax_channels[i] && normalize_enabled;
+                let (min_v, max_v) = if auto_minmax {
+                    if scale_mode_chs[i] == ScaleMode::Absolute {
+                        (min_max.min_abs(i), min_max.max_abs(i))
+                    } else {
+                        (min_max.min(i), min_max.max(i))
+                    }
+                } else {
+                    (min_v_chs[i], max_v_chs[i])
+                };
 
                 gl.uniform_1_f32(Some(&self.u_min_v_chs[i]), min_v);
                 gl.uniform_1_f32(Some(&self.u_max_v_chs[i]), max_v);

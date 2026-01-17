@@ -15,7 +15,7 @@ uniform float u_exposure;
 uniform float u_gamma;
 uniform float u_min_v;
 uniform float u_max_v;
-uniform int u_scale_mode; // 0: linear, 1: inverse, 2: log
+uniform int u_scale_mode; // 0: linear, 1: inverse, 2: log, 3: absolute
 
 // Per-channel controls
 uniform int u_use_per_channel; // 0: global, 1: per-channel
@@ -138,7 +138,7 @@ float apply_scale_mode(float v, int mode)
         float s = sign(v);
         return s * log(abs(v) + 1.0);
     } else if (mode == 3) {
-        // Log: abs(v)
+        // Absolute: abs(v)
         return abs(v);
     } else {
         // Linear: v
