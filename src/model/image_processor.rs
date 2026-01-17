@@ -14,7 +14,7 @@ use opencv::{
 
 use crate::{
     model::{Image, MatImage},
-    util::cv_ext::{cv_make_type, MatExt},
+    util::cv_ext::cv_make_type,
 };
 
 #[derive(PartialEq, Clone)]
@@ -200,9 +200,10 @@ impl MeanProcessor {
 
     // Compute mean, preferring fast path when precompute is ready.
     // If precompute has not started, spawn it and return fallback result.
-    fn compute_mat(&self, mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
+    fn compute_mat(&self, mat: Arc<core::Mat>, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
         let width = rect.width;
         let height = rect.height;
+        let mat_ref = mat.as_ref();
 
         if width <= 0 || height <= 0 {
             return Ok(vec![]);
@@ -210,20 +211,20 @@ impl MeanProcessor {
 
         if self.is_precompute_begin.load(Ordering::Relaxed) {
             if self.integral_image.lock().unwrap().get().is_some() {
-                self.fast_compute(mat, rect, dim)
+                self.fast_compute(mat_ref, rect, dim)
             } else {
-                Self::fallback_compute(mat, rect, dim)
+                Self::fallback_compute(mat_ref, rect, dim)
             }
         } else {
             self.is_precompute_begin.store(true, Ordering::Relaxed);
-            let mat_clone = mat.shallow_clone()?;
             let slot = Arc::clone(&self.integral_image);
+            let mat_shared = Arc::clone(&mat);
             thread::spawn(move || {
-                if let Ok(ii) = Self::precompute(&mat_clone) {
+                if let Ok(ii) = Self::precompute(mat_shared.as_ref()) {
                     let _ = slot.lock().unwrap().set(ii);
                 }
             });
-            Self::fallback_compute(mat, rect, dim)
+            Self::fallback_compute(mat_ref, rect, dim)
         }
     }
 
@@ -240,7 +241,7 @@ impl MeanProcessor {
                 let _ = self.integral_image.lock().unwrap().take();
             }
         }
-        self.compute_mat(&image.mat(), rect, dim)
+        self.compute_mat(image.mat_shared(), rect, dim)
     }
 
     // Kick off integral image computation without blocking.
@@ -259,13 +260,10 @@ impl MeanProcessor {
         }
 
         self.is_precompute_begin.store(true, Ordering::Relaxed);
-        let mat_clone = match image.mat().shallow_clone() {
-            Ok(mat) => mat,
-            Err(_) => return,
-        };
         let slot = Arc::clone(&self.integral_image);
+        let mat_shared = image.mat_shared();
         thread::spawn(move || {
-            if let Ok(ii) = Self::precompute(&mat_clone) {
+            if let Ok(ii) = Self::precompute(mat_shared.as_ref()) {
                 let _ = slot.lock().unwrap().set(ii);
             }
         });

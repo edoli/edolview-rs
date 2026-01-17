@@ -4,11 +4,8 @@ const CV_CN_SHIFT: i32 = 3; // from OpenCV core.hpp
 /// We only need mask constants for extraction; keeping them small & simple.
 const CV_MAT_DEPTH_MASK: i32 = (1 << CV_CN_SHIFT) - 1; // = 7
 
-use std::ffi::c_void;
-
 // Public re-exports of depth constants for ergonomic use (so callers only import this module).
 pub use opencv::core;
-use opencv::core::MatTraitConst;
 
 /// Return the (0..7) depth code stored in a Mat type flag.
 #[inline]
@@ -135,19 +132,3 @@ pub fn parse_cv_type(s: &str, channels: i32) -> i32 {
     parse_cv_depth(s).cv_type_with_channels(channels)
 }
 
-pub trait MatExt {
-    fn shallow_clone(&self) -> Result<opencv::core::Mat, opencv::Error>;
-}
-
-impl MatExt for opencv::core::Mat {
-    fn shallow_clone(&self) -> Result<opencv::core::Mat, opencv::Error> {
-        unsafe {
-            let data = self.data();
-            let rows = self.rows();
-            let cols = self.cols();
-            let typ = self.typ();
-
-            opencv::core::Mat::new_rows_cols_with_data_unsafe_def(rows, cols, typ, data as *mut c_void)
-        }
-    }
-}

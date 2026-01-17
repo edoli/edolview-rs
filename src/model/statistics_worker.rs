@@ -1,11 +1,12 @@
 use opencv::core::{self as cv, Mat, MatTraitConst, ModifyInplace, Scalar, Size};
 use std::{
     collections::HashSet,
-    sync::mpsc::{Receiver, Sender, TryRecvError},
+    sync::{
+        mpsc::{Receiver, Sender, TryRecvError},
+        Arc,
+    },
     thread,
 };
-
-use crate::util::cv_ext::MatExt;
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum StatisticsType {
@@ -132,18 +133,17 @@ impl StatisticsWorker {
         }
     }
 
-    pub fn run_minmax(&mut self, mat: &Mat, scale: f64, rect: cv::Rect) {
+    pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, rect: cv::Rect) {
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
         if mat.empty() {
             return;
         }
-        let mat = mat.shallow_clone().unwrap();
 
         self.run(StatisticsType::MinMax, move || {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMax");
 
-            let mat_roi = cv::Mat::roi(&mat, rect)?;
+            let mat_roi = cv::Mat::roi(mat.as_ref(), rect)?;
 
             let mut result = Vec::new();
 
@@ -181,21 +181,18 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_psnr(&mut self, mat1: &Mat, mat2: &Mat, data_range: f64, scale: f64, rect: cv::Rect) {
+    pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, rect: cv::Rect) {
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
         if mat1.empty() || mat2.empty() {
             return;
         }
 
-        let mat1 = mat1.shallow_clone().unwrap();
-        let mat2 = mat2.shallow_clone().unwrap();
-
         self.run(StatisticsType::PSNRRMSE, move || {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            let mat1_roi = Mat::roi(&mat1, rect)?;
-            let mat2_roi = Mat::roi(&mat2, rect)?;
+            let mat1_roi = Mat::roi(mat1.as_ref(), rect)?;
+            let mat2_roi = Mat::roi(mat2.as_ref(), rect)?;
             let psnr = cv::psnr(&mat1_roi, &mat2_roi, data_range)?;
 
             let rmse = scale / 10.0_f64.powf(psnr / 20.0);
@@ -204,20 +201,17 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_ssim(&mut self, mat1: &Mat, mat2: &Mat, rect: cv::Rect) {
+    pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, rect: cv::Rect) {
         if mat1.empty() || mat2.empty() {
             return;
         }
-
-        let mat1 = mat1.shallow_clone().unwrap();
-        let mat2 = mat2.shallow_clone().unwrap();
 
         self.run(StatisticsType::SSIM, move || unsafe {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIM");
 
-            let mat1_roi = Mat::roi(&mat1, rect)?;
-            let mat2_roi = Mat::roi(&mat2, rect)?;
+            let mat1_roi = Mat::roi(mat1.as_ref(), rect)?;
+            let mat2_roi = Mat::roi(mat2.as_ref(), rect)?;
 
             let lhs = SSIMMatData::new(mat1_roi.clone_pointee())?;
             let rhs = SSIMMatData::new(mat2_roi.clone_pointee())?;

@@ -1,5 +1,5 @@
 use crate::model::{MeanDim, MeanProcessor};
-use crate::util::cv_ext::{CvIntExt, MatExt};
+use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::{eyre, Result};
 use eframe::emath::Numeric;
 use half::f16;
@@ -7,7 +7,7 @@ use opencv::core::Size;
 use opencv::prelude::*;
 use opencv::{core, imgcodecs, imgproc};
 use std::f64;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::{
     fs, mem,
     path::PathBuf,
@@ -211,7 +211,7 @@ impl MinMax {
 // data of MatImage should be always f32. dtype of spec is not dtype of mat, but the original dtype before conversion to f32.
 pub struct MatImage {
     id: u64,
-    mat: opencv::core::Mat,
+    mat: Arc<opencv::core::Mat>,
     spec: ImageSpec,
 
     hist: OnceLock<Vec<Vec<f32>>>,
@@ -223,7 +223,7 @@ impl MatImage {
         let spec = ImageSpec::new(&mat, dtype);
         assert!(mat.empty() || mat.depth() == f32::typ());
         Self {
-            mat,
+            mat: Arc::new(mat),
             spec,
             id: new_id(),
             hist: OnceLock::new(),
@@ -232,7 +232,11 @@ impl MatImage {
     }
 
     pub fn mat(&self) -> &opencv::core::Mat {
-        &self.mat
+        self.mat.as_ref()
+    }
+
+    pub fn mat_shared(&self) -> Arc<opencv::core::Mat> {
+        Arc::clone(&self.mat)
     }
 
     pub fn mean_value_in_rect(&self, rect: opencv::core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
@@ -256,7 +260,7 @@ impl MatImage {
         }
         let channels = spec.channels;
 
-        let input = core::Vector::<core::Mat>::from(vec![self.mat.shallow_clone().expect("shallow_clone failed")]);
+        let input = self.mat.as_ref();
 
         let bins = 256;
         let hist_size = core::Vector::from_slice(&[bins]);
@@ -270,7 +274,7 @@ impl MatImage {
 
             let mut hist = core::Mat::default();
 
-            imgproc::calc_hist(&input, &hist_channels, &mask, &mut hist, &hist_size, &ranges, false)
+            imgproc::calc_hist(input, &hist_channels, &mask, &mut hist, &hist_size, &ranges, false)
                 .expect("calc_hist failed");
 
             let slice: &[f32] = hist.data_typed::<f32>().expect("data_typed failed");
@@ -300,7 +304,7 @@ impl MatImage {
         let channels = self.mat.channels();
         for ch in 0..channels {
             let mut dst = core::Mat::default();
-            core::extract_channel(&self.mat, &mut dst, ch).expect("extract_channel failed");
+            core::extract_channel(self.mat.as_ref(), &mut dst, ch).expect("extract_channel failed");
 
             // Ignore INFINITY and NEG_INFINITY values for min/max computation using mask
             let mut mask = Mat::default();
