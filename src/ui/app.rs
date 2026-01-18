@@ -216,6 +216,9 @@ impl ViewerApp {
     }
 
     fn on_marquee_changed(&mut self) {
+        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect {
+            self.state.update_asset();
+        }
         self.update_statistics();
     }
 
@@ -754,30 +757,6 @@ impl eframe::App for ViewerApp {
                     display_profile_slider(ui, &mut self.state.shader_params.exposure, -5.0, 5.0, 0.0, "Exposure");
                     display_profile_slider(ui, &mut self.state.shader_params.gamma, 0.1, 5.0, 1.0, "Gamma");
 
-                    ui.separator();
-
-                    if self.state.is_comparison() {
-                        ui.heading("Comparison");
-                        let mut comparison_changed = false;
-                        ui.horizontal(|ui| {
-                            comparison_changed |= ui
-                                .radio_value(&mut self.state.comparison_mode, ComparisonMode::Diff, "Diff")
-                                .changed();
-                            comparison_changed |= ui
-                                .radio_value(&mut self.state.comparison_mode, ComparisonMode::Blend, "Blend")
-                                .changed();
-                        });
-                        if self.state.comparison_mode == ComparisonMode::Blend {
-                            comparison_changed |= ui
-                                .add(egui::Slider::new(&mut self.state.comparison_blend, 0.0..=1.0).text("Blend"))
-                                .changed();
-                        }
-                        if comparison_changed {
-                            self.state.update_asset();
-                        }
-                        ui.separator();
-                    }
-
                     let desired_size_plot = egui::vec2(ui.available_width(), 100.0);
                     if let Some(asset) = &self.state.asset {
                         let rect = self.state.marquee_rect;
@@ -947,6 +926,31 @@ impl eframe::App for ViewerApp {
                     }
 
                     ui.separator();
+
+                    if self.state.is_comparison() {
+                        ui.heading("Comparison");
+                        let mut comparison_changed = false;
+                        ui.horizontal(|ui| {
+                            comparison_changed |= ui
+                                .radio_value(&mut self.state.comparison_mode, ComparisonMode::Diff, "Diff")
+                                .changed();
+                            comparison_changed |= ui
+                                .radio_value(&mut self.state.comparison_mode, ComparisonMode::Blend, "Blend")
+                                .changed();
+                            comparison_changed |= ui
+                                .radio_value(&mut self.state.comparison_mode, ComparisonMode::Rect, "Rect")
+                                .changed();
+                        });
+                        if self.state.comparison_mode == ComparisonMode::Blend {
+                            comparison_changed |= ui
+                                .add(egui::Slider::new(&mut self.state.comparison_blend, 0.0..=1.0).text("Blend"))
+                                .changed();
+                        }
+                        if comparison_changed {
+                            self.state.update_asset();
+                        }
+                        ui.separator();
+                    }
 
                     ui.horizontal(|ui| {
                         ui.heading("Image List");

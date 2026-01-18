@@ -239,6 +239,7 @@ impl AppState {
                         asset_secondary.clone(),
                         self.comparison_mode,
                         self.comparison_blend,
+                        Some(self.marquee_rect),
                     );
                     self.asset = Some(Arc::new(comp_asset));
                 }

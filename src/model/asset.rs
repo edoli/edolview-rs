@@ -2,7 +2,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use opencv::core::{MatTrait, MatTraitConst};
 
-use crate::model::{Image, MatImage};
+use crate::model::{Image, MatImage, Recti};
+use crate::util::math_ext::vec2i;
 
 pub type SharedAsset = Arc<dyn Asset<MatImage>>;
 
@@ -19,6 +20,7 @@ pub enum AssetType {
 pub enum ComparisonMode {
     Diff,
     Blend,
+    Rect,
 }
 
 pub trait Asset<T: Image> {
@@ -171,7 +173,13 @@ pub struct ComparisonAsset {
 }
 
 impl ComparisonAsset {
-    pub fn new(asset_primary: SharedAsset, asset_secondary: SharedAsset, mode: ComparisonMode, blend_alpha: f32) -> Self {
+    pub fn new(
+        asset_primary: SharedAsset,
+        asset_secondary: SharedAsset,
+        mode: ComparisonMode,
+        blend_alpha: f32,
+        rect: Option<Recti>,
+    ) -> Self {
         let name = format!(
             "Comparison ({:?}): {} vs {}",
             mode,
@@ -192,25 +200,33 @@ impl ComparisonAsset {
             };
         }
 
-        let rect = opencv::core::Rect {
-            x: 0,
-            y: 0,
-            width: mat1.cols().min(mat2.cols()),
-            height: mat1.rows().min(mat2.rows()),
-        };
-        let mat1_roi = mat1.roi(rect).unwrap();
-        let mat2_roi = mat2.roi(rect).unwrap();
-
         let mut mat = mat1.clone();
-        let mut mat_roi = mat.roi_mut(rect).unwrap();
+        let full_rect =
+            Recti::from_min_size(vec2i(0, 0), vec2i(mat1.cols().min(mat2.cols()), mat1.rows().min(mat2.rows())));
 
-        match mode {
-            ComparisonMode::Diff => {
-                opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
-            }
-            ComparisonMode::Blend => {
-                let alpha = blend_alpha.clamp(0.0, 1.0) as f64;
-                opencv::core::add_weighted(&mat1_roi, 1.0 - alpha, &mat2_roi, alpha, 0.0, &mut mat_roi, -1).unwrap();
+        let roi_rect = match mode {
+            ComparisonMode::Rect => rect.unwrap_or(Recti::ZERO).validate().intersect(full_rect),
+            _ => full_rect,
+        };
+
+        if !roi_rect.empty() {
+            let roi_cv = roi_rect.to_cv_rect();
+            let mat1_roi = mat1.roi(roi_cv).unwrap();
+            let mat2_roi = mat2.roi(roi_cv).unwrap();
+            let mut mat_roi = mat.roi_mut(roi_cv).unwrap();
+
+            match mode {
+                ComparisonMode::Diff => {
+                    opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
+                }
+                ComparisonMode::Blend => {
+                    let alpha = blend_alpha.clamp(0.0, 1.0) as f64;
+                    opencv::core::add_weighted(&mat1_roi, 1.0 - alpha, &mat2_roi, alpha, 0.0, &mut mat_roi, -1)
+                        .unwrap();
+                }
+                ComparisonMode::Rect => {
+                    mat2_roi.copy_to(&mut mat_roi).unwrap();
+                }
             }
         }
 
