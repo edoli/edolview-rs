@@ -45,9 +45,6 @@ impl<'a> Drop for ScopedTimer<'a> {
         }
 
         #[cfg(debug_assertions)]
-        crate::debug::DEBUG_STATE
-            .lock()
-            .unwrap()
-            .add_timing(self.name, elapsed);
+        crate::debug::DEBUG_STATE.lock().unwrap().add_timing(self.name, elapsed);
     }
 }

@@ -188,10 +188,11 @@ impl ViewerApp {
             let img = asset.image();
 
             // single image statistics
-            self.statistics_worker
-                .lock()
-                .unwrap()
-                .run_minmax(img.mat_shared(), img.spec().dtype.alpha(), rect.to_cv_rect());
+            self.statistics_worker.lock().unwrap().run_minmax(
+                img.mat_shared(),
+                img.spec().dtype.alpha(),
+                rect.to_cv_rect(),
+            );
         }
 
         if let Some(a1) = &self.state.asset_primary {

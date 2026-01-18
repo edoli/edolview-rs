@@ -157,8 +157,12 @@ impl FileNav {
     }
 
     pub fn process_watcher_events(&mut self) {
-        let Some(rx) = &self.dir_event_rx else { return };
-        let Some(dir) = &self.dir_path else { return };
+        let Some(rx) = &self.dir_event_rx else {
+            return;
+        };
+        let Some(dir) = &self.dir_path else {
+            return;
+        };
         let dir = dir.clone();
 
         if self.staged_set.is_none() {
@@ -168,7 +172,9 @@ impl FileNav {
         let mut changed = false;
 
         for res in rx.try_iter() {
-            let Ok(event) = res else { continue };
+            let Ok(event) = res else {
+                continue;
+            };
             let mut handled = false;
             match event.kind {
                 EventKind::Create(CreateKind::File) | EventKind::Create(CreateKind::Any) => {

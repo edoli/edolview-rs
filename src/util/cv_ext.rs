@@ -131,4 +131,3 @@ pub fn parse_cv_depth(s: &str) -> i32 {
 pub fn parse_cv_type(s: &str, channels: i32) -> i32 {
     parse_cv_depth(s).cv_type_with_channels(channels)
 }
-

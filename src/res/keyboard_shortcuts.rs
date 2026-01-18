@@ -16,8 +16,6 @@ pub const ZOOM_OUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Ke
 pub const NAVIGATE_PREV: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowLeft);
 pub const NAVIGATE_NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowRight);
 
-
-
 pub const MODIFIER_NAMES: ModifierNames = ModifierNames {
     is_short: false,
     alt: "Alt",
