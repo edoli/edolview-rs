@@ -15,6 +15,12 @@ pub enum AssetType {
     Comparison,
 }
 
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum ComparisonMode {
+    Diff,
+    Blend,
+}
+
 pub trait Asset<T: Image> {
     fn name(&self) -> &str;
     fn image(&self) -> &T;
@@ -165,8 +171,13 @@ pub struct ComparisonAsset {
 }
 
 impl ComparisonAsset {
-    pub fn new(asset_primary: SharedAsset, asset_secondary: SharedAsset) -> Self {
-        let name = format!("Comparison: {} vs {}", asset_primary.name(), asset_secondary.name());
+    pub fn new(asset_primary: SharedAsset, asset_secondary: SharedAsset, mode: ComparisonMode, blend_alpha: f32) -> Self {
+        let name = format!(
+            "Comparison ({:?}): {} vs {}",
+            mode,
+            asset_primary.name(),
+            asset_secondary.name()
+        );
 
         let img1 = asset_primary.image();
         let img2 = asset_secondary.image();
@@ -193,7 +204,15 @@ impl ComparisonAsset {
         let mut mat = mat1.clone();
         let mut mat_roi = mat.roi_mut(rect).unwrap();
 
-        opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
+        match mode {
+            ComparisonMode::Diff => {
+                opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
+            }
+            ComparisonMode::Blend => {
+                let alpha = blend_alpha.clamp(0.0, 1.0) as f64;
+                opencv::core::add_weighted(&mat1_roi, 1.0 - alpha, &mat2_roi, alpha, 0.0, &mut mat_roi, -1).unwrap();
+            }
+        }
 
         let comparison_image = MatImage::new(mat, img1.spec().dtype);
 

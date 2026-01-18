@@ -9,8 +9,8 @@ use indexmap::IndexMap;
 
 use crate::{
     model::{
-        AssetType, ClipboardAsset, ComparisonAsset, FileAsset, Image, MatImage, Recti, SharedAsset, SocketInfo,
-        SocketState, Statistics,
+        AssetType, ClipboardAsset, ComparisonAsset, ComparisonMode, FileAsset, Image, MatImage, Recti, SharedAsset,
+        SocketInfo, SocketState, Statistics,
     },
     ui::gl::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
@@ -21,6 +21,8 @@ pub struct AppState {
     pub asset: Option<SharedAsset>,
     pub asset_primary: Option<SharedAsset>,
     pub asset_secondary: Option<SharedAsset>,
+    pub comparison_mode: ComparisonMode,
+    pub comparison_blend: f32,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Recti,
@@ -81,6 +83,8 @@ impl AppState {
             asset: None,
             asset_primary: None,
             asset_secondary: None,
+            comparison_mode: ComparisonMode::Diff,
+            comparison_blend: 0.5,
             shader_params: ShaderParams::default(),
             cursor_pos: None,
             marquee_rect: Recti::ZERO,
@@ -230,7 +234,12 @@ impl AppState {
                     self.asset = Some(asset_primary.clone());
                 } else {
                     // Different assets, create a comparison asset
-                    let comp_asset = ComparisonAsset::new(asset_primary.clone(), asset_secondary.clone());
+                    let comp_asset = ComparisonAsset::new(
+                        asset_primary.clone(),
+                        asset_secondary.clone(),
+                        self.comparison_mode,
+                        self.comparison_blend,
+                    );
                     self.asset = Some(Arc::new(comp_asset));
                 }
             } else {
