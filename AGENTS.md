@@ -1,3 +1,38 @@
 # Agent Instructions
 
+## Validation
+
 - After making code changes, run `cargo fmt`.
+- After Rust code changes, run `cargo build`.
+
+## Generated assets and packaging
+
+- If you touch `icon.svg`, `icons\`, `build.rs`, `packaging\`, or startup icon loading, run `cargo run -p xtask -- icons` before validating.
+- Keep generated icon files such as `icons\icon.png` and `icons\app.ico` in sync with code and packaging references.
+
+## Unsafe, OpenGL, and image-core changes
+
+- Treat `src\ui\gl\`, `src\ui\image_viewer.rs`, `src\model\image.rs`, and `src\model\image_io.rs` as safety-sensitive code.
+- Keep `unsafe` blocks minimal and document invariants when changing them.
+
+## Performance and concurrency rules
+
+- This app is real-time. Prioritize low-latency interaction and immediate UI feedback.
+- Keep heavy or latency-sensitive work off the egui UI thread.
+- Preserve existing background-thread, channel, and `request_repaint` patterns.
+- Avoid unnecessary full-image copies.
+- Reuse existing shared ownership and caching patterns such as `Arc`, `Mutex`, `OnceLock`, and shared asset storage.
+
+## Format support changes
+
+- If you add a new image format, update the loader, the supported extension list in `src\model\file_nav.rs`, and the README supported-format list together.
+
+## Socket protocol compatibility
+
+- If you change the socket protocol, consider compatibility with the Python package and VS Code extension mentioned in the README.
+- Document any breaking protocol change explicitly.
+
+## Error handling
+
+- Prefer existing `color_eyre` error propagation patterns.
+- For user-visible failures, surface them through the current toast and `eprintln!` flow instead of failing silently.
