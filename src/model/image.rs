@@ -5,6 +5,7 @@ use eframe::emath::Numeric;
 use half::f16;
 use opencv::core::Size;
 use opencv::prelude::*;
+use opencv::traits::OpenCVIntoExternContainer;
 use opencv::{core, imgcodecs, imgproc};
 use std::f64;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -266,6 +267,10 @@ impl MatImage {
         let hist_size = core::Vector::from_slice(&[bins]);
         let ranges = core::Vector::from(vec![0f32, 1f32]);
         let mask = core::Mat::default();
+        let input = core::Mat::copy(input)
+            .expect("Mat::copy failed")
+            .opencv_into_extern_container_nofail();
+        let input = core::Vector::<core::Mat>::from_iter([input]);
 
         let mut result: Vec<Vec<f32>> = Vec::with_capacity(channels as usize);
 
@@ -274,7 +279,7 @@ impl MatImage {
 
             let mut hist = core::Mat::default();
 
-            imgproc::calc_hist(input, &hist_channels, &mask, &mut hist, &hist_size, &ranges, false)
+            imgproc::calc_hist(&input, &hist_channels, &mask, &mut hist, &hist_size, &ranges, false)
                 .expect("calc_hist failed");
 
             let slice: &[f32] = hist.data_typed::<f32>().expect("data_typed failed");
