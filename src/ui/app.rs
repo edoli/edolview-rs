@@ -762,9 +762,12 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    display_profile_slider(ui, &mut self.state.shader_params.offset, -5.0, 5.0, 0.0, "Offset");
-                    display_profile_slider(ui, &mut self.state.shader_params.exposure, -5.0, 5.0, 0.0, "Exposure");
-                    display_profile_slider(ui, &mut self.state.shader_params.gamma, 0.1, 5.0, 1.0, "Gamma");
+                    display_profile_slider(ui, &mut self.state.shader_params.offset, -5.0, 5.0, 0.0, "Offset")
+                        .on_hover_text("Add a constant offset to the displayed values.");
+                    display_profile_slider(ui, &mut self.state.shader_params.exposure, -5.0, 5.0, 0.0, "Exposure")
+                        .on_hover_text("Adjust brightness in exposure stops.");
+                    display_profile_slider(ui, &mut self.state.shader_params.gamma, 0.1, 5.0, 1.0, "Gamma")
+                        .on_hover_text("Apply gamma correction to the display.");
 
                     let desired_size_plot = egui::vec2(ui.available_width(), 100.0);
                     if let Some(asset) = &self.state.asset {
@@ -854,7 +857,8 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    ui.checkbox(&mut self.show_histogram, "Show Histogram");
+                    ui.checkbox(&mut self.show_histogram, "Show Histogram")
+                        .on_hover_text("Show the histogram of the current image.");
 
                     if self.show_histogram {
                         let desired_size = egui::vec2(ui.available_width(), 100.0);
@@ -888,7 +892,11 @@ impl eframe::App for ViewerApp {
 
                     ui.separator();
 
-                    if ui.checkbox(&mut self.show_statistics, "Show Statistics").clicked() {
+                    if ui
+                        .checkbox(&mut self.show_statistics, "Show Statistics")
+                        .on_hover_text("Show min/max and comparison metrics for the current selection.")
+                        .clicked()
+                    {
                         if self.show_statistics {
                             self.update_statistics();
                         }
@@ -942,12 +950,15 @@ impl eframe::App for ViewerApp {
                         ui.horizontal(|ui| {
                             comparison_changed |= ui
                                 .radio_value(&mut self.state.comparison_mode, ComparisonMode::Diff, "Diff")
+                                .on_hover_text("Show the pixel-wise difference: primary - secondary.")
                                 .changed();
                             comparison_changed |= ui
                                 .radio_value(&mut self.state.comparison_mode, ComparisonMode::Blend, "Blend")
+                                .on_hover_text("Blend the primary and secondary images.")
                                 .changed();
                             comparison_changed |= ui
                                 .radio_value(&mut self.state.comparison_mode, ComparisonMode::Rect, "Rect")
+                                .on_hover_text("Show the secondary image inside the selection rectangle.")
                                 .changed();
                         });
                         if self.state.comparison_mode == ComparisonMode::Blend {

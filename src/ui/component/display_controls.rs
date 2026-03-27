@@ -117,9 +117,16 @@ pub fn display_controls_ui(
     );
 }
 
-pub fn display_profile_slider(ui: &mut egui::Ui, value: &mut f32, min: f32, max: f32, baseline: f64, text: &str) {
+pub fn display_profile_slider(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    baseline: f64,
+    text: &str,
+) -> egui::Response {
     ui.spacing_mut().slider_width = ui.available_width() - 128.0;
-    ui.add(
+    let response = ui.add(
         CustomSlider::new(value, min..=max)
             .text(text)
             .step_by(0.01)
@@ -129,11 +136,12 @@ pub fn display_profile_slider(ui: &mut egui::Ui, value: &mut f32, min: f32, max:
             .trailing_start(baseline)
             .trailing_color_pos(Color32::from_hex("#4EADE4").unwrap())
             .trailing_color_neg(Color32::from_hex("#FF6B6B").unwrap()),
-    )
-    .context_menu(|ui| {
+    );
+    response.context_menu(|ui| {
         if ui.button("Reset").clicked() {
             *value = baseline as f32;
             ui.close();
         }
     });
+    response
 }
