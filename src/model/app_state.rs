@@ -331,6 +331,60 @@ impl AppState {
         Ok(None)
     }
 
+    pub fn navigate_asset_next(&mut self) -> bool {
+        let Some(current_hash) = self.asset_primary.as_ref().map(|asset| asset.hash().to_string()) else {
+            return false;
+        };
+        if self.assets.is_empty() {
+            return false;
+        }
+
+        let Some(current_index) = self.assets.get_index_of(&current_hash) else {
+            return false;
+        };
+        let next_index = (current_index + 1) % self.assets.len();
+        let Some((next_hash, _)) = self.assets.get_index(next_index) else {
+            return false;
+        };
+        let next_hash = next_hash.clone();
+
+        if next_hash == current_hash {
+            return false;
+        }
+
+        self.set_asset_primary_by_hash(&next_hash);
+        true
+    }
+
+    pub fn navigate_asset_prev(&mut self) -> bool {
+        let Some(current_hash) = self.asset_primary.as_ref().map(|asset| asset.hash().to_string()) else {
+            return false;
+        };
+        if self.assets.is_empty() {
+            return false;
+        }
+
+        let Some(current_index) = self.assets.get_index_of(&current_hash) else {
+            return false;
+        };
+        let prev_index = if current_index == 0 {
+            self.assets.len() - 1
+        } else {
+            current_index - 1
+        };
+        let Some((prev_hash, _)) = self.assets.get_index(prev_index) else {
+            return false;
+        };
+        let prev_hash = prev_hash.clone();
+
+        if prev_hash == current_hash {
+            return false;
+        }
+
+        self.set_asset_primary_by_hash(&prev_hash);
+        true
+    }
+
     pub fn process_watcher_events(&mut self) {
         self.file_nav.process_watcher_events();
         // Keep current index in sync when list commits

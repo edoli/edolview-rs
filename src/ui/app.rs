@@ -387,6 +387,12 @@ impl eframe::App for ViewerApp {
                         self.load_fail("Failed to load navigated file", path.as_ref(), &e);
                     }
                 }
+                if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_PREV) {
+                    self.state.navigate_asset_prev();
+                }
+                if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_NEXT) {
+                    self.state.navigate_asset_next();
+                }
                 if i.consume_shortcut(&crate::res::RESET_VIEW) {
                     self.viewer.reset_view();
                 }
