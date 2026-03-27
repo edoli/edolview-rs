@@ -377,12 +377,14 @@ impl eframe::App for ViewerApp {
                 }
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
-                        eprintln!("Failed to navigate prev: {e}");
+                        let path = self.state.file_nav.navigate_prev();
+                        self.load_fail("Failed to load navigated file", path.as_ref(), &e);
                     }
                 }
                 if i.consume_shortcut(&crate::res::NAVIGATE_NEXT) {
                     if let Err(e) = self.state.navigate_next() {
-                        eprintln!("Failed to navigate next: {e}");
+                        let path = self.state.file_nav.navigate_next();
+                        self.load_fail("Failed to load navigated file", path.as_ref(), &e);
                     }
                 }
                 if i.consume_shortcut(&crate::res::RESET_VIEW) {

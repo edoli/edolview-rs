@@ -301,32 +301,34 @@ impl AppState {
         self.marquee_rect = Recti::ZERO;
     }
 
-    pub fn navigate_next(&mut self) -> Result<()> {
+    pub fn navigate_next(&mut self) -> Result<Option<PathBuf>> {
         if let Some(asset) = &self.asset {
             match asset.asset_type() {
                 AssetType::File => {
                     if let Some(path) = self.file_nav.navigate_next() {
-                        self.load_from_path(path)?;
+                        self.load_from_path(path.clone())?;
+                        return Ok(Some(path));
                     }
                 }
-                _ => return Ok(()),
+                _ => return Ok(None),
             }
         }
-        Ok(())
+        Ok(None)
     }
 
-    pub fn navigate_prev(&mut self) -> Result<()> {
+    pub fn navigate_prev(&mut self) -> Result<Option<PathBuf>> {
         if let Some(asset) = &self.asset {
             match asset.asset_type() {
                 AssetType::File => {
                     if let Some(path) = self.file_nav.navigate_prev() {
-                        self.load_from_path(path)?;
+                        self.load_from_path(path.clone())?;
+                        return Ok(Some(path));
                     }
                 }
-                _ => return Ok(()),
+                _ => return Ok(None),
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     pub fn process_watcher_events(&mut self) {
