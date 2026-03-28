@@ -47,6 +47,29 @@ name = "Edolview"
 identifier = "kr.edoli.edolview"
 icon = ["icons/Edolview.icns"]
 
+[package.metadata.deb]
+name = "edolview"
+maintainer = "Daniel Jeon <edoli.mia@gmail.com>"
+copyright = "2026, Daniel Jeon"
+license-file = ["LICENSE", "4"]
+section = "graphics"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/edolview", "opt/edolview/edolview", "755"],
+    ["colormap/", "opt/edolview/colormap/", "755"],
+    ["packaging/linux/edolview-wrapper.sh", "usr/bin/edolview", "755"],
+    ["packaging/edolview.desktop", "usr/share/applications/edolview.desktop", "644"],
+    ["icons/hicolor/16x16/apps/edolview.png", "usr/share/icons/hicolor/16x16/apps/edolview.png", "644"],
+    ["icons/hicolor/24x24/apps/edolview.png", "usr/share/icons/hicolor/24x24/apps/edolview.png", "644"],
+    ["icons/hicolor/32x32/apps/edolview.png", "usr/share/icons/hicolor/32x32/apps/edolview.png", "644"],
+    ["icons/hicolor/48x48/apps/edolview.png", "usr/share/icons/hicolor/48x48/apps/edolview.png", "644"],
+    ["icons/hicolor/64x64/apps/edolview.png", "usr/share/icons/hicolor/64x64/apps/edolview.png", "644"],
+    ["icons/hicolor/128x128/apps/edolview.png", "usr/share/icons/hicolor/128x128/apps/edolview.png", "644"],
+    ["icons/hicolor/256x256/apps/edolview.png", "usr/share/icons/hicolor/256x256/apps/edolview.png", "644"],
+    ["icons/hicolor/512x512/apps/edolview.png", "usr/share/icons/hicolor/512x512/apps/edolview.png", "644"],
+]
+
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
 branch = "master"

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="Edolview"
+    Language="1033"
+    Version="$(var.ProductVersion)"
+    Manufacturer="Daniel Jeon"
+    UpgradeCode="9B95884C-31AA-4A5C-8209-D7CE6CA9C2D8">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="ProductIcon" SourceFile="$(var.ProjectDir)\icons\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Edolview">
+          <Component Id="cmpMainExe" Guid="D7781E26-5FAE-4F3F-8B92-BD40530A4628">
+            <File Id="filMainExe" Source="$(var.ReleaseBinDir)\edolview.exe" KeyPath="yes" Checksum="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="Edolview" Level="1">
+      <ComponentRef Id="cmpMainExe" />
+      <ComponentGroupRef Id="ColormapFiles" />
+    </Feature>
+  </Product>
+</Wix>

@@ -294,6 +294,107 @@ jobs:
             colormap/**
           if-no-files-found: warn
 
+      - name: Install MSI tooling
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Windows')
+        shell: pwsh
+        run: |
+          choco install -y --no-progress wixtoolset
+          $wixBin = "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin"
+          if (-not (Test-Path $wixBin)) {
+            $wixBin = "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin"
+          }
+          if (-not (Test-Path $wixBin)) {
+            throw "WiX Toolset bin directory not found"
+          }
+          Add-Content -Path $Env:GITHUB_ENV -Value "WIX=$wixBin"
+          Add-Content -Path $Env:GITHUB_ENV -Value "PATH=$wixBin;$env:PATH"
+
+      - name: Build MSI installer
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Windows')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target\wix | Out-Null
+          New-Item -ItemType Directory -Force -Path target\dist | Out-Null
+          & "$env:WIX\heat.exe" dir colormap -cg ColormapFiles -dr INSTALLFOLDER -gg -scom -sreg -sfrag -srd -var var.ProjectDir -out target\wix\colormap.wxs
+          $productVersion = $env:GITHUB_REF_NAME.Substring(1)
+          & "$env:WIX\candle.exe" -arch x64 -dProjectDir=$env:GITHUB_WORKSPACE -dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release -dProductVersion=$productVersion -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
+          & "$env:WIX\light.exe" -out target\dist\edolview-windows.msi target\wix\edolview.wixobj target\wix\colormap.wixobj
+
+      - name: Install macOS packaging tools
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'macOS')
+        run: brew install create-dmg
+
+      - name: Build DMG installer
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'macOS')
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP_ROOT="target/dmg-root/Edolview.app/Contents"
+          mkdir -p "$APP_ROOT/MacOS" "$APP_ROOT/Resources"
+          cp target/release/edolview "$APP_ROOT/MacOS/edolview"
+          cp -R colormap "$APP_ROOT/MacOS/colormap"
+          cp icons/Edolview.icns "$APP_ROOT/Resources/edolview.icns"
+          sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHORT_VERSION__/$VERSION/g" packaging/macos/Info.plist.in > "$APP_ROOT/Info.plist"
+          chmod +x "$APP_ROOT/MacOS/edolview"
+          mkdir -p target/dist
+          create-dmg \
+            --volname "Edolview" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 128 \
+            --icon "Edolview.app" 200 190 \
+            --hide-extension "Edolview.app" \
+            --app-drop-link 600 185 \
+            "target/dist/edolview-mac.dmg" \
+            "target/dmg-root"
+
+      - name: Install Linux packaging tools
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends desktop-file-utils zsync
+          cargo install cargo-deb
+
+      - name: Build DEB package
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Linux')
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/dist
+          cargo deb --no-build --deb-version "${GITHUB_REF_NAME#v}" --output target/dist/edolview-linux.deb
+
+      - name: Build AppImage package
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Linux')
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps target/dist
+          cp target/release/edolview AppDir/usr/bin/edolview
+          cp -R colormap AppDir/usr/bin/colormap
+          cp packaging/edolview.desktop AppDir/usr/share/applications/edolview.desktop
+          cp icons/hicolor/256x256/apps/edolview.png AppDir/usr/share/icons/hicolor/256x256/apps/edolview.png
+          cp icons/hicolor/256x256/apps/edolview.png AppDir/edolview.png
+          cp packaging/linux/AppRun AppDir/AppRun
+          chmod +x AppDir/AppRun
+          curl -Lo linuxdeploy.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 ./linuxdeploy.AppImage --appdir AppDir --desktop-file packaging/edolview.desktop --icon-file icons/hicolor/256x256/apps/edolview.png --output appimage
+          APPIMAGE_OUTPUT="$(find . -maxdepth 1 -type f -name '*.AppImage' ! -name 'linuxdeploy.AppImage' | head -n 1)"
+          mv "$APPIMAGE_OUTPUT" target/dist/edolview-linux.AppImage
+
+      - name: Upload installer artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: edolview-installers-${{ matrix.suffix }}
+          path: |
+            target/dist/*.msi
+            target/dist/*.dmg
+            target/dist/*.AppImage
+            target/dist/*.deb
+          if-no-files-found: warn
+
   release:
     name: Release
     needs: build
@@ -332,6 +433,10 @@ jobs:
         with:
           files: |
             dist/*.zip
+            dist/**/*.msi
+            dist/**/*.dmg
+            dist/**/*.AppImage
+            dist/**/*.deb
             dist/SHA256SUMS.txt
           generate_release_notes: true
         env:
