@@ -7,6 +7,10 @@ use std::{
     process::Command,
 };
 
+#[allow(dead_code)]
+#[path = "../../src/supported_image.rs"]
+mod supported_image;
+
 const APP_NAME: &str = "Edolview";
 const APP_NAME_LC: &str = "edolview";
 
@@ -46,8 +50,11 @@ fn generate_all_icons() -> Result<()> {
         eprintln!("[warn] 'iconutil' not found; skipping ICNS. Run this on macOS to create icons/{APP_NAME}.icns");
     }
 
-    // Generate Linux .desktop template
+    write_linux_app_run("packaging/linux/AppRun")?;
+    write_linux_wrapper("packaging/linux/edolview-wrapper.sh")?;
     write_linux_desktop(format!("packaging/{APP_NAME_LC}.desktop").as_str())?;
+    write_macos_info_plist_template("packaging/macos/Info.plist.in")?;
+    write_windows_wxs("packaging/windows/edolview.wxs")?;
 
     println!("icons generated in ./icons");
     Ok(())
@@ -177,6 +184,12 @@ fn generate_macos_icns(src_png: &Path, out_icns: &Path) -> Result<()> {
 
 fn write_linux_desktop(path: &str) -> Result<()> {
     fs::create_dir_all(Path::new(path).parent().unwrap())?;
+    let mime_types = supported_image::supported_image_mime_types().join(";");
+    let mime_line = if mime_types.is_empty() {
+        String::new()
+    } else {
+        format!("MimeType={mime_types};\n")
+    };
     let desktop = format!(
         r#"[Desktop Entry]
 Type=Application
@@ -185,9 +198,188 @@ Exec={APP_NAME_LC}
 Icon={APP_NAME_LC}
 Terminal=false
 Categories=Utility;
-"#
+{mime_line}"#
     );
     fs::write(path, desktop)?;
+    Ok(())
+}
+
+fn write_linux_app_run(path: &str) -> Result<()> {
+    fs::create_dir_all(Path::new(path).parent().unwrap())?;
+    fs::write(
+        path,
+        r#"#!/bin/sh
+SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$SELF_DIR/usr/bin/edolview" "$@"
+"#,
+    )?;
+    Ok(())
+}
+
+fn write_linux_wrapper(path: &str) -> Result<()> {
+    fs::create_dir_all(Path::new(path).parent().unwrap())?;
+    fs::write(
+        path,
+        r#"#!/bin/sh
+exec /opt/edolview/edolview "$@"
+"#,
+    )?;
+    Ok(())
+}
+
+fn write_macos_info_plist_template(path: &str) -> Result<()> {
+    fs::create_dir_all(Path::new(path).parent().unwrap())?;
+    let extensions = supported_image::supported_image_extensions()
+        .into_iter()
+        .map(|ext| format!("            <string>{ext}</string>"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleDisplayName</key>
+    <string>Edolview</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+{extensions}
+            </array>
+            <key>CFBundleTypeName</key>
+            <string>Supported image files</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+        </dict>
+    </array>
+    <key>CFBundleExecutable</key>
+    <string>edolview</string>
+    <key>CFBundleIconFile</key>
+    <string>edolview.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>kr.edoli.edolview</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Edolview</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__SHORT_VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__VERSION__</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+"#
+    );
+    fs::write(path, plist)?;
+    Ok(())
+}
+
+fn write_windows_wxs(path: &str) -> Result<()> {
+    fs::create_dir_all(Path::new(path).parent().unwrap())?;
+
+    let formats = supported_image::supported_image_formats();
+
+    let components = formats
+        .iter()
+        .map(|format| {
+            let ext_id = format.ext.to_ascii_uppercase();
+            let prog_id = format!("Edolview.{}", ext_id);
+            let component_id = format!("cmpAssoc{}", ext_id);
+            let open_with_component_id = format!("cmpOpenWith{}", ext_id);
+            format!(
+                r#"          <Component Id="{component_id}" Guid="*">
+            <RegistryKey Root="HKLM" Key="Software\Classes\{prog_id}">
+              <RegistryValue Type="string" Value="Edolview {ext_id} file" KeyPath="yes" />
+              <RegistryKey Key="DefaultIcon">
+                <RegistryValue Type="string" Value="[INSTALLFOLDER]edolview.exe,0" />
+              </RegistryKey>
+              <RegistryKey Key="shell\open\command">
+                <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]edolview.exe&quot; &quot;%1&quot;" />
+              </RegistryKey>
+            </RegistryKey>
+          </Component>
+          <Component Id="{open_with_component_id}" Guid="*">
+            <RegistryKey Root="HKLM" Key="Software\Classes\.{ext}\OpenWithProgids">
+              <RegistryValue Name="{prog_id}" Type="string" Value="" KeyPath="yes" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="Software\Classes\Applications\edolview.exe\SupportedTypes">
+              <RegistryValue Name=".{ext}" Type="string" Value="" />
+            </RegistryKey>
+          </Component>"#,
+                ext = format.ext,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let component_refs = formats
+        .iter()
+        .map(|format| {
+            let ext_id = format.ext.to_ascii_uppercase();
+            format!("      <ComponentRef Id=\"cmpAssoc{ext_id}\" />\n      <ComponentRef Id=\"cmpOpenWith{ext_id}\" />")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let wxs = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="Edolview"
+    Language="1033"
+    Version="$(var.ProductVersion)"
+    Manufacturer="Daniel Jeon"
+    UpgradeCode="9B95884C-31AA-4A5C-8209-D7CE6CA9C2D8">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="ProductIcon" SourceFile="$(var.ProjectDir)\icons\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Edolview">
+          <Component Id="cmpMainExe" Guid="D7781E26-5FAE-4F3F-8B92-BD40530A4628">
+            <File Id="filMainExe" Source="$(var.ReleaseBinDir)\edolview.exe" KeyPath="yes" Checksum="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="Edolview" Level="1">
+      <ComponentRef Id="cmpMainExe" />
+      <ComponentGroupRef Id="ColormapFiles" />
+      <ComponentGroupRef Id="FileAssociations" />
+    </Feature>
+
+    <Fragment>
+      <ComponentGroup Id="FileAssociations">
+{component_refs}
+      </ComponentGroup>
+    </Fragment>
+
+    <Fragment>
+{components}
+    </Fragment>
+  </Product>
+</Wix>
+"#
+    );
+    fs::write(path, wxs)?;
     Ok(())
 }
 

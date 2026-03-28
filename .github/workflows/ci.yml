@@ -269,7 +269,7 @@ jobs:
           echo "PKG_CONFIG_PATH=${{ github.workspace }}/target/vcpkg/installed/arm64-osx-release/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           
       - name: Run icon generation
-        run: cargo run -p xtask -- icons
+        run: cargo run -p xtask --features heif -- icons
 
       - name: Package release binary
         run: cargo build --release --features heif

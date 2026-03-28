@@ -3,6 +3,9 @@ name = "xtask"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+heif = []
 
 [dependencies]
 anyhow = "1.0"
