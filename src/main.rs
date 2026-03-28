@@ -11,6 +11,7 @@ use crate::ui::ViewerApp;
 
 mod model;
 mod res;
+mod supported_image;
 mod ui;
 mod util;
 

@@ -444,8 +444,9 @@ impl eframe::App for ViewerApp {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
                         ui.close();
+                        let supported_extensions = crate::supported_image::supported_image_extensions();
                         if let Some(path) = FileDialog::new()
-                            .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "tif", "tiff", "hdr", "exr"])
+                            .add_filter("Images", supported_extensions.as_slice())
                             .pick_file()
                         {
                             match self.state.load_from_path(path.clone()) {

@@ -383,7 +383,11 @@ impl MatImage {
 
             let is_unicode_path = crate::util::path_ext::is_unicode_path(path);
 
-            if is_unicode_path && ext != "pfm" && ext != "flo" && ext != "heic" && ext != "heif" {
+            if is_unicode_path
+                && ext != "pfm"
+                && ext != "flo"
+                && !crate::supported_image::is_heif_extension(ext.as_str())
+            {
                 // Read image using imread fails on paths with non-ASCII characters.
                 bgr_convert = true;
                 imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
@@ -399,7 +403,7 @@ impl MatImage {
                 }
                 bgr_convert = true;
                 imgcodecs::imread(temp_path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
-            } else if ext == "heic" || ext == "heif" {
+            } else if crate::supported_image::is_heif_extension(ext.as_str()) {
                 #[cfg(not(feature = "heif"))]
                 return Err(eyre!("HEIF support is not enabled"));
 

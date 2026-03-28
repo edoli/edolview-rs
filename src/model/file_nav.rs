@@ -42,16 +42,12 @@ impl FileNav {
 
     #[inline]
     pub fn is_supported_image(path: &PathBuf) -> bool {
-        let exts = [
-            "png", "jpeg", "jpg", "jpe", "jp2", "bmp", "dib", "exr", "tif", "tiff", "hdr", "pic", "webp", "raw", "pfm",
-            "pgm", "ppm", "pbm", "pxm", "pnm", "sr", "flo",
-        ];
         let ext = path
             .extension()
             .and_then(|s| s.to_str())
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_default();
-        exts.contains(&ext.as_str())
+        crate::supported_image::is_supported_image_extension(ext.as_str())
     }
 
     #[inline]
