@@ -295,7 +295,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Install MSI tooling
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Windows')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
           choco install -y --no-progress wixtoolset
@@ -310,7 +310,7 @@ jobs:
           Add-Content -Path $Env:GITHUB_ENV -Value "PATH=$wixBin;$env:PATH"
 
       - name: Build MSI installer
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Windows')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path target\wix | Out-Null
@@ -336,11 +336,11 @@ jobs:
           & "$env:WIX\light.exe" -out target\dist\edolview-windows.msi target\wix\edolview.wixobj target\wix\colormap.wixobj
 
       - name: Install macOS packaging tools
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')
         run: brew install create-dmg
 
       - name: Build DMG installer
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')
         shell: bash
         run: |
           set -euo pipefail
@@ -374,14 +374,14 @@ PY
             "target/dmg-root"
 
       - name: Install Linux packaging tools
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends desktop-file-utils zsync
           cargo install cargo-deb
 
       - name: Build DEB package
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
         shell: bash
         run: |
           set -euo pipefail
@@ -399,7 +399,7 @@ PY
           cargo deb --no-build --deb-version "$DEB_VERSION" --output target/dist/edolview-linux.deb
 
       - name: Build AppImage package
-        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
         shell: bash
         run: |
           set -euo pipefail
@@ -418,7 +418,7 @@ PY
           mv "$APPIMAGE_OUTPUT" target/dist/edolview-linux.AppImage
 
       - name: Upload installer artifacts
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: edolview-installers-${{ matrix.suffix }}
