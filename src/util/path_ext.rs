@@ -56,3 +56,51 @@ pub fn exe_dir_or_cwd() -> PathBuf {
     }
     env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
+
+pub fn app_config_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(dir) = env::var_os("LOCALAPPDATA") {
+            let path = PathBuf::from(dir).join("Edolview");
+            let _ = fs::create_dir_all(&path);
+            return path;
+        }
+        if let Some(dir) = env::var_os("APPDATA") {
+            let path = PathBuf::from(dir).join("Edolview");
+            let _ = fs::create_dir_all(&path);
+            return path;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = env::var_os("HOME") {
+            let path = PathBuf::from(home).join("Library").join("Application Support").join("Edolview");
+            let _ = fs::create_dir_all(&path);
+            return path;
+        }
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        if let Some(dir) = env::var_os("XDG_CONFIG_HOME") {
+            let path = PathBuf::from(dir).join("edolview");
+            let _ = fs::create_dir_all(&path);
+            return path;
+        }
+        if let Some(home) = env::var_os("HOME") {
+            let path = PathBuf::from(home).join(".config").join("edolview");
+            let _ = fs::create_dir_all(&path);
+            return path;
+        }
+    }
+
+    let path = safe_temp_dir().join("edolview-config");
+    let _ = fs::create_dir_all(&path);
+    path
+}

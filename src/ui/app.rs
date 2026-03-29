@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     sync::{atomic::Ordering, mpsc, Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
     vec,
 };
 
@@ -91,12 +91,32 @@ pub struct ViewerApp {
     update_toast_shown: bool,
     close_for_update: bool,
     pending_update_confirmation: Option<crate::update::AvailableUpdate>,
+    app_settings: crate::settings::AppSettings,
+    show_settings_modal: bool,
+    control_rx: mpsc::Receiver<Vec<PathBuf>>,
+    control_instance: Option<crate::control::ControlInstance>,
+    last_control_touch: Instant,
+    was_focused_last_frame: bool,
+}
+
+impl Drop for ViewerApp {
+    fn drop(&mut self) {
+        if let Some(control_instance) = &self.control_instance {
+            if let Err(err) = control_instance.remove() {
+                eprintln!("Failed to remove active window registration: {err}");
+            }
+        }
+    }
 }
 
 impl ViewerApp {
     pub fn new() -> Self {
         let state = AppState::empty();
         let marquee_rect = state.marquee_rect.clone();
+        let app_settings = crate::settings::AppSettings::load().unwrap_or_else(|err| {
+            eprintln!("Failed to load settings: {err}");
+            crate::settings::AppSettings::default()
+        });
 
         // Start socket server for receiving images
         let host = "127.0.0.1";
@@ -106,12 +126,22 @@ impl ViewerApp {
         let socket_info = state.socket_info.clone();
 
         let (statistics_tx, statistics_rx) = mpsc::channel::<Vec<StatisticsUpdate>>();
+        let (control_tx, control_rx) = mpsc::channel::<Vec<PathBuf>>();
 
         thread::spawn(move || {
             start_server_with_retry(host, port, socket_tx, socket_state, socket_info).unwrap_or_else(|e| {
                 eprintln!("Failed to start socket server: {e}");
             });
         });
+
+        let mut toasts = Vec::new();
+        let control_instance = match crate::control::start_control_listener(control_tx) {
+            Ok(instance) => Some(instance),
+            Err(err) => {
+                toasts.add_error(format!("Failed to start file-open control listener: {err}"));
+                None
+            }
+        };
 
         // Spawn async loader for optional fallback font placed next to the executable.
         // If a file named "fallback_font.ttf" exists beside the executable, we read it on a
@@ -162,7 +192,7 @@ impl ViewerApp {
 
             plot_dim: PlotDim::Auto,
 
-            toasts: Vec::new(),
+            toasts,
 
             icons: Icons::new(),
 
@@ -183,12 +213,18 @@ impl ViewerApp {
             update_toast_shown: false,
             close_for_update: false,
             pending_update_confirmation: None,
+            app_settings,
+            show_settings_modal: false,
+            control_rx,
+            control_instance,
+            last_control_touch: Instant::now(),
+            was_focused_last_frame: false,
         }
     }
 
     #[inline]
-    pub fn with_path(mut self, path: Option<PathBuf>) -> Self {
-        if let Some(path) = path {
+    pub fn with_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        for path in paths {
             if let Err(e) = self.state.load_from_path(path.clone()) {
                 self.load_fail("Failed to load image", Some(&path), &e);
             }
@@ -295,6 +331,79 @@ impl ViewerApp {
                     ui.label(message);
                 });
             });
+    }
+
+    fn show_settings_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_settings_modal {
+            return;
+        }
+
+        let mut keep_open = self.show_settings_modal;
+        egui::Window::new("Settings")
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut keep_open)
+            .show(ctx, |ui| {
+                ui.set_min_width(420.0);
+                ui.heading("External file open behavior");
+                ui.add_space(8.0);
+                ui.label("This affects files opened from the OS shell, file association, or command line.");
+                ui.add_space(8.0);
+
+                let mut mode = self.app_settings.external_open_mode;
+                let changed_new = ui
+                    .radio_value(
+                        &mut mode,
+                        crate::settings::ExternalOpenMode::NewWindow,
+                        crate::settings::ExternalOpenMode::NewWindow.label(),
+                    )
+                    .on_hover_text("Always open external files in a new Edolview window.")
+                    .changed();
+                let changed_existing = ui
+                    .radio_value(
+                        &mut mode,
+                        crate::settings::ExternalOpenMode::ExistingWindow,
+                        crate::settings::ExternalOpenMode::ExistingWindow.label(),
+                    )
+                    .on_hover_text("Send external files to the last active Edolview window and add them to its image list.")
+                    .changed();
+
+                if changed_new || changed_existing {
+                    self.app_settings.external_open_mode = mode;
+                    if let Err(err) = self.app_settings.save() {
+                        self.toasts.add_error(err);
+                    }
+                }
+
+                ui.add_space(10.0);
+                if let Some(control_instance) = &self.control_instance {
+                    ui.label(format!("Local control address: {}", control_instance.address()));
+                } else {
+                    ui.colored_label(
+                        Color32::from_rgb(255, 140, 140),
+                        "Local control listener is unavailable, so send-to-existing-window mode cannot work in this session.",
+                    );
+                }
+            });
+
+        self.show_settings_modal = keep_open;
+    }
+
+    fn refresh_control_registration(&mut self, ctx: &egui::Context) {
+        let Some(control_instance) = &self.control_instance else {
+            return;
+        };
+
+        let is_focused = ctx.input(|i| i.viewport().focused.unwrap_or(false));
+        if is_focused && (!self.was_focused_last_frame || self.last_control_touch.elapsed() >= Duration::from_secs(1)) {
+            if let Err(err) = control_instance.touch_active() {
+                eprintln!("Failed to update active window registry: {err}");
+            } else {
+                self.last_control_touch = Instant::now();
+            }
+        }
+        self.was_focused_last_frame = is_focused;
     }
 
     fn update_statistics(&mut self) {
@@ -431,6 +540,20 @@ impl ViewerApp {
             Err(mpsc::TryRecvError::Disconnected) => {}
         }
 
+        loop {
+            match self.control_rx.try_recv() {
+                Ok(paths) => {
+                    for path in paths {
+                        if let Err(err) = self.state.load_from_path(path.clone()) {
+                            self.load_fail("Failed to open externally requested file", Some(&path), &err);
+                        }
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => break,
+            }
+        }
+
         // Non-blocking check for fallback font data and apply once.
         if !self.fallback_font_applied {
             if let Some(rx) = &self.font_rx {
@@ -521,6 +644,7 @@ impl eframe::App for ViewerApp {
         }
 
         self.handle_event(ctx);
+        self.refresh_control_registration(ctx);
 
         if self.close_for_update {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -624,6 +748,10 @@ impl eframe::App for ViewerApp {
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
+                if ui.button("⚙").on_hover_text("Settings").clicked() {
+                    self.show_settings_modal = true;
+                }
+
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
                         ui.close();
@@ -761,6 +889,7 @@ impl eframe::App for ViewerApp {
 
         self.show_update_confirmation_dialog(ctx);
         self.show_update_progress_dialog(ctx);
+        self.show_settings_dialog(ctx);
 
         if self.show_bottom_panel {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {

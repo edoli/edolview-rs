@@ -9,8 +9,10 @@ use std::path::PathBuf;
 
 use crate::ui::ViewerApp;
 
+mod control;
 mod model;
 mod res;
+mod settings;
 mod supported_image;
 mod ui;
 mod update;
@@ -25,13 +27,26 @@ const ICON_DATA: &[u8] = include_bytes!("../icons/icon.png");
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
 struct Args {
-    /// Path to the image file to open (optional)
-    image: Option<PathBuf>,
+    /// Image file paths to open (optional)
+    images: Vec<PathBuf>,
 }
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
+
+    let settings = crate::settings::AppSettings::load().unwrap_or_else(|err| {
+        eprintln!("Failed to load settings: {err}");
+        crate::settings::AppSettings::default()
+    });
+
+    if !args.images.is_empty() && settings.external_open_mode == crate::settings::ExternalOpenMode::ExistingWindow {
+        match crate::control::try_forward_paths_to_last_active(&args.images) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(err) => eprintln!("Failed to forward files to an existing Edolview window: {err}"),
+        }
+    }
 
     #[cfg(target_os = "linux")]
     {
@@ -75,7 +90,7 @@ fn main() -> Result<()> {
     if let Err(e) = eframe::run_native(
         "edolview-rs",
         native_options,
-        Box::new(|_cc| Ok(Box::new(ViewerApp::new().with_path(args.image)))),
+        Box::new(|_cc| Ok(Box::new(ViewerApp::new().with_paths(args.images)))),
     ) {
         return Err(eyre!("eframe initialization failed: {e}"));
     }
