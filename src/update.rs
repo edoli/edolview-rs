@@ -91,7 +91,7 @@ pub fn start_update(update: &AvailableUpdate) -> Result<String, String> {
     launch_update_helper(update.target, &current_exe, &asset_path)?;
 
     Ok(format!(
-        "Downloaded {} and started the updater. Edolview will close to finish installing {}.",
+        "Downloaded {}. Edolview will now close, and a separate updater window will stay visible while the {} is applied.",
         update.version,
         update.target.label()
     ))
@@ -202,6 +202,7 @@ fn launch_update_helper(target: UpdateTarget, current_exe: &Path, asset_path: &P
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
+                "-Sta",
                 "-WindowStyle",
                 "Hidden",
                 "-File",
@@ -247,10 +248,43 @@ fn write_windows_update_script(
     let script = match target {
         UpdateTarget::PortableZip => format!(
             r#"$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Updating Edolview'
+$form.Width = 420
+$form.Height = 150
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'
+$form.ControlBox = $false
+$form.TopMost = $true
+$label = New-Object System.Windows.Forms.Label
+$label.Left = 20
+$label.Top = 16
+$label.Width = 360
+$label.Height = 44
+$label.TextAlign = 'MiddleLeft'
+$progress = New-Object System.Windows.Forms.ProgressBar
+$progress.Left = 20
+$progress.Top = 74
+$progress.Width = 360
+$progress.Height = 18
+$progress.Style = 'Marquee'
+$progress.MarqueeAnimationSpeed = 30
+$form.Controls.Add($label)
+$form.Controls.Add($progress)
+$form.Show()
+function Set-Status([string] $text) {{
+    $label.Text = $text
+    [System.Windows.Forms.Application]::DoEvents()
+}}
+Set-Status({status_waiting})
 $pidToWait = {pid}
 while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
+    [System.Windows.Forms.Application]::DoEvents()
     Start-Sleep -Milliseconds 300
 }}
+Set-Status({status_installing})
 $assetPath = {asset_path}
 $targetDir = {target_dir}
 $extractDir = Join-Path (Split-Path $assetPath -Parent) 'portable'
@@ -263,20 +297,62 @@ if (Test-Path (Join-Path $targetDir 'colormap')) {{
     Remove-Item (Join-Path $targetDir 'colormap') -Recurse -Force
 }}
 Copy-Item (Join-Path $extractDir 'colormap') (Join-Path $targetDir 'colormap') -Recurse -Force
+Set-Status({status_restarting})
 Start-Process -FilePath (Join-Path $targetDir 'edolview.exe')
+$form.Close()
 "#,
+            status_waiting = ps_quote_string("Waiting for Edolview to close so the update can start..."),
+            status_installing = ps_quote_string("Installing the new portable build..."),
+            status_restarting = ps_quote_string("Update installed. Restarting Edolview..."),
             asset_path = ps_quote_path(asset_path),
             target_dir = ps_quote_path(current_dir),
         ),
         UpdateTarget::WindowsMsi => format!(
             r#"$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Updating Edolview'
+$form.Width = 420
+$form.Height = 150
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'
+$form.ControlBox = $false
+$form.TopMost = $true
+$label = New-Object System.Windows.Forms.Label
+$label.Left = 20
+$label.Top = 16
+$label.Width = 360
+$label.Height = 44
+$label.TextAlign = 'MiddleLeft'
+$progress = New-Object System.Windows.Forms.ProgressBar
+$progress.Left = 20
+$progress.Top = 74
+$progress.Width = 360
+$progress.Height = 18
+$progress.Style = 'Marquee'
+$progress.MarqueeAnimationSpeed = 30
+$form.Controls.Add($label)
+$form.Controls.Add($progress)
+$form.Show()
+function Set-Status([string] $text) {{
+    $label.Text = $text
+    [System.Windows.Forms.Application]::DoEvents()
+}}
+Set-Status({status_waiting})
 $pidToWait = {pid}
 while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
+    [System.Windows.Forms.Application]::DoEvents()
     Start-Sleep -Milliseconds 300
 }}
+Set-Status({status_installing})
 $assetPath = {asset_path}
 Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $assetPath, '/passive', '/norestart')
+$form.Close()
 "#,
+            status_waiting = ps_quote_string("Waiting for Edolview to close so the installer can start..."),
+            status_installing =
+                ps_quote_string("Launching the MSI installer. Follow any prompts to finish the update."),
             asset_path = ps_quote_path(asset_path),
         ),
         _ => return Err("Unsupported Windows update target".to_string()),
@@ -293,6 +369,7 @@ fn write_unix_update_script(
     asset_path: &Path,
 ) -> Result<(), String> {
     let pid = std::process::id();
+    let status_message = sh_quote(status_message(target));
     let script = match target {
         UpdateTarget::PortableZip => {
             let current_dir = current_exe
@@ -301,6 +378,26 @@ fn write_unix_update_script(
             format!(
                 r#"#!/bin/sh
 set -eu
+STATUS_PID=""
+STATUS_MESSAGE={status_message}
+start_status() {{
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --info --title="Updating Edolview" --text="$STATUS_MESSAGE" --no-wrap --timeout=600 >/dev/null 2>&1 &
+        STATUS_PID=$!
+    elif command -v osascript >/dev/null 2>&1; then
+        osascript -e 'on run argv' -e 'display dialog (item 1 of argv) with title "Updating Edolview" buttons {{}} giving up after 600' -e 'end run' "$STATUS_MESSAGE" >/dev/null 2>&1 &
+        STATUS_PID=$!
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send "Updating Edolview" "$STATUS_MESSAGE"
+    fi
+}}
+stop_status() {{
+    if [ -n "${{STATUS_PID:-}}" ]; then
+        kill "$STATUS_PID" 2>/dev/null || true
+    fi
+}}
+trap 'stop_status' EXIT
+start_status
 PID={pid}
 while kill -0 "$PID" 2>/dev/null; do
     sleep 0.3
@@ -322,6 +419,7 @@ chmod +x "$TARGET_DIR/edolview"
 cp -R "$EXTRACT_DIR/colormap" "$TARGET_DIR/colormap"
 nohup "$TARGET_DIR/edolview" >/dev/null 2>&1 &
 "#,
+                status_message = status_message,
                 asset = sh_quote(asset_path.to_string_lossy().as_ref()),
                 target_dir = sh_quote(current_dir.to_string_lossy().as_ref()),
             )
@@ -332,6 +430,26 @@ nohup "$TARGET_DIR/edolview" >/dev/null 2>&1 &
             format!(
                 r#"#!/bin/sh
 set -eu
+STATUS_PID=""
+STATUS_MESSAGE={status_message}
+start_status() {{
+    if command -v osascript >/dev/null 2>&1; then
+        osascript -e 'on run argv' -e 'display dialog (item 1 of argv) with title "Updating Edolview" buttons {{}} giving up after 600' -e 'end run' "$STATUS_MESSAGE" >/dev/null 2>&1 &
+        STATUS_PID=$!
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --info --title="Updating Edolview" --text="$STATUS_MESSAGE" --no-wrap --timeout=600 >/dev/null 2>&1 &
+        STATUS_PID=$!
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send "Updating Edolview" "$STATUS_MESSAGE"
+    fi
+}}
+stop_status() {{
+    if [ -n "${{STATUS_PID:-}}" ]; then
+        kill "$STATUS_PID" 2>/dev/null || true
+    fi
+}}
+trap 'stop_status' EXIT
+start_status
 PID={pid}
 while kill -0 "$PID" 2>/dev/null; do
     sleep 0.3
@@ -352,6 +470,7 @@ ditto "$SOURCE_APP" "$APP_BUNDLE"
 hdiutil detach "$MOUNT_DIR" -quiet || hdiutil detach "$MOUNT_DIR" -force -quiet || true
 open "$APP_BUNDLE"
 "#,
+                status_message = status_message,
                 asset = sh_quote(asset_path.to_string_lossy().as_ref()),
                 app_bundle = sh_quote(app_bundle.to_string_lossy().as_ref()),
             )
@@ -359,6 +478,23 @@ open "$APP_BUNDLE"
         UpdateTarget::LinuxDeb => format!(
             r#"#!/bin/sh
 set -eu
+STATUS_PID=""
+STATUS_MESSAGE={status_message}
+start_status() {{
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --info --title="Updating Edolview" --text="$STATUS_MESSAGE" --no-wrap --timeout=600 >/dev/null 2>&1 &
+        STATUS_PID=$!
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send "Updating Edolview" "$STATUS_MESSAGE"
+    fi
+}}
+stop_status() {{
+    if [ -n "${{STATUS_PID:-}}" ]; then
+        kill "$STATUS_PID" 2>/dev/null || true
+    fi
+}}
+trap 'stop_status' EXIT
+start_status
 PID={pid}
 while kill -0 "$PID" 2>/dev/null; do
     sleep 0.3
@@ -372,11 +508,29 @@ else
     exit 1
 fi
 "#,
+            status_message = status_message,
             asset = sh_quote(asset_path.to_string_lossy().as_ref()),
         ),
         UpdateTarget::LinuxAppImage => format!(
             r#"#!/bin/sh
 set -eu
+STATUS_PID=""
+STATUS_MESSAGE={status_message}
+start_status() {{
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --info --title="Updating Edolview" --text="$STATUS_MESSAGE" --no-wrap --timeout=600 >/dev/null 2>&1 &
+        STATUS_PID=$!
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send "Updating Edolview" "$STATUS_MESSAGE"
+    fi
+}}
+stop_status() {{
+    if [ -n "${{STATUS_PID:-}}" ]; then
+        kill "$STATUS_PID" 2>/dev/null || true
+    fi
+}}
+trap 'stop_status' EXIT
+start_status
 PID={pid}
 while kill -0 "$PID" 2>/dev/null; do
     sleep 0.3
@@ -386,6 +540,7 @@ CURRENT_EXE={current_exe}
 install -m 755 "$ASSET" "$CURRENT_EXE"
 nohup "$CURRENT_EXE" >/dev/null 2>&1 &
 "#,
+            status_message = status_message,
             asset = sh_quote(asset_path.to_string_lossy().as_ref()),
             current_exe = sh_quote(current_exe.to_string_lossy().as_ref()),
         ),
@@ -458,9 +613,24 @@ fn ps_quote_path(path: &Path) -> String {
     format!("'{escaped}'")
 }
 
+#[cfg(target_os = "windows")]
+fn ps_quote_string(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn sh_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn status_message(target: UpdateTarget) -> &'static str {
+    match target {
+        UpdateTarget::PortableZip => "Edolview is installing the downloaded update and will reopen automatically.",
+        UpdateTarget::WindowsMsi | UpdateTarget::MacDmg | UpdateTarget::LinuxDeb => {
+            "Edolview is handing the update over to the installer. Follow any installer prompts to finish updating."
+        }
+        UpdateTarget::LinuxAppImage => "Edolview is replacing the AppImage and will reopen automatically.",
+    }
 }
 
 #[cfg(target_os = "macos")]

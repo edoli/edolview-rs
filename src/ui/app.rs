@@ -90,6 +90,7 @@ pub struct ViewerApp {
     update_status: UpdateStatus,
     update_toast_shown: bool,
     close_for_update: bool,
+    pending_update_confirmation: Option<crate::update::AvailableUpdate>,
 }
 
 impl ViewerApp {
@@ -181,6 +182,7 @@ impl ViewerApp {
             update_status: UpdateStatus::Idle,
             update_toast_shown: false,
             close_for_update: false,
+            pending_update_confirmation: None,
         }
     }
 
@@ -198,6 +200,81 @@ impl ViewerApp {
         eprintln!("{message}: {e}");
         let path_str = path.map_or("<invalid>", |p| p.to_str().unwrap_or("<invalid>"));
         self.toasts.add_error(format!("{message}: {path_str}"));
+    }
+
+    fn begin_update(&mut self, ctx: &egui::Context, update: crate::update::AvailableUpdate) {
+        let (tx, rx) = mpsc::channel();
+        self.update_apply_rx = Some(rx);
+        self.update_status = UpdateStatus::Applying(format!(
+            "Downloading {} and preparing the {}. Edolview will close when ready, and a separate updater window will stay visible until the update completes.",
+            update.version,
+            update.target.label()
+        ));
+
+        let update_ctx = ctx.clone();
+        thread::spawn(move || {
+            let result = crate::update::start_update(&update);
+            let _ = tx.send(result);
+            update_ctx.request_repaint();
+        });
+    }
+
+    fn show_update_confirmation_dialog(&mut self, ctx: &egui::Context) {
+        let Some(update) = self.pending_update_confirmation.clone() else {
+            return;
+        };
+
+        let mut keep_open = true;
+        egui::Window::new("Confirm Update")
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut keep_open)
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                ui.label(format!(
+                    "Install {} using the {} update package?",
+                    update.version,
+                    update.target.label()
+                ));
+                ui.add_space(8.0);
+                ui.label(
+                    "Edolview will download the update first. When the install step is ready, the app will close and a separate updater window will stay visible until the update finishes.",
+                );
+                ui.add_space(12.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Update").clicked() {
+                        self.pending_update_confirmation = None;
+                        self.begin_update(ctx, update.clone());
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.pending_update_confirmation = None;
+                    }
+                });
+            });
+
+        if !keep_open {
+            self.pending_update_confirmation = None;
+        }
+    }
+
+    fn show_update_progress_dialog(&self, ctx: &egui::Context) {
+        let UpdateStatus::Applying(message) = &self.update_status else {
+            return;
+        };
+
+        egui::Window::new("Updating Edolview")
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .title_bar(true)
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new());
+                    ui.label(message);
+                });
+            });
     }
 
     fn update_statistics(&mut self) {
@@ -395,7 +472,7 @@ impl ViewerApp {
             match rx.try_recv() {
                 Ok(result) => match result {
                     Ok(message) => {
-                        self.toasts.add_info(message);
+                        self.update_status = UpdateStatus::Applying(message);
                         self.close_for_update = true;
                     }
                     Err(err) => {
@@ -643,26 +720,20 @@ impl eframe::App for ViewerApp {
                         let update_button = ui
                             .button(egui::RichText::new("Update").color(Color32::from_rgb(120, 220, 120)))
                             .on_hover_text(format!(
-                                "Download {} and apply it automatically using {}. The app will close to finish the update.",
+                                "Download {} and apply it automatically using {}. A confirmation dialog appears first, then a separate updater window stays visible while Edolview restarts.",
                                 update.version,
                                 update.target.label()
                             ));
                         if update_button.clicked() {
-                            let (tx, rx) = mpsc::channel();
-                            self.update_apply_rx = Some(rx);
-                            self.update_status =
-                                UpdateStatus::Applying(format!("Preparing automatic update for {}", update.version));
-                            let update_ctx = ctx.clone();
-                            thread::spawn(move || {
-                                let result = crate::update::start_update(&update);
-                                let _ = tx.send(result);
-                                update_ctx.request_repaint();
-                            });
+                            self.pending_update_confirmation = Some(update);
                         }
                     }
                 });
             });
         });
+
+        self.show_update_confirmation_dialog(ctx);
+        self.show_update_progress_dialog(ctx);
 
         if self.show_bottom_panel {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
