@@ -348,9 +348,37 @@ impl ViewerApp {
             .open(&mut keep_open)
             .show(ctx, |ui| {
                 ui.set_min_width(420.0);
-                ui.heading("External file open behavior");
+                ui.heading("Application");
                 ui.add_space(8.0);
-                ui.label("This affects files opened from the OS shell, file association, or command line.");
+
+                if let UpdateStatus::Applying(message) = &self.update_status {
+                    ui.add_enabled(false, egui::Button::new("Updating..."))
+                        .on_hover_text(message);
+                } else if let UpdateStatus::Available(update) = &self.update_status {
+                    let update = update.clone();
+                    let update_button = ui
+                        .button(egui::RichText::new("Update Available").color(Color32::from_rgb(120, 220, 120)))
+                        .on_hover_text(format!(
+                            "Download {} and apply it automatically using {}. The app will close to finish the update. (current: v{})",
+                            update.version,
+                            update.target.label(),
+                            crate::update::current_version()
+                        ));
+                    if update_button.clicked() {
+                        self.pending_update_confirmation = Some(update);
+                    }
+                }
+
+                ui.label(
+                    egui::RichText::new(format!("Current version: v{}", crate::update::current_version()))
+                        .color(ui.visuals().weak_text_color()),
+                )
+                .on_hover_text("Current version");
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(12.0);
+                ui.heading("External file open behavior");
                 ui.add_space(8.0);
 
                 let mut mode = self.app_settings.external_open_mode;
@@ -760,10 +788,6 @@ impl eframe::App for ViewerApp {
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                if ui.button("⚙").on_hover_text("Settings").clicked() {
-                    self.show_settings_modal = true;
-                }
-
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
                         ui.close();
@@ -869,32 +893,18 @@ impl eframe::App for ViewerApp {
 
                 // Right end: panel visibility toggles
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let settings_button = ui.button("⚙").on_hover_text("Settings");
+                    if settings_button.clicked() {
+                        self.show_settings_modal = true;
+                    }
+                    if matches!(self.update_status, UpdateStatus::Available(_)) {
+                        let indicator_center = settings_button.rect.right_bottom() + egui::vec2(-4.0, -4.0);
+                        ui.painter()
+                            .circle_filled(indicator_center, 2.0, Color32::from_rgb(120, 220, 120));
+                    }
+
                     ui.toggle_value(&mut self.show_bottom_panel, "Status Bar");
                     ui.toggle_value(&mut self.show_side_panel, "Sidebar");
-
-                    if let UpdateStatus::Applying(message) = &self.update_status {
-                        ui.add_enabled(false, egui::Button::new("Updating..."))
-                            .on_hover_text(message);
-                    } else if let UpdateStatus::Available(update) = &self.update_status {
-                        let update = update.clone();
-                        let update_button = ui
-                            .button(egui::RichText::new("Update Available").color(Color32::from_rgb(120, 220, 120)))
-                            .on_hover_text(format!(
-                                "Download {} and apply it automatically using {}. The app will close to finish the update. (current: v{})",
-                                update.version,
-                                update.target.label(),
-                                crate::update::current_version()
-                            ));
-                        if update_button.clicked() {
-                            self.pending_update_confirmation = Some(update);
-                        }
-                    } else {
-                        ui.label(
-                            egui::RichText::new(format!("v{}", crate::update::current_version()))
-                                .color(ui.visuals().weak_text_color()),
-                        )
-                        .on_hover_text("Current version");
-                    }
                 });
             });
         });
