@@ -10,6 +10,13 @@
 - If you touch `icon.svg`, `icons\`, `build.rs`, `packaging\`, or startup icon loading, run `cargo run -p xtask -- icons` before validating.
 - Keep generated icon files such as `icons\icon.png` and `icons\app.ico` in sync with code and packaging references.
 
+## Release and versioning
+
+- Treat `Cargo.toml` as the single source of truth for the app version.
+- When preparing a release, use `cargo run -p xtask -- release-version <x.y.z>` instead of editing the version and git tag separately by hand.
+- After running that command, push both `main` and the new `v<x.y.z>` tag.
+- Do not create or push a release tag whose version does not match `Cargo.toml`.
+
 ## Unsafe, OpenGL, and image-core changes
 
 - Treat `src\ui\gl\`, `src\ui\image_viewer.rs`, `src\model\image.rs`, and `src\model\image_io.rs` as safety-sensitive code.
