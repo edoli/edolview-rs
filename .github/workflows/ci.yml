@@ -332,8 +332,8 @@ jobs:
           } else {
             throw "Unsupported tag version for WiX: $tagVersion"
           }
-          & "$env:WIX\candle.exe" -arch x64 "-dProjectDir=$env:GITHUB_WORKSPACE" "-dColormapDir=$env:GITHUB_WORKSPACE\colormap" "-dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release" "-dProductVersion=$productVersion" -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
-          & "$env:WIX\light.exe" -out target\dist\edolview-installer-msi.msi target\wix\edolview.wixobj target\wix\colormap.wixobj
+          & "$env:WIX\candle.exe" -ext WixUIExtension -arch x64 "-dProjectDir=$env:GITHUB_WORKSPACE" "-dColormapDir=$env:GITHUB_WORKSPACE\colormap" "-dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release" "-dProductVersion=$productVersion" -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
+          & "$env:WIX\light.exe" -ext WixUIExtension -out target\dist\edolview-installer-msi.msi target\wix\edolview.wixobj target\wix\colormap.wixobj
 
       - name: Install macOS packaging tools
         if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')

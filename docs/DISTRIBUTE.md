@@ -35,6 +35,9 @@ Installer artifacts are uploaded separately so AppImage and DEB do not get bundl
 - The AppImage packages `colormap` inside the AppDir next to the shipped binary.
 - The macOS `.app` bundle stores `colormap` inside `Contents/MacOS` so the current runtime lookup continues to work.
 - The MSI installs the main executable and `colormap` together under the application install directory.
+- The MSI now uses a standard WiX UI flow so the installer shows a clear completion screen instead of closing immediately.
+- The MSI exposes optional shortcut features during setup: Start Menu shortcuts and a desktop shortcut.
+- The Start Menu shortcut feature also adds an uninstall shortcut for easier removal from Windows.
 
 ### File association status
 

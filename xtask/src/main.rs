@@ -54,6 +54,7 @@ fn generate_all_icons() -> Result<()> {
     write_linux_wrapper("packaging/linux/edolview-wrapper.sh")?;
     write_linux_desktop(format!("packaging/{APP_NAME_LC}.desktop").as_str())?;
     write_macos_info_plist_template("packaging/macos/Info.plist.in")?;
+    write_windows_license_rtf("packaging/windows/License.rtf")?;
     write_windows_wxs("packaging/windows/edolview.wxs")?;
 
     println!("icons generated in ./icons");
@@ -349,6 +350,9 @@ fn write_windows_wxs(path: &str) -> Result<()> {
 
     <Icon Id="ProductIcon" SourceFile="$(var.ProjectDir)\icons\app.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_Mondo" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.ProjectDir)\packaging\windows\License.rtf" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -358,12 +362,42 @@ fn write_windows_wxs(path: &str) -> Result<()> {
           </Component>
         </Directory>
       </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Edolview" />
+      </Directory>
+      <Directory Id="DesktopFolder" Name="Desktop" />
     </Directory>
 
-    <Feature Id="MainFeature" Title="Edolview" Level="1">
+    <Feature
+      Id="MainFeature"
+      Title="Edolview"
+      Description="Image viewer for visualization and analysis"
+      Level="1"
+      Display="expand"
+      ConfigurableDirectory="INSTALLFOLDER"
+      AllowAdvertise="no"
+      Absent="disallow">
       <ComponentRef Id="cmpMainExe" />
       <ComponentGroupRef Id="ColormapFiles" />
       <ComponentGroupRef Id="FileAssociations" />
+      <Feature
+        Id="StartMenuShortcutsFeature"
+        Title="Start Menu shortcuts"
+        Description="Create Start Menu shortcuts, including an uninstall entry."
+        Level="1"
+        AllowAdvertise="no"
+        Absent="allow">
+        <ComponentRef Id="cmpStartMenuShortcut" />
+      </Feature>
+      <Feature
+        Id="DesktopShortcutFeature"
+        Title="Desktop shortcut"
+        Description="Create a shortcut on the desktop."
+        Level="1"
+        AllowAdvertise="no"
+        Absent="allow">
+        <ComponentRef Id="cmpDesktopShortcut" />
+      </Feature>
     </Feature>
   </Product>
 
@@ -378,10 +412,70 @@ fn write_windows_wxs(path: &str) -> Result<()> {
 {components}
     </DirectoryRef>
   </Fragment>
+
+  <Fragment>
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="cmpStartMenuShortcut" Guid="*">
+        <Shortcut
+          Id="StartMenuShortcut"
+          Name="Edolview"
+          Description="Image viewer for visualization and analysis"
+          Target="[INSTALLFOLDER]edolview.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="ProductIcon"
+          IconIndex="0" />
+        <Shortcut
+          Id="UninstallShortcut"
+          Name="Uninstall Edolview"
+          Description="Remove Edolview from this computer"
+          Target="[SystemFolder]msiexec.exe"
+          Arguments="/x [ProductCode]" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Edolview" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+
+  <Fragment>
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="cmpDesktopShortcut" Guid="*">
+        <Shortcut
+          Id="DesktopShortcut"
+          Name="Edolview"
+          Description="Image viewer for visualization and analysis"
+          Target="[INSTALLFOLDER]edolview.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="ProductIcon"
+          IconIndex="0" />
+        <RegistryValue Root="HKCU" Key="Software\Edolview" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
 </Wix>
 "#
     );
     fs::write(path, wxs)?;
+    Ok(())
+}
+
+fn write_windows_license_rtf(path: &str) -> Result<()> {
+    fs::create_dir_all(Path::new(path).parent().unwrap())?;
+
+    let license_text = fs::read_to_string("LICENSE").context("failed to read LICENSE")?;
+    let escaped = license_text
+        .replace('\\', r"\\")
+        .replace('{', r"\{")
+        .replace('}', r"\}")
+        .replace('\r', "")
+        .replace(
+            '\n', r"\par
+",
+        );
+
+    let rtf = format!(
+        "{{\\rtf1\\ansi\\deff0{{\\fonttbl{{\\f0\\fnil Consolas;}}}}\\viewkind4\\uc1\\pard\\f0\\fs20 {escaped}\\par\n}}"
+    );
+    fs::write(path, rtf)?;
     Ok(())
 }
 
