@@ -28,6 +28,8 @@ flate2 = { version = "1.1.2", features = ["zlib-rs"], default-features = false }
 clipboard-rs = "0.3.0"
 dunce = "1.0.5"
 libheif-sys = { version = "4.1", features = ["v1_19"], optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # Only for debug
 egui_extras = "0.32"

@@ -1169,6 +1169,8 @@ dependencies = [
  "opener",
  "resvg",
  "rfd",
+ "serde",
+ "serde_json",
  "ureq",
  "winres",
 ]

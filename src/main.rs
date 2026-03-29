@@ -13,6 +13,7 @@ mod model;
 mod res;
 mod supported_image;
 mod ui;
+mod update;
 mod util;
 
 #[cfg(debug_assertions)]

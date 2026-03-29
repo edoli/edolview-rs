@@ -35,6 +35,15 @@ enum PlotDim {
     Auto,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+enum UpdateStatus {
+    Idle,
+    Checking,
+    Available(crate::update::AvailableUpdate),
+    UpToDate,
+    Error(String),
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -74,6 +83,10 @@ pub struct ViewerApp {
     // Async font loading: receiver for fallback font bytes (if any)
     font_rx: Option<mpsc::Receiver<FontData>>,
     fallback_font_applied: bool,
+
+    update_rx: Option<mpsc::Receiver<Result<Option<crate::update::AvailableUpdate>, String>>>,
+    update_status: UpdateStatus,
+    update_toast_shown: bool,
 }
 
 impl ViewerApp {
@@ -159,6 +172,10 @@ impl ViewerApp {
 
             font_rx,
             fallback_font_applied: false,
+
+            update_rx: None,
+            update_status: UpdateStatus::Idle,
+            update_toast_shown: false,
         }
     }
 
@@ -259,6 +276,17 @@ impl ViewerApp {
                 thread::sleep(Duration::from_millis(100));
             }
         });
+
+        let (update_tx, update_rx) = mpsc::channel();
+        self.update_rx = Some(update_rx);
+        self.update_status = UpdateStatus::Checking;
+
+        let update_ctx = ctx.clone();
+        thread::spawn(move || {
+            let result = crate::update::check_for_update();
+            let _ = update_tx.send(result);
+            update_ctx.request_repaint();
+        });
     }
 
     fn handle_event(&mut self, ctx: &egui::Context) {
@@ -328,6 +356,33 @@ impl ViewerApp {
                 }
             } else {
                 self.fallback_font_applied = true; // No font to load.
+            }
+        }
+
+        if let Some(rx) = &self.update_rx {
+            match rx.try_recv() {
+                Ok(result) => match result {
+                    Ok(Some(update)) => {
+                        if !self.update_toast_shown {
+                            self.toasts.add_info(format!("Update available: {}", update.version));
+                            self.update_toast_shown = true;
+                        }
+                        self.update_status = UpdateStatus::Available(update);
+                    }
+                    Ok(None) => {
+                        self.update_status = UpdateStatus::UpToDate;
+                    }
+                    Err(err) => {
+                        eprintln!("Failed to check for updates: {err}");
+                        self.update_status = UpdateStatus::Error(err);
+                    }
+                },
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if self.update_status == UpdateStatus::Checking {
+                        self.update_status = UpdateStatus::Error("Update check disconnected".to_string());
+                    }
+                }
             }
         }
     }
@@ -548,6 +603,21 @@ impl eframe::App for ViewerApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.toggle_value(&mut self.show_bottom_panel, "Status Bar");
                     ui.toggle_value(&mut self.show_side_panel, "Sidebar");
+
+                    if let UpdateStatus::Available(update) = &self.update_status {
+                        let update_button = ui
+                            .button(egui::RichText::new("Update").color(Color32::from_rgb(120, 220, 120)))
+                            .on_hover_text(format!(
+                                "Open GitHub release page for {} (current: v{})",
+                                update.version,
+                                env!("CARGO_PKG_VERSION")
+                            ));
+                        if update_button.clicked() {
+                            if let Err(err) = opener::open(update.html_url.as_str()) {
+                                self.toasts.add_error(format!("Failed to open release page: {err}"));
+                            }
+                        }
+                    }
                 });
             });
         });
