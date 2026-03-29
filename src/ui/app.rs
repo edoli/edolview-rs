@@ -738,7 +738,7 @@ impl eframe::App for ViewerApp {
                     } else if let UpdateStatus::Available(update) = &self.update_status {
                         let update = update.clone();
                         let update_button = ui
-                            .button(egui::RichText::new("Update").color(Color32::from_rgb(120, 220, 120)))
+                            .button(egui::RichText::new("Update Available").color(Color32::from_rgb(120, 220, 120)))
                             .on_hover_text(format!(
                                 "Download {} and apply it automatically using {}. A confirmation dialog appears first, then a separate updater window stays visible while Edolview restarts.",
                                 update.version,
