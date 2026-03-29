@@ -76,6 +76,7 @@ pub struct ViewerApp {
 
     socket_rx: mpsc::Receiver<SocketAsset>,
     socket_nx: Option<mpsc::Receiver<()>>,
+    control_nx: Option<mpsc::Receiver<()>>,
 
     statistics_worker: Arc<Mutex<StatisticsWorker>>,
     statistics_tx: mpsc::Sender<Vec<StatisticsUpdate>>,
@@ -126,7 +127,7 @@ impl ViewerApp {
         let socket_info = state.socket_info.clone();
 
         let (statistics_tx, statistics_rx) = mpsc::channel::<Vec<StatisticsUpdate>>();
-        let (control_tx, control_rx) = mpsc::channel::<Vec<PathBuf>>();
+        let (control_tx, control_rx, control_nx) = mpsc_with_notify::<Vec<PathBuf>>();
 
         thread::spawn(move || {
             start_server_with_retry(host, port, socket_tx, socket_state, socket_info).unwrap_or_else(|e| {
@@ -198,6 +199,7 @@ impl ViewerApp {
 
             socket_rx,
             socket_nx: Some(socket_nx),
+            control_nx: Some(control_nx),
 
             statistics_tx,
             statistics_rx,
@@ -456,6 +458,7 @@ impl ViewerApp {
         let _ctx = ctx.clone();
 
         let socket_nx = self.socket_nx.take().unwrap();
+        let control_nx = self.control_nx.take().unwrap();
         let socket_state = state.socket_state.clone();
         let statistics_worker = Arc::clone(&self.statistics_worker);
         let statistics_tx = self.statistics_tx.clone();
@@ -471,6 +474,14 @@ impl ViewerApp {
                 }
 
                 match socket_nx.try_recv() {
+                    Ok(()) => {
+                        _ctx.request_repaint();
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {}
+                }
+
+                match control_nx.try_recv() {
                     Ok(()) => {
                         _ctx.request_repaint();
                     }
@@ -548,6 +559,7 @@ impl ViewerApp {
                             self.load_fail("Failed to open externally requested file", Some(&path), &err);
                         }
                     }
+                    ctx.request_repaint();
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => break,

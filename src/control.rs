@@ -3,12 +3,13 @@ use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
-    sync::mpsc,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
+
+use crate::util::concurrency::NotifierSender;
 
 const CONTROL_HOST: &str = "127.0.0.1";
 const CONTROL_PORT_START: u16 = 21740;
@@ -63,7 +64,7 @@ impl ControlInstance {
     }
 }
 
-pub fn start_control_listener(tx: mpsc::Sender<Vec<PathBuf>>) -> Result<ControlInstance, String> {
+pub fn start_control_listener(tx: NotifierSender<Vec<PathBuf>>) -> Result<ControlInstance, String> {
     for port in CONTROL_PORT_START..=CONTROL_PORT_END {
         let addr = format!("{CONTROL_HOST}:{port}");
         match TcpListener::bind(addr.as_str()) {
