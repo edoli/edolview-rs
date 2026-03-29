@@ -14,7 +14,10 @@ use crate::util::path_ext::safe_temp_dir;
 
 pub const RELEASES_PAGE_URL: &str = "https://github.com/edoli/edolview-rs/releases";
 const LATEST_RELEASE_API_URL: &str = "https://api.github.com/repos/edoli/edolview-rs/releases/latest";
-const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const CURRENT_VERSION: &str = match option_env!("EDOLVIEW_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableUpdate {
