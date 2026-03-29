@@ -224,38 +224,58 @@ impl ViewerApp {
             return;
         };
 
-        let mut keep_open = true;
-        egui::Window::new("Confirm Update")
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut keep_open)
-            .show(ctx, |ui| {
-                ui.set_max_width(420.0);
-                ui.label(format!(
-                    "Install {} using the {} update package?",
-                    update.version,
-                    update.target.label()
-                ));
-                ui.add_space(8.0);
-                ui.label(
-                    "Edolview will download the update first. When the install step is ready, the app will close and a separate updater window will stay visible until the update finishes.",
-                );
-                ui.add_space(12.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Update").clicked() {
-                        self.pending_update_confirmation = None;
-                        self.begin_update(ctx, update.clone());
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.pending_update_confirmation = None;
-                    }
-                });
-            });
+        let screen_rect = ctx.input(|i| i.screen_rect());
+        let overlay_layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("confirm_update_overlay"));
+        ctx.layer_painter(overlay_layer)
+            .rect_filled(screen_rect, 0.0, Color32::from_black_alpha(180));
 
-        if !keep_open {
-            self.pending_update_confirmation = None;
-        }
+        egui::Area::new(egui::Id::new("confirm_update_modal"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .interactable(true)
+            .show(ctx, |ui| {
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(14))
+                    .show(ui, |ui| {
+                        ui.set_min_width(440.0);
+                        ui.set_max_width(440.0);
+
+                        ui.heading("Confirm Update");
+
+                        ui.add_space(8.0);
+                        ui.label(format!(
+                            "Install {} using the {} update package?",
+                            update.version,
+                            update.target.label()
+                        ));
+                        ui.add_space(8.0);
+                        ui.label(
+                            "Edolview will download the update first. When the install step is ready, the app will close and a separate updater window will stay visible until the update finishes.",
+                        );
+                        ui.add_space(14.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let update_clicked = ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Update").color(Color32::from_rgb(120, 220, 120)),
+                                    )
+                                    .fill(Color32::from_rgb(42, 84, 42)),
+                                )
+                                .clicked();
+                            let cancel_clicked = ui.button("Cancel").clicked();
+
+                            if update_clicked {
+                                self.pending_update_confirmation = None;
+                                self.begin_update(ctx, update.clone());
+                            } else if cancel_clicked {
+                                self.pending_update_confirmation = None;
+                            }
+                        });
+                    });
+            });
     }
 
     fn show_update_progress_dialog(&self, ctx: &egui::Context) {
