@@ -357,6 +357,7 @@ fn write_windows_wxs(path: &str) -> Result<()> {
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Edolview">
+          <Directory Id="COLORMAPDIR" Name="colormap" />
           <Component Id="cmpMainExe" Guid="D7781E26-5FAE-4F3F-8B92-BD40530A4628">
             <File Id="filMainExe" Source="$(var.ReleaseBinDir)\edolview.exe" KeyPath="yes" Checksum="yes" />
           </Component>
