@@ -40,6 +40,7 @@ enum UpdateStatus {
     Idle,
     Checking,
     Available(crate::update::AvailableUpdate),
+    Applying(String),
     UpToDate,
     Error(String),
 }
@@ -85,8 +86,10 @@ pub struct ViewerApp {
     fallback_font_applied: bool,
 
     update_rx: Option<mpsc::Receiver<Result<Option<crate::update::AvailableUpdate>, String>>>,
+    update_apply_rx: Option<mpsc::Receiver<Result<String, String>>>,
     update_status: UpdateStatus,
     update_toast_shown: bool,
+    close_for_update: bool,
 }
 
 impl ViewerApp {
@@ -174,8 +177,10 @@ impl ViewerApp {
             fallback_font_applied: false,
 
             update_rx: None,
+            update_apply_rx: None,
             update_status: UpdateStatus::Idle,
             update_toast_shown: false,
+            close_for_update: false,
         }
     }
 
@@ -385,6 +390,27 @@ impl ViewerApp {
                 }
             }
         }
+
+        if let Some(rx) = &self.update_apply_rx {
+            match rx.try_recv() {
+                Ok(result) => match result {
+                    Ok(message) => {
+                        self.toasts.add_info(message);
+                        self.close_for_update = true;
+                    }
+                    Err(err) => {
+                        self.toasts.add_error(err.clone());
+                        self.update_status = UpdateStatus::Error(err);
+                    }
+                },
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if matches!(self.update_status, UpdateStatus::Applying(_)) {
+                        self.update_status = UpdateStatus::Error("Update worker disconnected".to_string());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -398,6 +424,11 @@ impl eframe::App for ViewerApp {
         }
 
         self.handle_event(ctx);
+
+        if self.close_for_update {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
 
         if self.state.path != self.last_path {
             self.last_path = self.state.path.clone();
@@ -604,18 +635,29 @@ impl eframe::App for ViewerApp {
                     ui.toggle_value(&mut self.show_bottom_panel, "Status Bar");
                     ui.toggle_value(&mut self.show_side_panel, "Sidebar");
 
-                    if let UpdateStatus::Available(update) = &self.update_status {
+                    if let UpdateStatus::Applying(message) = &self.update_status {
+                        ui.add_enabled(false, egui::Button::new("Updating..."))
+                            .on_hover_text(message);
+                    } else if let UpdateStatus::Available(update) = &self.update_status {
+                        let update = update.clone();
                         let update_button = ui
                             .button(egui::RichText::new("Update").color(Color32::from_rgb(120, 220, 120)))
                             .on_hover_text(format!(
-                                "Open GitHub release page for {} (current: v{})",
+                                "Download {} and apply it automatically using {}. The app will close to finish the update.",
                                 update.version,
-                                env!("CARGO_PKG_VERSION")
+                                update.target.label()
                             ));
                         if update_button.clicked() {
-                            if let Err(err) = opener::open(update.html_url.as_str()) {
-                                self.toasts.add_error(format!("Failed to open release page: {err}"));
-                            }
+                            let (tx, rx) = mpsc::channel();
+                            self.update_apply_rx = Some(rx);
+                            self.update_status =
+                                UpdateStatus::Applying(format!("Preparing automatic update for {}", update.version));
+                            let update_ctx = ctx.clone();
+                            thread::spawn(move || {
+                                let result = crate::update::start_update(&update);
+                                let _ = tx.send(result);
+                                update_ctx.request_repaint();
+                            });
                         }
                     }
                 });
