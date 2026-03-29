@@ -348,11 +348,11 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           else
             VERSION="$(python - <<'PY'
-import tomllib
-with open("Cargo.toml", "rb") as f:
-    print(tomllib.load(f)["package"]["version"])
-PY
-)"
+            import tomllib
+            with open("Cargo.toml", "rb") as f:
+                print(tomllib.load(f)["package"]["version"])
+            PY
+            )"
           fi
           APP_ROOT="target/dmg-root/Edolview.app/Contents"
           mkdir -p "$APP_ROOT/MacOS" "$APP_ROOT/Resources"
@@ -390,11 +390,11 @@ PY
             DEB_VERSION="${GITHUB_REF_NAME#v}"
           else
             DEB_VERSION="$(python - <<'PY'
-import tomllib
-with open("Cargo.toml", "rb") as f:
-    print(tomllib.load(f)["package"]["version"])
-PY
-)"
+            import tomllib
+            with open("Cargo.toml", "rb") as f:
+                print(tomllib.load(f)["package"]["version"])
+            PY
+            )"
           fi
           cargo deb --no-build --deb-version "$DEB_VERSION" --output target/dist/edolview-linux.deb
 
