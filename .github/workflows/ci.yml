@@ -349,6 +349,8 @@ jobs:
           else
             VERSION="$(python -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
           fi
+          rm -rf target/dmg-root
+          rm -f target/dist/edolview-installer-dmg.dmg
           APP_ROOT="target/dmg-root/Edolview.app/Contents"
           mkdir -p "$APP_ROOT/MacOS" "$APP_ROOT/Resources"
           cp target/release/edolview "$APP_ROOT/MacOS/edolview"
@@ -358,6 +360,7 @@ jobs:
           chmod +x "$APP_ROOT/MacOS/edolview"
           mkdir -p target/dist
           create-dmg \
+            --overwrite \
             --volname "Edolview" \
             --window-pos 200 120 \
             --window-size 800 400 \
