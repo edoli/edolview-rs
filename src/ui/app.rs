@@ -740,13 +740,20 @@ impl eframe::App for ViewerApp {
                         let update_button = ui
                             .button(egui::RichText::new("Update Available").color(Color32::from_rgb(120, 220, 120)))
                             .on_hover_text(format!(
-                                "Download {} and apply it automatically using {}. A confirmation dialog appears first, then a separate updater window stays visible while Edolview restarts.",
+                                "Download {} and apply it automatically using {}. The app will close to finish the update. (current: v{})",
                                 update.version,
-                                update.target.label()
+                                update.target.label(),
+                                crate::update::current_version()
                             ));
                         if update_button.clicked() {
                             self.pending_update_confirmation = Some(update);
                         }
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!("v{}", crate::update::current_version()))
+                                .color(ui.visuals().weak_text_color()),
+                        )
+                        .on_hover_text("Current version");
                     }
                 });
             });

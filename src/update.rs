@@ -19,6 +19,10 @@ const CURRENT_VERSION: &str = match option_env!("EDOLVIEW_BUILD_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
+pub fn current_version() -> &'static str {
+    CURRENT_VERSION
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableUpdate {
     pub version: String,
