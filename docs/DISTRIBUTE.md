@@ -20,10 +20,12 @@ This document tracks the release packaging and store distribution automation for
 
 Phase 1 keeps the current zip artifacts and adds installer/package artifacts to the same GitHub Release:
 
-- Windows: `edolview-windows.msi`
-- macOS: `edolview-mac.dmg`
-- Linux: `edolview-linux.deb`
-- Linux: `edolview-linux.AppImage`
+- Windows: `edolview-installer-msi.msi`
+- macOS: `edolview-installer-dmg.dmg`
+- Linux: `edolview-installer-deb.deb`
+- Linux: `edolview-installer-appimage.AppImage`
+
+Installer artifacts are uploaded separately so AppImage and DEB do not get bundled into a single Linux installer zip.
 
 ### Packaging layout decisions
 
