@@ -365,17 +365,19 @@ fn write_windows_wxs(path: &str) -> Result<()> {
       <ComponentGroupRef Id="ColormapFiles" />
       <ComponentGroupRef Id="FileAssociations" />
     </Feature>
-
-    <Fragment>
-      <ComponentGroup Id="FileAssociations">
-{component_refs}
-      </ComponentGroup>
-    </Fragment>
-
-    <Fragment>
-{components}
-    </Fragment>
   </Product>
+
+  <Fragment>
+    <ComponentGroup Id="FileAssociations">
+{component_refs}
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <DirectoryRef Id="INSTALLFOLDER">
+{components}
+    </DirectoryRef>
+  </Fragment>
 </Wix>
 "#
     );
