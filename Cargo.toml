@@ -57,7 +57,8 @@ priority = "optional"
 depends = "$auto"
 assets = [
     ["target/release/edolview", "opt/edolview/edolview", "755"],
-    ["colormap/", "opt/edolview/colormap/", "755"],
+    ["colormap/mono/*.glsl", "opt/edolview/colormap/mono/", "644"],
+    ["colormap/rgb/*.glsl", "opt/edolview/colormap/rgb/", "644"],
     ["packaging/linux/edolview-wrapper.sh", "usr/bin/edolview", "755"],
     ["packaging/edolview.desktop", "usr/share/applications/edolview.desktop", "644"],
     ["icons/hicolor/16x16/apps/edolview.png", "usr/share/icons/hicolor/16x16/apps/edolview.png", "644"],

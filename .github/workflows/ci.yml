@@ -295,7 +295,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Install MSI tooling
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Windows')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
           choco install -y --no-progress wixtoolset
@@ -310,26 +310,50 @@ jobs:
           Add-Content -Path $Env:GITHUB_ENV -Value "PATH=$wixBin;$env:PATH"
 
       - name: Build MSI installer
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Windows')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Windows')
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path target\wix | Out-Null
           New-Item -ItemType Directory -Force -Path target\dist | Out-Null
           & "$env:WIX\heat.exe" dir colormap -cg ColormapFiles -dr INSTALLFOLDER -gg -scom -sreg -sfrag -srd -var var.ProjectDir -out target\wix\colormap.wxs
-          $productVersion = $env:GITHUB_REF_NAME.Substring(1)
-          & "$env:WIX\candle.exe" -arch x64 -dProjectDir=$env:GITHUB_WORKSPACE -dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release -dProductVersion=$productVersion -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME.StartsWith("v")) {
+            $tagVersion = $env:GITHUB_REF_NAME.Substring(1)
+          } else {
+            $cargoVersionMatch = Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+            if (-not $cargoVersionMatch) {
+              throw "Could not determine package version from Cargo.toml"
+            }
+            $tagVersion = $cargoVersionMatch.Matches[0].Groups[1].Value
+          }
+          if ($tagVersion -match '^\d+\.\d+\.\d+$') {
+            $productVersion = "$tagVersion.0"
+          } elseif ($tagVersion -match '^\d+\.\d+\.\d+\.\d+$') {
+            $productVersion = $tagVersion
+          } else {
+            throw "Unsupported tag version for WiX: $tagVersion"
+          }
+          & "$env:WIX\candle.exe" -arch x64 "-dProjectDir=$env:GITHUB_WORKSPACE" "-dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release" "-dProductVersion=$productVersion" -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
           & "$env:WIX\light.exe" -out target\dist\edolview-windows.msi target\wix\edolview.wixobj target\wix\colormap.wixobj
 
       - name: Install macOS packaging tools
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'macOS')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')
         run: brew install create-dmg
 
       - name: Build DMG installer
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'macOS')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'macOS')
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(python - <<'PY'
+import tomllib
+with open("Cargo.toml", "rb") as f:
+    print(tomllib.load(f)["package"]["version"])
+PY
+)"
+          fi
           APP_ROOT="target/dmg-root/Edolview.app/Contents"
           mkdir -p "$APP_ROOT/MacOS" "$APP_ROOT/Resources"
           cp target/release/edolview "$APP_ROOT/MacOS/edolview"
@@ -350,22 +374,32 @@ jobs:
             "target/dmg-root"
 
       - name: Install Linux packaging tools
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Linux')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends desktop-file-utils zsync
           cargo install cargo-deb
 
       - name: Build DEB package
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Linux')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p target/dist
-          cargo deb --no-build --deb-version "${GITHUB_REF_NAME#v}" --output target/dist/edolview-linux.deb
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]]; then
+            DEB_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            DEB_VERSION="$(python - <<'PY'
+import tomllib
+with open("Cargo.toml", "rb") as f:
+    print(tomllib.load(f)["package"]["version"])
+PY
+)"
+          fi
+          cargo deb --no-build --deb-version "$DEB_VERSION" --output target/dist/edolview-linux.deb
 
       - name: Build AppImage package
-        if: startsWith(github.ref, 'refs/tags/v') && startsWith(runner.os, 'Linux')
+        if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && startsWith(runner.os, 'Linux')
         shell: bash
         run: |
           set -euo pipefail
@@ -384,7 +418,7 @@ jobs:
           mv "$APPIMAGE_OUTPUT" target/dist/edolview-linux.AppImage
 
       - name: Upload installer artifacts
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: edolview-installers-${{ matrix.suffix }}
