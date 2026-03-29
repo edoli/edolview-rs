@@ -360,7 +360,6 @@ jobs:
           chmod +x "$APP_ROOT/MacOS/edolview"
           mkdir -p target/dist
           create-dmg \
-            --overwrite \
             --volname "Edolview" \
             --window-pos 200 120 \
             --window-size 800 400 \
