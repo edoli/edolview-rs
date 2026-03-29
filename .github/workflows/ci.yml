@@ -315,7 +315,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path target\wix | Out-Null
           New-Item -ItemType Directory -Force -Path target\dist | Out-Null
-          & "$env:WIX\heat.exe" dir colormap -cg ColormapFiles -dr INSTALLFOLDER -gg -scom -sreg -sfrag -srd -var var.ProjectDir -out target\wix\colormap.wxs
+          & "$env:WIX\heat.exe" dir colormap -cg ColormapFiles -dr INSTALLFOLDER -gg -scom -sreg -sfrag -srd -var var.ColormapDir -out target\wix\colormap.wxs
           if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME.StartsWith("v")) {
             $tagVersion = $env:GITHUB_REF_NAME.Substring(1)
           } else {
@@ -332,7 +332,7 @@ jobs:
           } else {
             throw "Unsupported tag version for WiX: $tagVersion"
           }
-          & "$env:WIX\candle.exe" -arch x64 "-dProjectDir=$env:GITHUB_WORKSPACE" "-dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release" "-dProductVersion=$productVersion" -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
+          & "$env:WIX\candle.exe" -arch x64 "-dProjectDir=$env:GITHUB_WORKSPACE" "-dColormapDir=$env:GITHUB_WORKSPACE\colormap" "-dReleaseBinDir=$env:GITHUB_WORKSPACE\target\release" "-dProductVersion=$productVersion" -out target\wix\ packaging\windows\edolview.wxs target\wix\colormap.wxs
           & "$env:WIX\light.exe" -out target\dist\edolview-windows.msi target\wix\edolview.wixobj target\wix\colormap.wixobj
 
       - name: Install macOS packaging tools
