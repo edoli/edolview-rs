@@ -26,7 +26,15 @@ fn downsample_avg(xs: &[f64], step: usize) -> Vec<f64> {
     out
 }
 
-pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f64>>, mask: &[bool], alpha_scale: f64) {
+pub fn draw_multi_line_plot(
+    ui: &mut Ui,
+    desired_size: Vec2,
+    series: &Vec<&Vec<f64>>,
+    mask: &[bool],
+    alpha_scale: f64,
+    position_label: &'static str,
+    position_offset: i32,
+) {
     if series.is_empty() || series[0].is_empty() {
         ui.allocate_ui_with_layout(
             desired_size,
@@ -201,7 +209,11 @@ pub fn draw_multi_line_plot(ui: &mut Ui, desired_size: Vec2, series: &Vec<&Vec<f
 
             // Prepare tooltip lines: first x, then each visible series value
             let mut lines: Vec<(String, Color32)> = Vec::new();
-            lines.push((format!("x: {}", approx_orig_idx), Color32::WHITE));
+            let absolute_idx = position_offset + approx_orig_idx as i32;
+            lines.push((
+                format!("{position_label}: {} ({absolute_idx})", approx_orig_idx),
+                Color32::WHITE,
+            ));
             for (i, opt) in ds_series.iter().enumerate() {
                 if !mask.get(i).copied().unwrap_or(false) {
                     continue;

@@ -1157,8 +1157,13 @@ impl eframe::App for ViewerApp {
                         };
                         let reduced_value = asset
                             .image()
-                            .mean_value_in_rect(rect.to_cv_rect(), mean_dim)
+                            .mean_value_in_rect(rect.to_cv_rect(), mean_dim.clone())
                             .expect("Failed to compute mean in rect");
+                        let (position_label, position_offset) = match mean_dim {
+                            MeanDim::Column => ("x", rect.min.x),
+                            MeanDim::Row => ("y", rect.min.y),
+                            MeanDim::All => ("x", 0),
+                        };
 
                         let channels = asset.image().spec().channels as usize;
                         let mut plot_data = Vec::with_capacity(channels);
@@ -1178,6 +1183,8 @@ impl eframe::App for ViewerApp {
                                 &(0..channels).map(|i| &plot_data[i]).collect(),
                                 &self.show_plot_channels,
                                 asset.image().spec().dtype.alpha(),
+                                position_label,
+                                position_offset,
                             );
                         } else {
                             draw_multi_line_plot(
@@ -1186,6 +1193,8 @@ impl eframe::App for ViewerApp {
                                 &vec![&plot_data[0]],
                                 &[true],
                                 asset.image().spec().dtype.alpha(),
+                                position_label,
+                                position_offset,
                             );
                         }
 
