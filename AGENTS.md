@@ -16,6 +16,7 @@
 
 - Treat `Cargo.toml` as the single source of truth for the app version.
 - When preparing a release, use `cargo run -p xtask -- release-version <x.y.z>` instead of editing the version and git tag separately by hand.
+- If updating `Cargo.toml` changes `Cargo.lock`, include the `Cargo.lock` change in the release commit.
 - After running that command, push both `main` and the new `v<x.y.z>` tag.
 - Do not create or push a release tag whose version does not match `Cargo.toml`.
 
