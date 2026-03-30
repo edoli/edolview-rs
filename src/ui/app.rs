@@ -244,7 +244,7 @@ impl ViewerApp {
         let (tx, rx) = mpsc::channel();
         self.update_apply_rx = Some(rx);
         self.update_status = UpdateStatus::Applying(format!(
-            "Downloading {} and preparing the {}. Edolview will close when ready, and a separate updater window will stay visible until the update completes.",
+            "Downloading {} and preparing the {}. Edolview will close when ready.",
             update.version,
             update.target.label()
         ));
