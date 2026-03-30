@@ -179,6 +179,8 @@ fn generate_all_icons() -> Result<()> {
     write_linux_app_run("packaging/linux/AppRun")?;
     write_linux_wrapper("packaging/linux/edolview-wrapper.sh")?;
     write_linux_desktop(format!("packaging/{APP_NAME_LC}.desktop").as_str())?;
+    write_linux_debian_maintainer_script("packaging/linux/debian/postinst")?;
+    write_linux_debian_maintainer_script("packaging/linux/debian/postrm")?;
     write_macos_info_plist_template("packaging/macos/Info.plist.in")?;
     write_windows_license_rtf("packaging/windows/License.rtf")?;
     write_windows_wxs("packaging/windows/edolview.wxs")?;
@@ -321,7 +323,7 @@ fn write_linux_desktop(path: &str) -> Result<()> {
         r#"[Desktop Entry]
 Type=Application
 Name={APP_NAME}
-Exec={APP_NAME_LC}
+Exec={APP_NAME_LC} %F
 Icon={APP_NAME_LC}
 Terminal=false
 Categories=Utility;
@@ -349,6 +351,25 @@ fn write_linux_wrapper(path: &str) -> Result<()> {
         path,
         r#"#!/bin/sh
 exec /opt/edolview/edolview "$@"
+"#,
+    )?;
+    Ok(())
+}
+
+fn write_linux_debian_maintainer_script(path: &str) -> Result<()> {
+    fs::create_dir_all(Path::new(path).parent().unwrap())?;
+    fs::write(
+        path,
+        r#"#!/bin/sh
+set -e
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q /usr/share/icons/hicolor >/dev/null 2>&1 || true
+fi
 "#,
     )?;
     Ok(())

@@ -7,8 +7,10 @@
 
 ## Generated assets and packaging
 
-- If you touch `icon.svg`, `icons\`, `build.rs`, `packaging\`, or startup icon loading, run `cargo run -p xtask -- icons` before validating.
+- If you touch `icon.svg`, `icons\`, `build.rs`, or startup icon loading, run `cargo run -p xtask -- icons` before validating.
 - Keep generated icon files such as `icons\icon.png` and `icons\app.ico` in sync with code and packaging references.
+- Treat files under `packaging\` as generated outputs unless you have confirmed otherwise.
+- After changing packaging generation logic, regenerate assets with `cargo run -p xtask -- icons` so committed packaging outputs stay in sync with the source definitions.
 
 ## Release and versioning
 
