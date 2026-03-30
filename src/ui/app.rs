@@ -706,6 +706,7 @@ impl eframe::App for ViewerApp {
         }
 
         if !ctx.wants_keyboard_input() {
+            let mut request_copy = false;
             ctx.input_mut(|i| {
                 if i.consume_shortcut(&crate::res::SELECT_ALL_SC) {
                     if let Some(asset) = &self.state.asset {
@@ -719,9 +720,15 @@ impl eframe::App for ViewerApp {
                 if i.consume_shortcut(&crate::res::SELECT_NONE_SC) {
                     self.state.reset_marquee_rect();
                 }
-                if i.consume_shortcut(&crate::res::COPY_SC) {
-                    self.viewer.request_copy();
-                }
+                i.events.retain(|event| {
+                    if matches!(event, egui::Event::Copy) {
+                        request_copy = true;
+                        false
+                    } else {
+                        true
+                    }
+                });
+                request_copy |= i.consume_shortcut(&crate::res::COPY_SC);
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
                         let path = self.state.file_nav.navigate_prev();
@@ -750,6 +757,9 @@ impl eframe::App for ViewerApp {
                     self.viewer.zoom_in(-1.0, None);
                 }
             });
+            if request_copy {
+                self.viewer.request_copy();
+            }
         }
 
         // Handle drag & drop events (files) at the start of frame
