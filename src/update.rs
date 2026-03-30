@@ -354,13 +354,31 @@ while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
 }}
 Set-Status({status_installing})
 $assetPath = {asset_path}
-Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $assetPath, '/passive', '/norestart')
+$targetExe = {target_exe}
+$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $assetPath, '/passive', '/norestart') -PassThru
+$installer.WaitForExit()
+if ($installer.ExitCode -ne 0) {{
+    throw "MSI installer failed with exit code $($installer.ExitCode)."
+}}
+Set-Status({status_restarting})
+for ($attempt = 0; $attempt -lt 50; $attempt++) {{
+    if (Test-Path $targetExe) {{
+        break
+    }}
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 300
+}}
+if (-not (Test-Path $targetExe)) {{
+    throw "Updated Edolview executable was not found at $targetExe."
+}}
+Start-Process -FilePath $targetExe
 $form.Close()
 "#,
             status_waiting = ps_quote_string("Waiting for Edolview to close so the installer can start..."),
-            status_installing =
-                ps_quote_string("Launching the MSI installer. Follow any prompts to finish the update."),
+            status_installing = ps_quote_string("Installing the MSI update. Follow any prompts to finish the update."),
+            status_restarting = ps_quote_string("Update installed. Restarting Edolview..."),
             asset_path = ps_quote_path(asset_path),
+            target_exe = ps_quote_path(current_exe),
         ),
         _ => return Err("Unsupported Windows update target".to_string()),
     };
@@ -507,8 +525,10 @@ while kill -0 "$PID" 2>/dev/null; do
     sleep 0.3
 done
 ASSET={asset}
+CURRENT_EXE={current_exe}
 if command -v pkexec >/dev/null 2>&1; then
-    nohup pkexec /usr/bin/dpkg -i "$ASSET" >/dev/null 2>&1 &
+    pkexec /usr/bin/dpkg -i "$ASSET"
+    nohup "$CURRENT_EXE" >/dev/null 2>&1 &
 elif command -v xdg-open >/dev/null 2>&1; then
     nohup xdg-open "$ASSET" >/dev/null 2>&1 &
 else
@@ -517,6 +537,7 @@ fi
 "#,
             status_message = status_message,
             asset = sh_quote(asset_path.to_string_lossy().as_ref()),
+            current_exe = sh_quote(current_exe.to_string_lossy().as_ref()),
         ),
         UpdateTarget::LinuxAppImage => format!(
             r#"#!/bin/sh
@@ -633,8 +654,14 @@ fn sh_quote(value: &str) -> String {
 fn status_message(target: UpdateTarget) -> &'static str {
     match target {
         UpdateTarget::PortableZip => "Edolview is installing the downloaded update and will reopen automatically.",
-        UpdateTarget::WindowsMsi | UpdateTarget::MacDmg | UpdateTarget::LinuxDeb => {
-            "Edolview is handing the update over to the installer. Follow any installer prompts to finish updating."
+        UpdateTarget::WindowsMsi => {
+            "Edolview is handing the update over to the MSI installer and will reopen automatically when it finishes."
+        }
+        UpdateTarget::MacDmg => {
+            "Edolview is replacing the installed app bundle and will reopen automatically when it finishes."
+        }
+        UpdateTarget::LinuxDeb => {
+            "Edolview is handing the update over to the system package installer. When supported by the package-manager flow, it will reopen automatically after the install finishes."
         }
         UpdateTarget::LinuxAppImage => "Edolview is replacing the AppImage and will reopen automatically.",
     }
