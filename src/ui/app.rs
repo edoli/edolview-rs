@@ -12,6 +12,8 @@ use std::{
     vec,
 };
 
+#[cfg(debug_assertions)]
+use crate::util::timer::ScopedTimer;
 use crate::{
     model::{
         start_server_with_retry, AppState, AssetType, ComparisonMode, Image, MeanDim, Recti, SocketAsset,
@@ -715,6 +717,9 @@ impl ViewerApp {
 
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(debug_assertions)]
+        let _timer = ScopedTimer::new("ui.app.update");
+
         ctx.set_visuals(Visuals::dark());
 
         if !self.is_start_background_event_handlers_called {

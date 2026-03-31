@@ -6,6 +6,8 @@ use eframe::egui::{self, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke,
 
 use super::{CopyExport, ExportAction, SaveExport};
 use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
+#[cfg(debug_assertions)]
+use crate::util::timer::ScopedTimer;
 
 #[derive(Clone)]
 struct HistogramHoverState {
@@ -21,6 +23,9 @@ pub fn draw_histogram(
     mask: &[bool],
     max_freq: f32,
 ) -> Option<ExportAction> {
+    #[cfg(debug_assertions)]
+    let _timer = ScopedTimer::new("ui.histogram_plot.draw");
+
     if series.is_empty() || series.first_len() == 0 || mask.iter().all(|&m| !m) {
         ui.allocate_ui_with_layout(
             desired_size,

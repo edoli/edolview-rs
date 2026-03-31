@@ -6,6 +6,8 @@ use eframe::egui::{Color32, CornerRadius, Layout, Pos2, Rect, Sense, Stroke, Tex
 
 use super::{CopyExport, ExportAction, SaveExport};
 use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
+#[cfg(debug_assertions)]
+use crate::util::timer::ScopedTimer;
 
 #[derive(Clone)]
 struct MultiLineHoverState {
@@ -45,6 +47,9 @@ pub fn draw_multi_line_plot(
     position_label: &'static str,
     position_offset: i32,
 ) -> Option<ExportAction> {
+    #[cfg(debug_assertions)]
+    let _timer = ScopedTimer::new("ui.multi_line_plot.draw");
+
     if series.is_empty() || series.first_len() == 0 {
         ui.allocate_ui_with_layout(
             desired_size,
