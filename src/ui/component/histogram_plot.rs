@@ -7,6 +7,13 @@ use eframe::egui::{self, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke,
 use super::{CopyExport, ExportAction, SaveExport};
 use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
 
+#[derive(Clone)]
+struct HistogramHoverState {
+    bin_idx: usize,
+    text: String,
+    lines: Vec<(String, Color32)>,
+}
+
 pub fn draw_histogram(
     ui: &mut egui::Ui,
     desired_size: Vec2,
@@ -28,7 +35,6 @@ pub fn draw_histogram(
     let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
     let painter = ui.painter_at(rect);
     let mut export_action = None;
-    let mut hovered_text: Option<String> = None;
 
     if max_freq <= 0.0 {
         return None;
@@ -99,23 +105,15 @@ pub fn draw_histogram(
         }
     });
 
-    let hovered_export_id = response.id.with("hovered_export_text");
+    let hover_state_id = response.id.with("hovered_state");
+    let context_menu_open = response.context_menu_opened();
 
-    if let Some(mouse_pos) = response.hover_pos() {
+    let hover_state = if context_menu_open {
+        ui.ctx().data(|data| data.get_temp::<HistogramHoverState>(hover_state_id))
+    } else if let Some(mouse_pos) = response.hover_pos() {
         if rect.contains(mouse_pos) {
             let x_norm = ((mouse_pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
             let bin_idx = ((x_norm * bins as f32).floor() as usize).min(bins.saturating_sub(1));
-            let x = rect.left() + (bin_idx as f32 + 0.5) * bin_width;
-
-            let dash_len = 6.0f32;
-            let gap_len = 4.0f32;
-            let mut y0 = rect.top();
-            let stroke = Stroke::new(1.0, Color32::from_gray(180));
-            while y0 < rect.bottom() {
-                let y1 = (y0 + dash_len).min(rect.bottom());
-                painter.line_segment([Pos2 { x, y: y0 }, Pos2 { x, y: y1 }], stroke);
-                y0 += dash_len + gap_len;
-            }
 
             let mut lines: Vec<(String, Color32)> = Vec::new();
             lines.push((format!("bin: {bin_idx}"), Color32::WHITE));
@@ -130,122 +128,149 @@ pub fn draw_histogram(
                     label_colors[i % label_colors.len()],
                 ));
             }
-            hovered_text = Some(lines.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>().join("\n"));
-
-            let font_id = TextStyle::Monospace.resolve(ui.style());
-            let padding = Vec2::new(8.0, 6.0);
-            let mut galleys: Vec<(Arc<Galley>, Color32)> = Vec::with_capacity(lines.len());
-            let (max_w, total_h) = ui.fonts(|fonts| {
-                let mut max_w = 0.0f32;
-                let mut total_h = 0.0f32;
-                for (text, color) in &lines {
-                    let galley = fonts.layout_no_wrap(text.clone(), font_id.clone(), *color);
-                    let sz = galley.size();
-                    max_w = max_w.max(sz.x);
-                    total_h += sz.y;
-                    galleys.push((galley, *color));
-                }
-                (max_w, total_h)
-            });
-            let tooltip_size = Vec2::new(max_w + padding.x * 2.0, total_h + padding.y * 2.0);
-
-            let mut tip_pos = Pos2 {
-                x: (mouse_pos.x + 12.0).min(rect.right() - tooltip_size.x),
-                y: (mouse_pos.y + 12.0).min(rect.bottom() - tooltip_size.y),
-            };
-            if tip_pos.x < rect.left() {
-                tip_pos.x = rect.left();
-            }
-            if tip_pos.y < rect.top() {
-                tip_pos.y = rect.top();
-            }
-
-            let tip_rect = Rect::from_min_size(tip_pos, tooltip_size);
-            painter.add(Shape::rect_filled(
-                tip_rect,
-                CornerRadius::same(4),
-                Color32::from_black_alpha(180),
-            ));
-
-            let border = Stroke::new(1.0, Color32::from_gray(80));
-            painter.line_segment(
-                [
-                    Pos2 {
-                        x: tip_rect.left(),
-                        y: tip_rect.top(),
-                    },
-                    Pos2 {
-                        x: tip_rect.right(),
-                        y: tip_rect.top(),
-                    },
-                ],
-                border,
-            );
-            painter.line_segment(
-                [
-                    Pos2 {
-                        x: tip_rect.right(),
-                        y: tip_rect.top(),
-                    },
-                    Pos2 {
-                        x: tip_rect.right(),
-                        y: tip_rect.bottom(),
-                    },
-                ],
-                border,
-            );
-            painter.line_segment(
-                [
-                    Pos2 {
-                        x: tip_rect.right(),
-                        y: tip_rect.bottom(),
-                    },
-                    Pos2 {
-                        x: tip_rect.left(),
-                        y: tip_rect.bottom(),
-                    },
-                ],
-                border,
-            );
-            painter.line_segment(
-                [
-                    Pos2 {
-                        x: tip_rect.left(),
-                        y: tip_rect.bottom(),
-                    },
-                    Pos2 {
-                        x: tip_rect.left(),
-                        y: tip_rect.top(),
-                    },
-                ],
-                border,
-            );
-
-            let mut cursor = Pos2 {
-                x: tip_rect.left() + padding.x,
-                y: tip_rect.top() + padding.y,
-            };
-            for (galley, color) in galleys {
-                let line_h = galley.size().y;
-                painter.galley(cursor, galley, color);
-                cursor.y += line_h;
-            }
+            Some(HistogramHoverState {
+                bin_idx,
+                text: lines.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>().join("\n"),
+                lines,
+            })
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
-    if let Some(text) = hovered_text.as_ref() {
-        ui.ctx().data_mut(|data| data.insert_temp(hovered_export_id, text.clone()));
+    if let Some(hover_state) = hover_state.as_ref() {
+        let bin_idx = hover_state.bin_idx;
+        let lines = &hover_state.lines;
+        let x = rect.left() + (bin_idx as f32 + 0.5) * bin_width;
+
+        let dash_len = 6.0f32;
+        let gap_len = 4.0f32;
+        let mut y0 = rect.top();
+        let stroke = Stroke::new(1.0, Color32::from_gray(180));
+        while y0 < rect.bottom() {
+            let y1 = (y0 + dash_len).min(rect.bottom());
+            painter.line_segment([Pos2 { x, y: y0 }, Pos2 { x, y: y1 }], stroke);
+            y0 += dash_len + gap_len;
+        }
+
+        let font_id = TextStyle::Monospace.resolve(ui.style());
+        let padding = Vec2::new(8.0, 6.0);
+        let mut galleys: Vec<(Arc<Galley>, Color32)> = Vec::with_capacity(lines.len());
+        let (max_w, total_h) = ui.fonts(|fonts| {
+            let mut max_w = 0.0f32;
+            let mut total_h = 0.0f32;
+            for (text, color) in lines {
+                let galley = fonts.layout_no_wrap(text.clone(), font_id.clone(), *color);
+                let sz = galley.size();
+                max_w = max_w.max(sz.x);
+                total_h += sz.y;
+                galleys.push((galley, *color));
+            }
+            (max_w, total_h)
+        });
+        let tooltip_size = Vec2::new(max_w + padding.x * 2.0, total_h + padding.y * 2.0);
+
+        let anchor_pos = if context_menu_open {
+            Pos2 { x, y: rect.center().y }
+        } else {
+            response.hover_pos().unwrap_or(Pos2 { x, y: rect.center().y })
+        };
+        let mut tip_pos = Pos2 {
+            x: (anchor_pos.x + 12.0).min(rect.right() - tooltip_size.x),
+            y: (anchor_pos.y + 12.0).min(rect.bottom() - tooltip_size.y),
+        };
+        if tip_pos.x < rect.left() {
+            tip_pos.x = rect.left();
+        }
+        if tip_pos.y < rect.top() {
+            tip_pos.y = rect.top();
+        }
+
+        let tip_rect = Rect::from_min_size(tip_pos, tooltip_size);
+        painter.add(Shape::rect_filled(
+            tip_rect,
+            CornerRadius::same(4),
+            Color32::from_black_alpha(180),
+        ));
+
+        let border = Stroke::new(1.0, Color32::from_gray(80));
+        painter.line_segment(
+            [
+                Pos2 {
+                    x: tip_rect.left(),
+                    y: tip_rect.top(),
+                },
+                Pos2 {
+                    x: tip_rect.right(),
+                    y: tip_rect.top(),
+                },
+            ],
+            border,
+        );
+        painter.line_segment(
+            [
+                Pos2 {
+                    x: tip_rect.right(),
+                    y: tip_rect.top(),
+                },
+                Pos2 {
+                    x: tip_rect.right(),
+                    y: tip_rect.bottom(),
+                },
+            ],
+            border,
+        );
+        painter.line_segment(
+            [
+                Pos2 {
+                    x: tip_rect.right(),
+                    y: tip_rect.bottom(),
+                },
+                Pos2 {
+                    x: tip_rect.left(),
+                    y: tip_rect.bottom(),
+                },
+            ],
+            border,
+        );
+        painter.line_segment(
+            [
+                Pos2 {
+                    x: tip_rect.left(),
+                    y: tip_rect.bottom(),
+                },
+                Pos2 {
+                    x: tip_rect.left(),
+                    y: tip_rect.top(),
+                },
+            ],
+            border,
+        );
+
+        let mut cursor = Pos2 {
+            x: tip_rect.left() + padding.x,
+            y: tip_rect.top() + padding.y,
+        };
+        for (galley, color) in galleys {
+            let line_h = galley.size().y;
+            painter.galley(cursor, galley, color);
+            cursor.y += line_h;
+        }
+
+        ui.ctx().data_mut(|data| data.insert_temp(hover_state_id, hover_state.clone()));
     }
 
     response.context_menu(|ui| {
         if ui.button("Copy Hovered Data").clicked() {
-            let hovered_text = hovered_text
+            let hover_state = hover_state
                 .clone()
-                .or_else(|| ui.ctx().data(|data| data.get_temp::<String>(hovered_export_id)));
-            if let Some(text) = hovered_text {
+                .or_else(|| ui.ctx().data(|data| data.get_temp::<HistogramHoverState>(hover_state_id)));
+            if let Some(hover_state) = hover_state {
                 export_action = Some(ExportAction::Copy(CopyExport {
                     title: "hovered histogram data",
-                    text,
+                    text: hover_state.text,
                 }));
             }
             ui.close();
