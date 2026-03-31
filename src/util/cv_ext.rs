@@ -134,6 +134,7 @@ pub fn parse_cv_type(s: &str, channels: i32) -> i32 {
 
 pub trait CvMatExt {
     fn duplicate_mono_to_channels(&self, channels: i32) -> opencv::core::Mat;
+    fn take_first_channels(&self, channels: i32) -> opencv::core::Mat;
     fn drop_alpha_channel(&self) -> opencv::core::Mat;
 }
 
@@ -148,15 +149,19 @@ impl CvMatExt for opencv::core::Mat {
         dst
     }
 
-    fn drop_alpha_channel(&self) -> opencv::core::Mat {
-        let mut rgb = opencv::core::Vector::<opencv::core::Mat>::new();
-        for idx in 0..3 {
+    fn take_first_channels(&self, channels: i32) -> opencv::core::Mat {
+        let mut extracted = opencv::core::Vector::<opencv::core::Mat>::new();
+        for idx in 0..channels {
             let mut channel = opencv::core::Mat::default();
             opencv::core::extract_channel(self, &mut channel, idx).expect("extract_channel failed");
-            rgb.push(channel);
+            extracted.push(channel);
         }
         let mut dst = opencv::core::Mat::default();
-        opencv::core::merge(&rgb, &mut dst).expect("merge failed");
+        opencv::core::merge(&extracted, &mut dst).expect("merge failed");
         dst
+    }
+
+    fn drop_alpha_channel(&self) -> opencv::core::Mat {
+        self.take_first_channels(3)
     }
 }

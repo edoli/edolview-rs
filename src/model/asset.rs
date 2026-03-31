@@ -183,27 +183,37 @@ fn normalize_comparison_inputs(
     let channels2 = mat2.channels();
 
     match (channels1, channels2) {
-        (1, 3) | (1, 4) => Some((
+        (1, 2) | (1, 3) | (1, 4) => Some((
             mat1.duplicate_mono_to_channels(channels2),
             mat2.clone(),
             format!(
                 "Channel mismatch: comparing the single channel image against each channel of the {channels2}-channel image."
             ),
         )),
-        (3, 1) | (4, 1) => Some((
+        (2, 1) | (3, 1) | (4, 1) => Some((
             mat1.clone(),
             mat2.duplicate_mono_to_channels(channels1),
             format!(
                 "Channel mismatch: comparing each channel of the {channels1}-channel image against the single channel image."
             ),
         )),
+        (2, 3) | (2, 4) => Some((
+            mat1.clone(),
+            mat2.take_first_channels(2),
+            format!("Channel mismatch: showing the first two channels only from the {channels2}-channel image."),
+        )),
+        (3, 2) | (4, 2) => Some((
+            mat1.take_first_channels(2),
+            mat2.clone(),
+            format!("Channel mismatch: showing the first two channels only from the {channels1}-channel image."),
+        )),
         (3, 4) => Some((
             mat1.clone(),
-            mat2.drop_alpha_channel(),
+            mat2.take_first_channels(3),
             "Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string(),
         )),
         (4, 3) => Some((
-            mat1.drop_alpha_channel(),
+            mat1.take_first_channels(3),
             mat2.clone(),
             "Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string(),
         )),
