@@ -4,6 +4,7 @@ use eframe::egui::{self, vec2, Color32, FontData, Rangef, Visuals};
 use rfd::FileDialog;
 use std::{
     collections::HashSet,
+    fs,
     path::PathBuf,
     sync::{atomic::Ordering, mpsc, Arc, Mutex},
     thread,
@@ -21,11 +22,11 @@ use crate::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
-            Toast, ToastUi, ToastsExt,
+            CsvExportAction, CsvExportPayload, Toast, ToastUi, ToastsExt,
         },
         ImageViewer,
     },
-    util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i},
+    util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef},
 };
 
 #[derive(PartialEq, Clone)]
@@ -238,6 +239,44 @@ impl ViewerApp {
         eprintln!("{message}: {e}");
         let path_str = path.map_or("<invalid>", |p| p.to_str().unwrap_or("<invalid>"));
         self.toasts.add_error(format!("{message}: {path_str}"));
+    }
+
+    fn handle_csv_export(&mut self, export: CsvExportAction) {
+        match export {
+            CsvExportAction::Copy(payload) => self.copy_csv_export(payload),
+            CsvExportAction::Save(payload) => self.save_csv_export(payload),
+        }
+    }
+
+    fn copy_csv_export(&mut self, payload: CsvExportPayload) {
+        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(payload.csv_text.clone())) {
+            Ok(()) => self.toasts.add_success(format!("Copied {} to clipboard", payload.title)),
+            Err(err) => {
+                eprintln!("Failed to copy {} to clipboard: {err}", payload.title);
+                self.toasts.add_error(format!("Failed to copy {} to clipboard", payload.title));
+            }
+        }
+    }
+
+    fn save_csv_export(&mut self, payload: CsvExportPayload) {
+        let Some(path) = FileDialog::new()
+            .add_filter("CSV file", &["csv"])
+            .set_file_name(payload.suggested_file_name)
+            .save_file()
+        else {
+            return;
+        };
+
+        match fs::write(&path, payload.csv_text) {
+            Ok(()) => self
+                .toasts
+                .add_success(format!("Saved {} to {}", payload.title, path.display())),
+            Err(err) => {
+                eprintln!("Failed to save {} to {}: {err}", payload.title, path.display());
+                self.toasts
+                    .add_error(format!("Failed to save {} to {}", payload.title, path.display()));
+            }
+        }
     }
 
     fn begin_update(&mut self, ctx: &egui::Context, update: crate::update::AvailableUpdate) {
@@ -1177,25 +1216,31 @@ impl eframe::App for ViewerApp {
                         }
 
                         if channels > 1 {
-                            draw_multi_line_plot(
+                            let plot_refs = (0..channels).map(|i| plot_data[i].as_slice()).collect::<Vec<_>>();
+                            if let Some(export) = draw_multi_line_plot(
                                 ui,
                                 desired_size_plot,
-                                &(0..channels).map(|i| &plot_data[i]).collect(),
+                                SeriesRef::new(&plot_refs),
                                 &self.show_plot_channels,
                                 asset.image().spec().dtype.alpha(),
                                 position_label,
                                 position_offset,
-                            );
+                            ) {
+                                self.handle_csv_export(export);
+                            }
                         } else {
-                            draw_multi_line_plot(
+                            let plot_refs = vec![plot_data[0].as_slice()];
+                            if let Some(export) = draw_multi_line_plot(
                                 ui,
                                 desired_size_plot,
-                                &vec![&plot_data[0]],
+                                SeriesRef::new(&plot_refs),
                                 &[true],
                                 asset.image().spec().dtype.alpha(),
                                 position_label,
                                 position_offset,
-                            );
+                            ) {
+                                self.handle_csv_export(export);
+                            }
                         }
 
                         ui.horizontal(|ui| {
@@ -1254,10 +1299,22 @@ impl eframe::App for ViewerApp {
                                 }
 
                                 if channels > 1 {
-                                    draw_histogram(ui, desired_size, &display_hist, &self.show_histogram_channels, max);
+                                    if let Some(export) = draw_histogram(
+                                        ui,
+                                        desired_size,
+                                        SeriesRef::new(&display_hist),
+                                        &self.show_histogram_channels,
+                                        max,
+                                    ) {
+                                        self.handle_csv_export(export);
+                                    }
                                     channel_toggle_ui(ui, &mut self.show_histogram_channels, channels as usize);
                                 } else {
-                                    draw_histogram(ui, desired_size, &display_hist, &[true], max);
+                                    if let Some(export) =
+                                        draw_histogram(ui, desired_size, SeriesRef::new(&display_hist), &[true], max)
+                                    {
+                                        self.handle_csv_export(export);
+                                    }
                                 }
                             }
                         } else {

@@ -1,7 +1,16 @@
 use eframe::egui::{self, pos2, Color32, Rect, Sense, Vec2};
 
-pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]>, mask: &[bool], max_freq: f32) {
-    if series.is_empty() || series[0].is_empty() || mask.iter().all(|&m| !m) {
+use super::{CsvExportAction, CsvExportPayload};
+use crate::util::series::SeriesRef;
+
+pub fn draw_histogram(
+    ui: &mut egui::Ui,
+    desired_size: Vec2,
+    series: SeriesRef<'_, f32>,
+    mask: &[bool],
+    max_freq: f32,
+) -> Option<CsvExportAction> {
+    if series.is_empty() || series.first_len() == 0 || mask.iter().all(|&m| !m) {
         ui.allocate_ui_with_layout(
             desired_size,
             egui::Layout::centered_and_justified(eframe::egui::Direction::LeftToRight),
@@ -9,19 +18,20 @@ pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]
                 ui.label("No data to display.");
             },
         );
-        return;
+        return None;
     }
 
-    let (rect, _) = ui.allocate_exact_size(desired_size, Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
     let painter = ui.painter_at(rect);
+    let mut export_action = None;
 
     if max_freq <= 0.0 {
-        return;
+        return None;
     }
 
-    let bins = series.get(0).map_or(0, |s| s.len());
+    let bins = series.first_len();
     if bins == 0 {
-        return;
+        return None;
     }
 
     let full_w = rect.width();
@@ -74,4 +84,25 @@ pub fn draw_histogram(ui: &mut egui::Ui, desired_size: Vec2, series: &Vec<&[f32]
             draw_series(s, colors[i])
         }
     });
+
+    response.context_menu(|ui| {
+        if ui.button("Copy Data (CSV)").clicked() {
+            export_action = Some(CsvExportAction::Copy(CsvExportPayload::new(
+                "histogram data",
+                "histogram.csv",
+                crate::util::csv::build_indexed_series_csv("bin", None, None, "s", series, mask),
+            )));
+            ui.close();
+        }
+        if ui.button("Save Data as CSV...").clicked() {
+            export_action = Some(CsvExportAction::Save(CsvExportPayload::new(
+                "histogram data",
+                "histogram.csv",
+                crate::util::csv::build_indexed_series_csv("bin", None, None, "s", series, mask),
+            )));
+            ui.close();
+        }
+    });
+
+    export_action
 }

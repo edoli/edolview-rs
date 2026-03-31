@@ -4,6 +4,9 @@ use eframe::egui::epaint::Shape;
 use eframe::egui::Galley;
 use eframe::egui::{Color32, CornerRadius, Layout, Pos2, Rect, Sense, Stroke, TextStyle, Ui, Vec2};
 
+use super::{CsvExportAction, CsvExportPayload};
+use crate::util::series::SeriesRef;
+
 // Downsampling using average within each step
 #[inline]
 fn downsample_avg(xs: &[f64], step: usize) -> Vec<f64> {
@@ -29,13 +32,13 @@ fn downsample_avg(xs: &[f64], step: usize) -> Vec<f64> {
 pub fn draw_multi_line_plot(
     ui: &mut Ui,
     desired_size: Vec2,
-    series: &Vec<&Vec<f64>>,
+    series: SeriesRef<'_, f64>,
     mask: &[bool],
     alpha_scale: f64,
     position_label: &'static str,
     position_offset: i32,
-) {
-    if series.is_empty() || series[0].is_empty() {
+) -> Option<CsvExportAction> {
+    if series.is_empty() || series.first_len() == 0 {
         ui.allocate_ui_with_layout(
             desired_size,
             Layout::centered_and_justified(eframe::egui::Direction::LeftToRight),
@@ -43,12 +46,12 @@ pub fn draw_multi_line_plot(
                 ui.label("No data to display.");
             },
         );
-        return;
+        return None;
     }
 
     let max_points: usize = 256;
 
-    let orig_len = series[0].len();
+    let orig_len = series.first_len();
     let step: usize = if orig_len <= max_points {
         1
     } else {
@@ -74,7 +77,7 @@ pub fn draw_multi_line_plot(
             Layout::centered_and_justified(eframe::egui::Direction::LeftToRight),
             |ui| ui.label("No visible series."),
         );
-        return;
+        return None;
     };
     if ds_len < 2 {
         ui.allocate_ui_with_layout(
@@ -82,11 +85,12 @@ pub fn draw_multi_line_plot(
             Layout::centered_and_justified(eframe::egui::Direction::LeftToRight),
             |ui| ui.label("Not enough points."),
         );
-        return;
+        return None;
     }
 
     // Allocate the plotting area and keep the response for hover interactivity
-    let (rect, response) = ui.allocate_exact_size(desired_size, Sense::drag());
+    let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click_and_drag());
+    let mut export_action = None;
 
     let painter = ui.painter_at(rect);
 
@@ -184,6 +188,39 @@ pub fn draw_multi_line_plot(
             }
         }
     }
+
+    response.context_menu(|ui| {
+        if ui.button("Copy Data (CSV)").clicked() {
+            export_action = Some(CsvExportAction::Copy(CsvExportPayload::new(
+                "plot data",
+                "multi-line-plot.csv",
+                crate::util::csv::build_indexed_series_csv(
+                    position_label,
+                    Some(&format!("{position_label}_absolute")),
+                    Some(position_offset),
+                    "s",
+                    series.scaled(alpha_scale),
+                    mask,
+                ),
+            )));
+            ui.close();
+        }
+        if ui.button("Save Data as CSV...").clicked() {
+            export_action = Some(CsvExportAction::Save(CsvExportPayload::new(
+                "plot data",
+                "multi-line-plot.csv",
+                crate::util::csv::build_indexed_series_csv(
+                    position_label,
+                    Some(&format!("{position_label}_absolute")),
+                    Some(position_offset),
+                    "s",
+                    series.scaled(alpha_scale),
+                    mask,
+                ),
+            )));
+            ui.close();
+        }
+    });
 
     // Hover interactivity: vertical dashed cursor line and tooltip with x/value(s)
     if let Some(mouse_pos) = response.hover_pos() {
@@ -332,4 +369,6 @@ pub fn draw_multi_line_plot(
             }
         }
     }
+
+    export_action
 }

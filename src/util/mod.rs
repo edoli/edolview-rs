@@ -1,9 +1,11 @@
 pub mod bool_ext;
 pub mod color;
 pub mod concurrency;
+pub mod csv;
 pub mod cv_ext;
 pub mod func_ext;
 pub mod math_ext;
 pub mod path_ext;
+pub mod series;
 pub mod str_ext;
 pub mod timer;
