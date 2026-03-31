@@ -1,7 +1,7 @@
 use eframe::egui::{self, pos2, Color32, Rect, Sense, Vec2};
 
 use super::{CsvExportAction, CsvExportPayload};
-use crate::util::series::SeriesRef;
+use crate::util::series::{build_indexed_csv, SeriesRef};
 
 pub fn draw_histogram(
     ui: &mut egui::Ui,
@@ -90,7 +90,7 @@ pub fn draw_histogram(
             export_action = Some(CsvExportAction::Copy(CsvExportPayload::new(
                 "histogram data",
                 "histogram.csv",
-                crate::util::csv::build_indexed_series_csv("bin", None, None, "s", series, mask),
+                build_indexed_csv("bin", None, None, "s", &series, mask),
             )));
             ui.close();
         }
@@ -98,7 +98,7 @@ pub fn draw_histogram(
             export_action = Some(CsvExportAction::Save(CsvExportPayload::new(
                 "histogram data",
                 "histogram.csv",
-                crate::util::csv::build_indexed_series_csv("bin", None, None, "s", series, mask),
+                build_indexed_csv("bin", None, None, "s", &series, mask),
             )));
             ui.close();
         }

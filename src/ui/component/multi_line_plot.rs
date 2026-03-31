@@ -5,7 +5,7 @@ use eframe::egui::Galley;
 use eframe::egui::{Color32, CornerRadius, Layout, Pos2, Rect, Sense, Stroke, TextStyle, Ui, Vec2};
 
 use super::{CsvExportAction, CsvExportPayload};
-use crate::util::series::SeriesRef;
+use crate::util::series::{build_indexed_csv, SeriesRef};
 
 // Downsampling using average within each step
 #[inline]
@@ -194,12 +194,12 @@ pub fn draw_multi_line_plot(
             export_action = Some(CsvExportAction::Copy(CsvExportPayload::new(
                 "plot data",
                 "multi-line-plot.csv",
-                crate::util::csv::build_indexed_series_csv(
+                build_indexed_csv(
                     position_label,
                     Some(&format!("{position_label}_absolute")),
                     Some(position_offset),
                     "s",
-                    series.scaled(alpha_scale),
+                    &series.scaled(alpha_scale),
                     mask,
                 ),
             )));
@@ -209,12 +209,12 @@ pub fn draw_multi_line_plot(
             export_action = Some(CsvExportAction::Save(CsvExportPayload::new(
                 "plot data",
                 "multi-line-plot.csv",
-                crate::util::csv::build_indexed_series_csv(
+                build_indexed_csv(
                     position_label,
                     Some(&format!("{position_label}_absolute")),
                     Some(position_offset),
                     "s",
-                    series.scaled(alpha_scale),
+                    &series.scaled(alpha_scale),
                     mask,
                 ),
             )));
