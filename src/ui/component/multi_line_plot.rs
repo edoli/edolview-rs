@@ -56,9 +56,14 @@ pub fn draw_multi_line_plot(
         return None;
     }
 
-    let max_points: usize = 256;
-
     let orig_len = series.first_len();
+
+    // Allocate the plotting area first so downsampling density can follow the actual on-screen pixel width.
+    let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click_and_drag());
+    let mut export_action = None;
+
+    let pixels_per_point = ui.ctx().pixels_per_point();
+    let max_points = ((rect.width() * pixels_per_point).round() as usize).max(2);
     let step: usize = if orig_len <= max_points {
         1
     } else {
@@ -94,10 +99,6 @@ pub fn draw_multi_line_plot(
         );
         return None;
     }
-
-    // Allocate the plotting area and keep the response for hover interactivity
-    let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click_and_drag());
-    let mut export_action = None;
 
     let painter = ui.painter_at(rect);
 
