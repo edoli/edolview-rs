@@ -1597,7 +1597,10 @@ impl eframe::App for ViewerApp {
                         .anchor(egui::Align2::LEFT_TOP, egui::vec2(6.0, 30.0))
                         .interactable(false)
                         .show(ctx, |ui| {
-                            ui.colored_label(Color32::from_rgb(255, 210, 120), message);
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(message).color(Color32::from_rgb(255, 210, 120)))
+                                    .wrap_mode(egui::TextWrapMode::Extend),
+                            );
                         });
                 }
 

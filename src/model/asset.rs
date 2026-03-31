@@ -3,7 +3,10 @@ use std::{path::PathBuf, sync::Arc};
 use opencv::core::{MatTrait, MatTraitConst};
 
 use crate::model::{Image, MatImage, Recti};
-use crate::util::{cv_ext::CvMatExt, math_ext::vec2i};
+use crate::util::{
+    cv_ext::{CvIntExt, CvMatExt},
+    math_ext::vec2i,
+};
 
 pub type SharedAsset = Arc<dyn Asset<MatImage>>;
 
@@ -225,9 +228,12 @@ impl ComparisonAsset {
 
         let img1 = asset_primary.image();
         let img2 = asset_secondary.image();
+        let spec1 = img1.spec();
+        let spec2 = img2.spec();
 
         let mat1 = img1.mat();
         let mat2 = img2.mat();
+        let mut comparison_notices = Vec::new();
 
         let (mat1, mat2, comparison_notice) = if mat1.channels() == mat2.channels() {
             (mat1.clone(), mat2.clone(), None)
@@ -246,6 +252,16 @@ impl ComparisonAsset {
                 )),
             );
         };
+        if let Some(notice) = comparison_notice {
+            comparison_notices.push(notice);
+        }
+        if spec1.dtype != spec2.dtype {
+            comparison_notices.push(format!(
+                "Data type mismatch: comparing {} against {}.",
+                spec1.dtype.cv_type_name(),
+                spec2.dtype.cv_type_name()
+            ));
+        }
 
         let mut mat = mat1.clone();
         let full_rect =
@@ -277,14 +293,14 @@ impl ComparisonAsset {
             }
         }
 
-        let comparison_image = MatImage::new(mat, img1.spec().dtype);
+        let comparison_image = MatImage::new(mat, spec1.dtype);
 
         (
             Self {
                 name,
                 image: comparison_image,
             },
-            comparison_notice,
+            (!comparison_notices.is_empty()).then(|| comparison_notices.join("\n")),
         )
     }
 }
