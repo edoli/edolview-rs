@@ -45,12 +45,13 @@ pub fn draw_histogram(
     let bin_width = full_w / bins as f32;
     let inner_w = bin_width.max(0.0);
 
-    let colors = [
+    let bar_colors = [
         Color32::from_rgba_unmultiplied(255, 0, 0, 150),
         Color32::from_rgba_unmultiplied(0, 255, 0, 150),
         Color32::from_rgba_unmultiplied(0, 0, 255, 150),
         Color32::from_rgba_unmultiplied(255, 255, 0, 150),
     ];
+    let label_colors = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::YELLOW];
 
     let format_hist_value = |value: f32| {
         if (value - value.round()).abs() < 0.0001 {
@@ -93,7 +94,7 @@ pub fn draw_histogram(
 
     series.iter().take(4).enumerate().for_each(|(i, s)| {
         if mask[i] {
-            draw_series(s, colors[i])
+            draw_series(s, bar_colors[i])
         }
     });
 
@@ -142,7 +143,7 @@ pub fn draw_histogram(
                 let value = channel.get(bin_idx).copied().unwrap_or(0.0);
                 lines.push((
                     format!("{}: {}", channel_label(i, total_channels), format_hist_value(value)),
-                    colors[i % colors.len()],
+                    label_colors[i % label_colors.len()],
                 ));
             }
 
