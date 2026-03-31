@@ -492,7 +492,7 @@ fn write_windows_wxs(path: &str) -> Result<()> {
     Manufacturer="Daniel Jeon"
     UpgradeCode="9B95884C-31AA-4A5C-8209-D7CE6CA9C2D8">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." MigrateFeatures="no" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Icon Id="ProductIcon" SourceFile="$(var.ProjectDir)\icons\app.ico" />
@@ -563,7 +563,7 @@ fn write_windows_wxs(path: &str) -> Result<()> {
 
   <Fragment>
     <DirectoryRef Id="ApplicationProgramsFolder">
-      <Component Id="cmpStartMenuShortcut" Guid="*">
+      <Component Id="cmpStartMenuShortcut" Guid="1E489ADF-7190-4325-82D9-D756E13D54A7">
         <Shortcut
           Id="StartMenuShortcut"
           Name="Edolview"
@@ -586,7 +586,7 @@ fn write_windows_wxs(path: &str) -> Result<()> {
 
   <Fragment>
     <DirectoryRef Id="DesktopFolder">
-      <Component Id="cmpDesktopShortcut" Guid="*">
+      <Component Id="cmpDesktopShortcut" Guid="B29D4238-BE3A-4D4D-BB0A-61D1E61C46B6">
         <Shortcut
           Id="DesktopShortcut"
           Name="Edolview"

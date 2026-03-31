@@ -355,7 +355,18 @@ while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
 Set-Status({status_installing})
 $assetPath = {asset_path}
 $targetExe = {target_exe}
-$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $assetPath, '/passive', '/norestart') -PassThru
+$features = @('MainFeature')
+$desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Edolview.lnk'
+if (Test-Path $desktopShortcut) {{
+    $features += 'DesktopShortcutFeature'
+}}
+$startMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'Edolview'
+$startMenuShortcut = Join-Path $startMenuDir 'Edolview.lnk'
+if (Test-Path $startMenuShortcut) {{
+    $features += 'StartMenuShortcutsFeature'
+}}
+$installerArgs = @('/i', $assetPath, '/passive', '/norestart', 'MIGRATEFEATURESTATES=0', ('ADDLOCAL=' + ($features -join ',')))
+$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList $installerArgs -PassThru
 $installer.WaitForExit()
 if ($installer.ExitCode -ne 0) {{
     throw "MSI installer failed with exit code $($installer.ExitCode)."
