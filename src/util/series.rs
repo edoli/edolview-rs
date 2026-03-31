@@ -111,15 +111,29 @@ fn visible_series_indices(series_len: usize, mask: &[bool]) -> Vec<usize> {
     (0..series_len).filter(|&i| mask.get(i).copied().unwrap_or(false)).collect()
 }
 
+pub fn channel_label(index: usize, total_channels: usize) -> String {
+    if total_channels == 1 {
+        return "L".to_string();
+    }
+
+    match index {
+        0 => "R".to_string(),
+        1 => "G".to_string(),
+        2 => "B".to_string(),
+        3 => "A".to_string(),
+        _ => format!("C{index}"),
+    }
+}
+
 pub fn build_indexed_csv<T: Display + Copy>(
     index_label: &str,
     absolute_index_label: Option<&str>,
     index_offset: Option<i32>,
-    value_label_prefix: &str,
     series: &impl SeriesSource<T>,
     mask: &[bool],
 ) -> String {
     let visible_series = visible_series_indices(series.len(), mask);
+    let total_channels = series.len();
     let len = series.first_len();
 
     let mut csv = String::new();
@@ -128,7 +142,7 @@ pub fn build_indexed_csv<T: Display + Copy>(
         let _ = write!(csv, ",{label}");
     }
     for &i in &visible_series {
-        let _ = write!(csv, ",{value_label_prefix}{i}");
+        let _ = write!(csv, ",{}", channel_label(i, total_channels));
     }
     csv.push('\n');
 

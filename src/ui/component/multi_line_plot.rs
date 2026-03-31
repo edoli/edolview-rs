@@ -5,7 +5,7 @@ use eframe::egui::Galley;
 use eframe::egui::{Color32, CornerRadius, Layout, Pos2, Rect, Sense, Stroke, TextStyle, Ui, Vec2};
 
 use super::{CsvExportAction, CsvExportPayload};
-use crate::util::series::{build_indexed_csv, SeriesRef};
+use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
 
 // Downsampling using average within each step
 #[inline]
@@ -198,7 +198,6 @@ pub fn draw_multi_line_plot(
                     position_label,
                     Some(&format!("{position_label}_absolute")),
                     Some(position_offset),
-                    "s",
                     &series.scaled(alpha_scale),
                     mask,
                 ),
@@ -213,7 +212,6 @@ pub fn draw_multi_line_plot(
                     position_label,
                     Some(&format!("{position_label}_absolute")),
                     Some(position_offset),
-                    "s",
                     &series.scaled(alpha_scale),
                     mask,
                 ),
@@ -251,6 +249,7 @@ pub fn draw_multi_line_plot(
                 format!("{position_label}: {} ({absolute_idx})", approx_orig_idx),
                 Color32::WHITE,
             ));
+            let total_channels = series.len();
             for (i, opt) in ds_series.iter().enumerate() {
                 if !mask.get(i).copied().unwrap_or(false) {
                     continue;
@@ -258,7 +257,7 @@ pub fn draw_multi_line_plot(
                 let color = colors[i % colors.len()];
                 if let Some(ys) = opt.as_ref() {
                     let val = ys.get(ds_idx).copied().unwrap_or(f64::NAN) * alpha_scale;
-                    lines.push((format!("s{}: {:.4}", i, val), color));
+                    lines.push((format!("{}: {:.4}", channel_label(i, total_channels), val), color));
                 }
             }
 

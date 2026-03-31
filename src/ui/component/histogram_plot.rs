@@ -5,7 +5,7 @@ use eframe::egui::Galley;
 use eframe::egui::{self, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, TextStyle, Vec2};
 
 use super::{CsvExportAction, CsvExportPayload};
-use crate::util::series::{build_indexed_csv, SeriesRef};
+use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
 
 pub fn draw_histogram(
     ui: &mut egui::Ui,
@@ -102,7 +102,7 @@ pub fn draw_histogram(
             export_action = Some(CsvExportAction::Copy(CsvExportPayload::new(
                 "histogram data",
                 "histogram.csv",
-                build_indexed_csv("bin", None, None, "s", &series, mask),
+                build_indexed_csv("bin", None, None, &series, mask),
             )));
             ui.close();
         }
@@ -110,7 +110,7 @@ pub fn draw_histogram(
             export_action = Some(CsvExportAction::Save(CsvExportPayload::new(
                 "histogram data",
                 "histogram.csv",
-                build_indexed_csv("bin", None, None, "s", &series, mask),
+                build_indexed_csv("bin", None, None, &series, mask),
             )));
             ui.close();
         }
@@ -134,12 +134,16 @@ pub fn draw_histogram(
 
             let mut lines: Vec<(String, Color32)> = Vec::new();
             lines.push((format!("bin: {bin_idx}"), Color32::WHITE));
+            let total_channels = series.len();
             for (i, channel) in series.iter().take(4).enumerate() {
                 if !mask.get(i).copied().unwrap_or(false) {
                     continue;
                 }
                 let value = channel.get(bin_idx).copied().unwrap_or(0.0);
-                lines.push((format!("s{i}: {}", format_hist_value(value)), colors[i % colors.len()]));
+                lines.push((
+                    format!("{}: {}", channel_label(i, total_channels), format_hist_value(value)),
+                    colors[i % colors.len()],
+                ));
             }
 
             let font_id = TextStyle::Monospace.resolve(ui.style());
