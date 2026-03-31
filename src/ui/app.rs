@@ -22,7 +22,7 @@ use crate::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
-            CsvExportAction, CsvExportPayload, Toast, ToastUi, ToastsExt,
+            CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
         },
         ImageViewer,
     },
@@ -241,15 +241,15 @@ impl ViewerApp {
         self.toasts.add_error(format!("{message}: {path_str}"));
     }
 
-    fn handle_csv_export(&mut self, export: CsvExportAction) {
+    fn handle_export_action(&mut self, export: ExportAction) {
         match export {
-            CsvExportAction::Copy(payload) => self.copy_csv_export(payload),
-            CsvExportAction::Save(payload) => self.save_csv_export(payload),
+            ExportAction::Copy(payload) => self.copy_export_text(payload),
+            ExportAction::Save(payload) => self.save_export_text(payload),
         }
     }
 
-    fn copy_csv_export(&mut self, payload: CsvExportPayload) {
-        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(payload.csv_text.clone())) {
+    fn copy_export_text(&mut self, payload: CopyExport) {
+        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(payload.text)) {
             Ok(()) => self.toasts.add_success(format!("Copied {} to clipboard", payload.title)),
             Err(err) => {
                 eprintln!("Failed to copy {} to clipboard: {err}", payload.title);
@@ -258,7 +258,7 @@ impl ViewerApp {
         }
     }
 
-    fn save_csv_export(&mut self, payload: CsvExportPayload) {
+    fn save_export_text(&mut self, payload: SaveExport) {
         let Some(path) = FileDialog::new()
             .add_filter("CSV file", &["csv"])
             .set_file_name(payload.suggested_file_name)
@@ -267,7 +267,7 @@ impl ViewerApp {
             return;
         };
 
-        match fs::write(&path, payload.csv_text) {
+        match fs::write(&path, payload.text) {
             Ok(()) => self
                 .toasts
                 .add_success(format!("Saved {} to {}", payload.title, path.display())),
@@ -1226,7 +1226,7 @@ impl eframe::App for ViewerApp {
                                 position_label,
                                 position_offset,
                             ) {
-                                self.handle_csv_export(export);
+                                self.handle_export_action(export);
                             }
                         } else {
                             let plot_refs = vec![plot_data[0].as_slice()];
@@ -1239,7 +1239,7 @@ impl eframe::App for ViewerApp {
                                 position_label,
                                 position_offset,
                             ) {
-                                self.handle_csv_export(export);
+                                self.handle_export_action(export);
                             }
                         }
 
@@ -1306,14 +1306,14 @@ impl eframe::App for ViewerApp {
                                         &self.show_histogram_channels,
                                         max,
                                     ) {
-                                        self.handle_csv_export(export);
+                                        self.handle_export_action(export);
                                     }
                                     channel_toggle_ui(ui, &mut self.show_histogram_channels, channels as usize);
                                 } else {
                                     if let Some(export) =
                                         draw_histogram(ui, desired_size, SeriesRef::new(&display_hist), &[true], max)
                                     {
-                                        self.handle_csv_export(export);
+                                        self.handle_export_action(export);
                                     }
                                 }
                             }

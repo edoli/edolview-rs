@@ -4,7 +4,7 @@ use eframe::egui::epaint::Shape;
 use eframe::egui::Galley;
 use eframe::egui::{self, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, TextStyle, Vec2};
 
-use super::{CsvExportAction, CsvExportPayload};
+use super::{CopyExport, ExportAction, SaveExport};
 use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
 
 pub fn draw_histogram(
@@ -13,7 +13,7 @@ pub fn draw_histogram(
     series: SeriesRef<'_, f32>,
     mask: &[bool],
     max_freq: f32,
-) -> Option<CsvExportAction> {
+) -> Option<ExportAction> {
     if series.is_empty() || series.first_len() == 0 || mask.iter().all(|&m| !m) {
         ui.allocate_ui_with_layout(
             desired_size,
@@ -28,6 +28,7 @@ pub fn draw_histogram(
     let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
     let painter = ui.painter_at(rect);
     let mut export_action = None;
+    let mut hovered_text: Option<String> = None;
 
     if max_freq <= 0.0 {
         return None;
@@ -98,24 +99,7 @@ pub fn draw_histogram(
         }
     });
 
-    response.context_menu(|ui| {
-        if ui.button("Copy Data (CSV)").clicked() {
-            export_action = Some(CsvExportAction::Copy(CsvExportPayload::new(
-                "histogram data",
-                "histogram.csv",
-                build_indexed_csv("bin", None, None, &series, mask),
-            )));
-            ui.close();
-        }
-        if ui.button("Save Data as CSV...").clicked() {
-            export_action = Some(CsvExportAction::Save(CsvExportPayload::new(
-                "histogram data",
-                "histogram.csv",
-                build_indexed_csv("bin", None, None, &series, mask),
-            )));
-            ui.close();
-        }
-    });
+    let hovered_export_id = response.id.with("hovered_export_text");
 
     if let Some(mouse_pos) = response.hover_pos() {
         if rect.contains(mouse_pos) {
@@ -146,6 +130,7 @@ pub fn draw_histogram(
                     label_colors[i % label_colors.len()],
                 ));
             }
+            hovered_text = Some(lines.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>().join("\n"));
 
             let font_id = TextStyle::Monospace.resolve(ui.style());
             let padding = Vec2::new(8.0, 6.0);
@@ -247,6 +232,41 @@ pub fn draw_histogram(
             }
         }
     }
+
+    if let Some(text) = hovered_text.as_ref() {
+        ui.ctx().data_mut(|data| data.insert_temp(hovered_export_id, text.clone()));
+    }
+
+    response.context_menu(|ui| {
+        if ui.button("Copy Hovered Data").clicked() {
+            let hovered_text = hovered_text
+                .clone()
+                .or_else(|| ui.ctx().data(|data| data.get_temp::<String>(hovered_export_id)));
+            if let Some(text) = hovered_text {
+                export_action = Some(ExportAction::Copy(CopyExport {
+                    title: "hovered histogram data",
+                    text,
+                }));
+            }
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Copy Data (CSV)").clicked() {
+            export_action = Some(ExportAction::Copy(CopyExport {
+                title: "histogram data",
+                text: build_indexed_csv("bin", None, None, &series, mask),
+            }));
+            ui.close();
+        }
+        if ui.button("Save Data as CSV...").clicked() {
+            export_action = Some(ExportAction::Save(SaveExport {
+                title: "histogram data",
+                suggested_file_name: "histogram.csv",
+                text: build_indexed_csv("bin", None, None, &series, mask),
+            }));
+            ui.close();
+        }
+    });
 
     export_action
 }
