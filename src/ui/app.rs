@@ -1589,6 +1589,18 @@ impl eframe::App for ViewerApp {
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
                 self.viewer.show_image(ui, frame, &mut self.state);
+
+                // Comparison notice overlay
+                if let Some(message) = &self.state.comparison_notice {
+                    egui::Area::new(egui::Id::new("comparison_notice_overlay"))
+                        .order(egui::Order::Foreground)
+                        .anchor(egui::Align2::LEFT_TOP, egui::vec2(6.0, 30.0))
+                        .interactable(false)
+                        .show(ctx, |ui| {
+                            ui.colored_label(Color32::from_rgb(255, 210, 120), message);
+                        });
+                }
+
                 if let Some(err) = self.viewer.take_shader_error() {
                     self.toasts.add_error(format!("Shader error: {err}"));
                 }
@@ -1596,20 +1608,6 @@ impl eframe::App for ViewerApp {
                 self.toasts.retain_active();
                 ui.add(ToastUi::new(&mut self.toasts));
             });
-
-        if let Some(message) = &self.state.comparison_notice {
-            egui::Area::new(egui::Id::new("comparison_notice_overlay"))
-                .order(egui::Order::Foreground)
-                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 16.0))
-                .interactable(false)
-                .show(ctx, |ui| {
-                    egui::Frame::popup(ui.style())
-                        .inner_margin(egui::Margin::same(8))
-                        .show(ui, |ui| {
-                            ui.colored_label(Color32::from_rgb(255, 210, 120), message);
-                        });
-                });
-        }
 
         // Marquee change detection & callbacks (run once per frame after updates)
         let current_rect = self.state.marquee_rect;
