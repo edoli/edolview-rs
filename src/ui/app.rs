@@ -1597,6 +1597,20 @@ impl eframe::App for ViewerApp {
                 ui.add(ToastUi::new(&mut self.toasts));
             });
 
+        if let Some(message) = &self.state.comparison_notice {
+            egui::Area::new(egui::Id::new("comparison_notice_overlay"))
+                .order(egui::Order::Foreground)
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 16.0))
+                .interactable(false)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style())
+                        .inner_margin(egui::Margin::same(8))
+                        .show(ui, |ui| {
+                            ui.colored_label(Color32::from_rgb(255, 210, 120), message);
+                        });
+                });
+        }
+
         // Marquee change detection & callbacks (run once per frame after updates)
         let current_rect = self.state.marquee_rect;
         let current_asset_hash = self.state.asset.as_ref().map(|a| a.hash().to_string());

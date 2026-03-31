@@ -23,6 +23,7 @@ pub struct AppState {
     pub asset_secondary: Option<SharedAsset>,
     pub comparison_mode: ComparisonMode,
     pub comparison_blend: f32,
+    pub comparison_notice: Option<String>,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
     pub marquee_rect: Recti,
@@ -85,6 +86,7 @@ impl AppState {
             asset_secondary: None,
             comparison_mode: ComparisonMode::Diff,
             comparison_blend: 0.5,
+            comparison_notice: None,
             shader_params: ShaderParams::default(),
             cursor_pos: None,
             marquee_rect: Recti::ZERO,
@@ -228,34 +230,36 @@ impl AppState {
     }
 
     pub fn update_asset(&mut self) {
+        self.comparison_notice = None;
         if let Some(asset_primary) = &self.asset_primary {
             if let Some(asset_secondary) = &self.asset_secondary {
                 if asset_primary.hash() == asset_secondary.hash() {
                     self.asset = Some(asset_primary.clone());
                 } else {
                     // Different assets, create a comparison asset
-                    let comp_asset = ComparisonAsset::new(
+                    let (comp_asset, comparison_notice) = ComparisonAsset::new(
                         asset_primary.clone(),
                         asset_secondary.clone(),
                         self.comparison_mode,
                         self.comparison_blend,
                         Some(self.marquee_rect),
                     );
+                    self.comparison_notice = comparison_notice;
                     self.asset = Some(Arc::new(comp_asset));
                 }
             } else {
                 self.asset = Some(asset_primary.clone());
             }
 
-            let num_channels = asset_primary.image().spec().channels as i32;
-
-            if num_channels == 1 {
-                self.channel_index = -1;
-            } else if self.channel_index >= num_channels {
-                self.channel_index = num_channels - 1;
-            }
-
             if let Some(asset) = &self.asset {
+                let num_channels = asset.image().spec().channels as i32;
+
+                if num_channels == 1 {
+                    self.channel_index = -1;
+                } else if self.channel_index >= num_channels {
+                    self.channel_index = num_channels - 1;
+                }
+
                 crate::model::image::MEAN_PROCESSOR
                     .lock()
                     .unwrap()
@@ -270,6 +274,7 @@ impl AppState {
         self.asset = None;
         self.asset_primary = None;
         self.asset_secondary = None;
+        self.comparison_notice = None;
         self.path = None;
         self.file_nav.clear();
         self.marquee_rect = Recti::ZERO;

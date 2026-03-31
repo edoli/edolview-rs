@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use opencv::core::{MatTrait, MatTraitConst};
 
 use crate::model::{Image, MatImage, Recti};
-use crate::util::math_ext::vec2i;
+use crate::util::{cv_ext::CvMatExt, math_ext::vec2i};
 
 pub type SharedAsset = Arc<dyn Asset<MatImage>>;
 
@@ -172,6 +172,42 @@ pub struct ComparisonAsset {
     image: MatImage,
 }
 
+fn normalize_comparison_inputs(
+    mat1: &opencv::core::Mat,
+    mat2: &opencv::core::Mat,
+) -> Option<(opencv::core::Mat, opencv::core::Mat, String)> {
+    let channels1 = mat1.channels();
+    let channels2 = mat2.channels();
+
+    match (channels1, channels2) {
+        (1, 3) | (1, 4) => Some((
+            mat1.duplicate_mono_to_channels(channels2),
+            mat2.clone(),
+            format!(
+                "Channel mismatch: comparing the single channel image against each channel of the {channels2}-channel image."
+            ),
+        )),
+        (3, 1) | (4, 1) => Some((
+            mat1.clone(),
+            mat2.duplicate_mono_to_channels(channels1),
+            format!(
+                "Channel mismatch: comparing each channel of the {channels1}-channel image against the single channel image."
+            ),
+        )),
+        (3, 4) => Some((
+            mat1.clone(),
+            mat2.drop_alpha_channel(),
+            "Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string(),
+        )),
+        (4, 3) => Some((
+            mat1.drop_alpha_channel(),
+            mat2.clone(),
+            "Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string(),
+        )),
+        _ => None,
+    }
+}
+
 impl ComparisonAsset {
     pub fn new(
         asset_primary: SharedAsset,
@@ -179,7 +215,7 @@ impl ComparisonAsset {
         mode: ComparisonMode,
         blend_alpha: f32,
         rect: Option<Recti>,
-    ) -> Self {
+    ) -> (Self, Option<String>) {
         let name = format!(
             "Comparison ({:?}): {} vs {}",
             mode,
@@ -193,12 +229,23 @@ impl ComparisonAsset {
         let mat1 = img1.mat();
         let mat2 = img2.mat();
 
-        if mat1.channels() != mat2.channels() {
-            return Self {
-                name,
-                image: MatImage::new(opencv::core::Mat::default(), img1.spec().dtype),
-            };
-        }
+        let (mat1, mat2, comparison_notice) = if mat1.channels() == mat2.channels() {
+            (mat1.clone(), mat2.clone(), None)
+        } else if let Some((mat1, mat2, notice)) = normalize_comparison_inputs(mat1, mat2) {
+            (mat1, mat2, Some(notice))
+        } else {
+            return (
+                Self {
+                    name,
+                    image: MatImage::new(opencv::core::Mat::default(), img1.spec().dtype),
+                },
+                Some(format!(
+                    "Channel mismatch: unsupported comparison between {} and {} channels.",
+                    mat1.channels(),
+                    mat2.channels()
+                )),
+            );
+        };
 
         let mut mat = mat1.clone();
         let full_rect =
@@ -232,10 +279,13 @@ impl ComparisonAsset {
 
         let comparison_image = MatImage::new(mat, img1.spec().dtype);
 
-        Self {
-            name,
-            image: comparison_image,
-        }
+        (
+            Self {
+                name,
+                image: comparison_image,
+            },
+            comparison_notice,
+        )
     }
 }
 
