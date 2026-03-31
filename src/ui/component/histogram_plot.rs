@@ -1,4 +1,8 @@
-use eframe::egui::{self, pos2, Color32, Rect, Sense, Vec2};
+use std::sync::Arc;
+
+use eframe::egui::epaint::Shape;
+use eframe::egui::Galley;
+use eframe::egui::{self, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, TextStyle, Vec2};
 
 use super::{CsvExportAction, CsvExportPayload};
 use crate::util::series::{build_indexed_csv, SeriesRef};
@@ -47,6 +51,14 @@ pub fn draw_histogram(
         Color32::from_rgba_unmultiplied(0, 0, 255, 150),
         Color32::from_rgba_unmultiplied(255, 255, 0, 150),
     ];
+
+    let format_hist_value = |value: f32| {
+        if (value - value.round()).abs() < 0.0001 {
+            format!("{value:.0}")
+        } else {
+            format!("{value:.4}")
+        }
+    };
 
     let draw_series = |series: &[f32], color: Color32| {
         for i in 0..bins {
@@ -103,6 +115,133 @@ pub fn draw_histogram(
             ui.close();
         }
     });
+
+    if let Some(mouse_pos) = response.hover_pos() {
+        if rect.contains(mouse_pos) {
+            let x_norm = ((mouse_pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+            let bin_idx = ((x_norm * bins as f32).floor() as usize).min(bins.saturating_sub(1));
+            let x = rect.left() + (bin_idx as f32 + 0.5) * bin_width;
+
+            let dash_len = 6.0f32;
+            let gap_len = 4.0f32;
+            let mut y0 = rect.top();
+            let stroke = Stroke::new(1.0, Color32::from_gray(180));
+            while y0 < rect.bottom() {
+                let y1 = (y0 + dash_len).min(rect.bottom());
+                painter.line_segment([Pos2 { x, y: y0 }, Pos2 { x, y: y1 }], stroke);
+                y0 += dash_len + gap_len;
+            }
+
+            let mut lines: Vec<(String, Color32)> = Vec::new();
+            lines.push((format!("bin: {bin_idx}"), Color32::WHITE));
+            for (i, channel) in series.iter().take(4).enumerate() {
+                if !mask.get(i).copied().unwrap_or(false) {
+                    continue;
+                }
+                let value = channel.get(bin_idx).copied().unwrap_or(0.0);
+                lines.push((format!("s{i}: {}", format_hist_value(value)), colors[i % colors.len()]));
+            }
+
+            let font_id = TextStyle::Monospace.resolve(ui.style());
+            let padding = Vec2::new(8.0, 6.0);
+            let mut galleys: Vec<(Arc<Galley>, Color32)> = Vec::with_capacity(lines.len());
+            let (max_w, total_h) = ui.fonts(|fonts| {
+                let mut max_w = 0.0f32;
+                let mut total_h = 0.0f32;
+                for (text, color) in &lines {
+                    let galley = fonts.layout_no_wrap(text.clone(), font_id.clone(), *color);
+                    let sz = galley.size();
+                    max_w = max_w.max(sz.x);
+                    total_h += sz.y;
+                    galleys.push((galley, *color));
+                }
+                (max_w, total_h)
+            });
+            let tooltip_size = Vec2::new(max_w + padding.x * 2.0, total_h + padding.y * 2.0);
+
+            let mut tip_pos = Pos2 {
+                x: (mouse_pos.x + 12.0).min(rect.right() - tooltip_size.x),
+                y: (mouse_pos.y + 12.0).min(rect.bottom() - tooltip_size.y),
+            };
+            if tip_pos.x < rect.left() {
+                tip_pos.x = rect.left();
+            }
+            if tip_pos.y < rect.top() {
+                tip_pos.y = rect.top();
+            }
+
+            let tip_rect = Rect::from_min_size(tip_pos, tooltip_size);
+            painter.add(Shape::rect_filled(
+                tip_rect,
+                CornerRadius::same(4),
+                Color32::from_black_alpha(180),
+            ));
+
+            let border = Stroke::new(1.0, Color32::from_gray(80));
+            painter.line_segment(
+                [
+                    Pos2 {
+                        x: tip_rect.left(),
+                        y: tip_rect.top(),
+                    },
+                    Pos2 {
+                        x: tip_rect.right(),
+                        y: tip_rect.top(),
+                    },
+                ],
+                border,
+            );
+            painter.line_segment(
+                [
+                    Pos2 {
+                        x: tip_rect.right(),
+                        y: tip_rect.top(),
+                    },
+                    Pos2 {
+                        x: tip_rect.right(),
+                        y: tip_rect.bottom(),
+                    },
+                ],
+                border,
+            );
+            painter.line_segment(
+                [
+                    Pos2 {
+                        x: tip_rect.right(),
+                        y: tip_rect.bottom(),
+                    },
+                    Pos2 {
+                        x: tip_rect.left(),
+                        y: tip_rect.bottom(),
+                    },
+                ],
+                border,
+            );
+            painter.line_segment(
+                [
+                    Pos2 {
+                        x: tip_rect.left(),
+                        y: tip_rect.bottom(),
+                    },
+                    Pos2 {
+                        x: tip_rect.left(),
+                        y: tip_rect.top(),
+                    },
+                ],
+                border,
+            );
+
+            let mut cursor = Pos2 {
+                x: tip_rect.left() + padding.x,
+                y: tip_rect.top() + padding.y,
+            };
+            for (galley, color) in galleys {
+                let line_h = galley.size().y;
+                painter.galley(cursor, galley, color);
+                cursor.y += line_h;
+            }
+        }
+    }
 
     export_action
 }
