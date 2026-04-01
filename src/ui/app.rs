@@ -516,9 +516,6 @@ impl ViewerApp {
     }
 
     fn on_marquee_changed(&mut self) {
-        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect {
-            self.state.update_asset();
-        }
         self.update_statistics();
     }
 

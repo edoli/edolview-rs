@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::model::{AppState, Image, MeanDim, Recti, EMPTY_MINMAX};
 use crate::res::KeyboardShortcutExt;
-use crate::ui::gl::{BackgroundProgram, ImageProgram};
+use crate::ui::gl::{BackgroundProgram, ImageProgram, RectOverlay};
 use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
@@ -41,7 +41,8 @@ enum ResizeHandle {
 pub struct ImageViewer {
     background_prog: Option<Arc<BackgroundProgram>>,
     image_prog: Option<Arc<Mutex<ImageProgram>>>,
-    gl_raw_tex: Option<GL::NativeTexture>,
+    gl_primary_tex: Option<GL::NativeTexture>,
+    gl_secondary_tex: Option<GL::NativeTexture>,
     zoom_level: f32,
     zoom_base: f32,
     pan: egui::Vec2,
@@ -49,7 +50,8 @@ pub struct ImageViewer {
     drag_mode: DragMode,
     copy_requested: bool,
     copy_toasts: Arc<Mutex<Vec<CopyToast>>>,
-    last_image_id: Option<u64>, // cache key to know when to re-upload texture
+    last_primary_image_id: Option<u64>, // cache key to know when to re-upload texture
+    last_secondary_image_id: Option<u64>,
     last_viewport_size_px: Option<egui::Vec2>,
 
     last_shader_error: Option<String>,
@@ -61,7 +63,8 @@ impl ImageViewer {
         Self {
             background_prog: None,
             image_prog: None,
-            gl_raw_tex: None,
+            gl_primary_tex: None,
+            gl_secondary_tex: None,
             zoom_level: 0.0,
             zoom_base: 2.0_f32.powf(1.0 / 4.0),
             pan: egui::Vec2::ZERO,
@@ -69,7 +72,8 @@ impl ImageViewer {
             drag_mode: DragMode::None,
             copy_requested: false,
             copy_toasts: Arc::new(Mutex::new(Vec::new())),
-            last_image_id: None,
+            last_primary_image_id: None,
+            last_secondary_image_id: None,
             last_viewport_size_px: None,
             last_shader_error: None,
             last_reported_shader_error: None,
@@ -84,40 +88,46 @@ impl ImageViewer {
             });
             return;
         };
-        let image = asset.image();
+        let use_rect_overlay_render = self.should_use_rect_overlay_render(app_state);
+        let image = if use_rect_overlay_render {
+            app_state.asset_primary.as_ref().unwrap().image()
+        } else {
+            asset.image()
+        };
 
         // Determine if we need a (re)upload
-        let mut need_update_texture = false;
-        let new_id = image.id();
         let spec = image.spec();
         let min_max = if app_state.shader_params.auto_minmax && !app_state.shader_params.use_per_channel
             || app_state.shader_params.auto_minmax_channels.iter().any(|&b| b)
         {
-            image.minmax().clone()
+            asset.image().minmax().clone()
         } else {
             EMPTY_MINMAX
         };
 
-        if self.gl_raw_tex.is_none() || Some(new_id) != self.last_image_id {
-            need_update_texture = true;
-        }
-
-        if need_update_texture {
-            if let Some(gl) = frame.gl() {
-                // Delete previous texture if any
-                if let Some(old_tex) = self.gl_raw_tex.take() {
-                    unsafe {
-                        gl.delete_texture(old_tex);
-                    }
+        if let Some(gl) = frame.gl() {
+            if use_rect_overlay_render {
+                // Only for rect diff mode
+                // Rect mode samples primary/secondary directly in the shader, so both source textures must stay uploaded.
+                if let Some(primary) = app_state.asset_primary.as_ref() {
+                    sync_mat_texture(gl, &mut self.gl_primary_tex, &mut self.last_primary_image_id, primary.image());
                 }
-                if let Ok(tex) = upload_mat_texture(gl, image) {
-                    self.gl_raw_tex = Some(tex);
-                    self.last_image_id = Some(new_id);
+                if let Some(secondary) = app_state.asset_secondary.as_ref() {
+                    sync_mat_texture(
+                        gl,
+                        &mut self.gl_secondary_tex,
+                        &mut self.last_secondary_image_id,
+                        secondary.image(),
+                    );
                 }
+            } else {
+                // Other modes render a single image result, so keep only the primary texture and free the secondary one.
+                sync_mat_texture(gl, &mut self.gl_primary_tex, &mut self.last_primary_image_id, image);
+                release_texture(gl, &mut self.gl_secondary_tex, &mut self.last_secondary_image_id);
             }
         }
 
-        if self.gl_raw_tex.is_some() {
+        if self.gl_primary_tex.is_some() || (use_rect_overlay_render && self.gl_secondary_tex.is_some()) {
             if self.background_prog.is_none() {
                 if let Some(gl) = frame.gl() {
                     if let Ok(p) = BackgroundProgram::new(gl) {
@@ -373,7 +383,7 @@ impl ImageViewer {
             };
 
             // Queue a Ctrl+C copy operation to perform inside GL callback
-            let mut copy_request: Option<(i32, i32, egui::Vec2, f32)> = None;
+            let mut copy_request: Option<(i32, i32, egui::Vec2, f32, Recti)> = None;
             if self.copy_requested {
                 let copy_rect = self.copy_rect(app_state, spec.width, spec.height);
                 if !copy_rect.empty() {
@@ -388,7 +398,7 @@ impl ImageViewer {
                         -(copy_rect.min.x as f32) * scale_for_copy,
                         -(copy_rect.min.y as f32) * scale_for_copy,
                     );
-                    copy_request = Some((out_w, out_h, position, scale_for_copy));
+                    copy_request = Some((out_w, out_h, position, scale_for_copy, copy_rect));
                 }
                 self.copy_requested = false;
             }
@@ -398,8 +408,10 @@ impl ImageViewer {
             {
                 let viewport_size = vec2(rect_pixels.width() as f32, rect_pixels.height() as f32);
                 let image_size = vec2(spec.width as f32, spec.height as f32);
+                let rect_overlay = self.rect_overlay_params(app_state);
 
-                let tex_handle = self.gl_raw_tex.unwrap();
+                let primary_tex_handle = self.gl_primary_tex;
+                let secondary_tex_handle = self.gl_secondary_tex;
                 let scale = self.zoom() as f32;
                 let position = self.pan;
 
@@ -441,23 +453,45 @@ impl ImageViewer {
                         }
 
                         if let Ok(mut image_prog) = image_prog.lock() {
-                            image_prog.draw(
-                                gl,
-                                tex_handle,
-                                colormap.as_str(),
-                                viewport_size,
-                                image_size,
-                                channel_index,
-                                &min_max,
-                                is_mono,
-                                scale,
-                                position,
-                                &shader_params,
-                            );
+                            let overlay = rect_overlay.and_then(|(primary_size, secondary_size, overlay_rect)| {
+                                primary_tex_handle.zip(secondary_tex_handle).map(|(_, secondary_tex)| {
+                                    (
+                                        primary_size,
+                                        RectOverlay {
+                                            tex_id: secondary_tex,
+                                            image_size: secondary_size,
+                                            rect: overlay_rect,
+                                        },
+                                    )
+                                })
+                            });
+                            let (draw_tex, draw_image_size, draw_overlay) =
+                                if let Some((primary_size, overlay)) = overlay {
+                                    (primary_tex_handle, primary_size, Some(overlay))
+                                } else {
+                                    (primary_tex_handle, image_size, None)
+                                };
+
+                            if let Some(draw_tex) = draw_tex {
+                                image_prog.draw(
+                                    gl,
+                                    draw_tex,
+                                    draw_overlay,
+                                    colormap.as_str(),
+                                    viewport_size,
+                                    draw_image_size,
+                                    channel_index,
+                                    &min_max,
+                                    is_mono,
+                                    scale,
+                                    position,
+                                    &shader_params,
+                                );
+                            }
                         }
 
                         // If a copy was requested, render to an offscreen FBO and place on clipboard
-                        if let Some((out_w, out_h, crop_pos, copy_scale)) = copy_request {
+                        if let Some((out_w, out_h, crop_pos, copy_scale, _copy_rect)) = copy_request {
                             // Create offscreen target
                             let fbo = gl.create_framebuffer().unwrap();
                             gl.bind_framebuffer(GL::FRAMEBUFFER, Some(fbo));
@@ -492,19 +526,42 @@ impl ImageViewer {
                                 gl.clear_color(0.0, 0.0, 0.0, 0.0);
                                 gl.clear(GL::COLOR_BUFFER_BIT);
                                 if let Ok(mut image_prog) = image_prog.lock() {
-                                    image_prog.draw(
-                                        gl,
-                                        tex_handle,
-                                        colormap.as_str(),
-                                        egui::vec2(out_w as f32, out_h as f32),
-                                        image_size,
-                                        channel_index,
-                                        &min_max,
-                                        is_mono,
-                                        copy_scale,
-                                        crop_pos,
-                                        &shader_params,
-                                    );
+                                    let overlay =
+                                        rect_overlay.and_then(|(primary_size, secondary_size, overlay_rect)| {
+                                            primary_tex_handle.zip(secondary_tex_handle).map(|(_, secondary_tex)| {
+                                                (
+                                                    primary_size,
+                                                    RectOverlay {
+                                                        tex_id: secondary_tex,
+                                                        image_size: secondary_size,
+                                                        rect: overlay_rect,
+                                                    },
+                                                )
+                                            })
+                                        });
+                                    let (draw_tex, draw_image_size, draw_overlay) =
+                                        if let Some((primary_size, overlay)) = overlay {
+                                            (primary_tex_handle, primary_size, Some(overlay))
+                                        } else {
+                                            (primary_tex_handle, image_size, None)
+                                        };
+
+                                    if let Some(draw_tex) = draw_tex {
+                                        image_prog.draw(
+                                            gl,
+                                            draw_tex,
+                                            draw_overlay,
+                                            colormap.as_str(),
+                                            egui::vec2(out_w as f32, out_h as f32),
+                                            draw_image_size,
+                                            channel_index,
+                                            &min_max,
+                                            is_mono,
+                                            copy_scale,
+                                            crop_pos,
+                                            &shader_params,
+                                        );
+                                    }
                                 }
 
                                 // Read back
@@ -964,6 +1021,10 @@ impl ImageViewer {
         self.copy_requested = true;
     }
 
+    pub fn is_marquee_interaction_active(&self) -> bool {
+        self.dragging && matches!(self.drag_mode, DragMode::Marquee { .. } | DragMode::Resizing { .. })
+    }
+
     pub fn take_copy_toasts(&mut self) -> Vec<(bool, String)> {
         let Ok(mut toasts) = self.copy_toasts.lock() else {
             return Vec::new();
@@ -1010,6 +1071,71 @@ impl ImageViewer {
 
         Recti::from_min_size(vec2i(0, 0), vec2i(image_width, image_height))
     }
+
+    fn should_use_rect_overlay_render(&self, app_state: &AppState) -> bool {
+        app_state.comparison_mode == crate::model::ComparisonMode::Rect
+            && app_state.is_comparison()
+            && app_state.asset_primary.is_some()
+            && app_state.asset_secondary.is_some()
+    }
+
+    fn rect_overlay_params(&self, app_state: &AppState) -> Option<(egui::Vec2, egui::Vec2, Recti)> {
+        if !self.should_use_rect_overlay_render(app_state) {
+            return None;
+        }
+
+        let primary = app_state.asset_primary.as_ref()?;
+        let secondary = app_state.asset_secondary.as_ref()?;
+        let primary_spec = primary.image().spec();
+        let secondary_spec = secondary.image().spec();
+        let full_rect = Recti::from_min_size(
+            vec2i(0, 0),
+            vec2i(
+                primary_spec.width.min(secondary_spec.width),
+                primary_spec.height.min(secondary_spec.height),
+            ),
+        );
+        let overlay_rect = app_state.marquee_rect.validate().intersect(full_rect);
+
+        Some((
+            egui::vec2(primary_spec.width as f32, primary_spec.height as f32),
+            egui::vec2(secondary_spec.width as f32, secondary_spec.height as f32),
+            overlay_rect,
+        ))
+    }
+}
+
+/// Keep a GL texture synchronized with the current image id so unchanged images do not trigger re-upload work.
+fn sync_mat_texture(
+    gl: &GL::Context,
+    texture_slot: &mut Option<GL::NativeTexture>,
+    last_image_id: &mut Option<u64>,
+    image: &impl Image,
+) {
+    let image_id = image.id();
+    if texture_slot.is_some() && Some(image_id) == *last_image_id {
+        return;
+    }
+
+    if let Some(old_tex) = texture_slot.take() {
+        unsafe {
+            gl.delete_texture(old_tex);
+        }
+    }
+
+    if let Ok(tex) = upload_mat_texture(gl, image) {
+        *texture_slot = Some(tex);
+        *last_image_id = Some(image_id);
+    }
+}
+
+fn release_texture(gl: &GL::Context, texture_slot: &mut Option<GL::NativeTexture>, last_image_id: &mut Option<u64>) {
+    if let Some(old_tex) = texture_slot.take() {
+        unsafe {
+            gl.delete_texture(old_tex);
+        }
+    }
+    *last_image_id = None;
 }
 
 // Upload an CPU data directly as an OpenGL texture.
