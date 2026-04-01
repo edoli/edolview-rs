@@ -519,6 +519,27 @@ impl ViewerApp {
         self.update_statistics();
     }
 
+    /// For rect comparison mode, returns the secondary asset if the rect is valid and the primary asset otherwise.
+    fn visible_asset_for_rect(&self, rect: Recti) -> Option<&crate::model::SharedAsset> {
+        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect && !rect.empty() {
+            return self.state.asset_secondary.as_ref().or(self.state.asset.as_ref());
+        }
+
+        self.state.asset.as_ref()
+    }
+
+    /// For rect comparison mode, returns the secondary asset if the pos is within the rect and the primary asset otherwise.
+    fn visible_asset_for_pos(&self, pos: crate::util::math_ext::Vec2i) -> Option<&crate::model::SharedAsset> {
+        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect {
+            let rect = self.state.marquee_rect.validate();
+            if !rect.empty() && pos.x >= rect.min.x && pos.x < rect.max.x && pos.y >= rect.min.y && pos.y < rect.max.y {
+                return self.state.asset_secondary.as_ref().or(self.state.asset.as_ref());
+            }
+        }
+
+        self.state.asset.as_ref()
+    }
+
     fn start_background_event_handlers(&mut self, ctx: &egui::Context) {
         let state = &self.state;
         let _ctx = ctx.clone();
@@ -977,11 +998,15 @@ impl eframe::App for ViewerApp {
                     |columns| {
                         columns[0].vertical(|ui| {
                             if let Some(asset) = &self.state.asset {
-                                let image = asset.image();
-                                let spec = image.spec();
-                                let dtype = image.spec().dtype;
+                                let cursor_image = self
+                                    .state
+                                    .cursor_pos
+                                    .and_then(|pos| self.visible_asset_for_pos(pos))
+                                    .map_or(asset.image(), |asset| asset.image());
+                                let spec = cursor_image.spec();
+                                let dtype = cursor_image.spec().dtype;
 
-                                let cursor_color = if let Ok(pixel) = image.get_pixel_at(
+                                let cursor_color = if let Ok(pixel) = cursor_image.get_pixel_at(
                                     self.state.cursor_pos.map_or(-1, |p| p.x),
                                     self.state.cursor_pos.map_or(-1, |p| p.y),
                                 ) {
@@ -992,11 +1017,12 @@ impl eframe::App for ViewerApp {
                                 ui.label_with_colored_rect(cursor_color, dtype);
 
                                 let rect = self.state.marquee_rect;
+                                let rect_image = self.visible_asset_for_rect(rect).map_or(asset.image(), |asset| asset.image());
                                 let mean_color =
-                                    if let Ok(mean) = image.mean_value_in_rect(rect.to_cv_rect(), MeanDim::All) {
+                                    if let Ok(mean) = rect_image.mean_value_in_rect(rect.to_cv_rect(), MeanDim::All) {
                                         mean.iter().map(|&v| v as f32).collect()
                                     } else {
-                                        vec![0.0; image.spec().channels as usize]
+                                        vec![0.0; rect_image.spec().channels as usize]
                                     };
                                 ui.label_with_colored_rect(mean_color, dtype);
                             }
@@ -1186,6 +1212,7 @@ impl eframe::App for ViewerApp {
                     let desired_size_plot = egui::vec2(ui.available_width(), 100.0);
                     if let Some(asset) = &self.state.asset {
                         let rect = self.state.marquee_rect;
+                        let asset = self.visible_asset_for_rect(rect).unwrap_or(asset);
                         let mean_dim = match self.plot_dim {
                             PlotDim::Auto => {
                                 if rect.width() >= rect.height() {
