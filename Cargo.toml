@@ -1,6 +1,6 @@
 [package]
 name = "edolview"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 authors = ["Daniel Jeon <edoli.mia@gmail.com>"]
 description = "Image viewer for visualization and analysis"
