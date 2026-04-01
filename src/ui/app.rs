@@ -803,6 +803,7 @@ impl eframe::App for ViewerApp {
             });
             if request_copy {
                 self.viewer.request_copy();
+                ctx.request_repaint();
             }
         }
 
@@ -1589,6 +1590,14 @@ impl eframe::App for ViewerApp {
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
                 self.viewer.show_image(ui, frame, &mut self.state);
+
+                for (is_success, message) in self.viewer.take_copy_toasts() {
+                    if is_success {
+                        self.toasts.add_success(message);
+                    } else {
+                        self.toasts.add_error(message);
+                    }
+                }
 
                 // Comparison notice overlay
                 if let Some(message) = &self.state.comparison_notice {

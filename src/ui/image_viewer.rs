@@ -10,6 +10,11 @@ use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
 
+enum CopyToast {
+    Success(String),
+    Error(String),
+}
+
 enum DragMode {
     None,
     Panning {
@@ -43,6 +48,7 @@ pub struct ImageViewer {
     dragging: bool,
     drag_mode: DragMode,
     copy_requested: bool,
+    copy_toasts: Arc<Mutex<Vec<CopyToast>>>,
     last_image_id: Option<u64>, // cache key to know when to re-upload texture
     last_viewport_size_px: Option<egui::Vec2>,
 
@@ -62,6 +68,7 @@ impl ImageViewer {
             dragging: false,
             drag_mode: DragMode::None,
             copy_requested: false,
+            copy_toasts: Arc::new(Mutex::new(Vec::new())),
             last_image_id: None,
             last_viewport_size_px: None,
             last_shader_error: None,
@@ -189,11 +196,15 @@ impl ImageViewer {
 
             // Context menu (right-click)
             resp.context_menu(|ui| {
-                if ui
-                    .button(format!("Copy Selected Image ({})", crate::res::COPY_SC.format_sys()))
-                    .clicked()
-                {
+                let has_selection = !app_state.marquee_rect.empty();
+                let copy_label = if has_selection {
+                    format!("Copy Selected Image ({})", crate::res::COPY_SC.format_sys())
+                } else {
+                    format!("Copy Image ({})", crate::res::COPY_SC.format_sys())
+                };
+                if ui.button(copy_label).clicked() {
                     self.request_copy();
+                    ui.ctx().request_repaint();
                     ui.close();
                 }
                 ui.separator();
@@ -364,17 +375,19 @@ impl ImageViewer {
             // Queue a Ctrl+C copy operation to perform inside GL callback
             let mut copy_request: Option<(i32, i32, egui::Vec2, f32)> = None;
             if self.copy_requested {
-                let sel = app_state.marquee_rect;
-                if sel.width() > 0 && sel.height() > 0 {
+                let copy_rect = self.copy_rect(app_state, spec.width, spec.height);
+                if !copy_rect.empty() {
                     let scale_for_copy = if app_state.copy_use_original_size {
                         1.0
                     } else {
                         self.zoom()
                     };
-                    let out_w = (sel.width() as f32 * scale_for_copy).round().max(1.0) as i32;
-                    let out_h = (sel.height() as f32 * scale_for_copy).round().max(1.0) as i32;
-                    let position =
-                        egui::vec2(-(sel.min.x as f32) * scale_for_copy, -(sel.min.y as f32) * scale_for_copy);
+                    let out_w = (copy_rect.width() as f32 * scale_for_copy).round().max(1.0) as i32;
+                    let out_h = (copy_rect.height() as f32 * scale_for_copy).round().max(1.0) as i32;
+                    let position = egui::vec2(
+                        -(copy_rect.min.x as f32) * scale_for_copy,
+                        -(copy_rect.min.y as f32) * scale_for_copy,
+                    );
                     copy_request = Some((out_w, out_h, position, scale_for_copy));
                 }
                 self.copy_requested = false;
@@ -401,6 +414,7 @@ impl ImageViewer {
                     app_state.colormap_rgb.clone()
                 };
                 let is_show_background = app_state.is_show_background;
+                let copy_toasts = self.copy_toasts.clone();
 
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -522,7 +536,22 @@ impl ImageViewer {
                                         height: out_h as usize,
                                         bytes: std::borrow::Cow::Owned(flipped),
                                     };
-                                    let _ = clipboard.set_image(img);
+                                    let copy_result = clipboard.set_image(img);
+                                    if let Ok(mut toasts) = copy_toasts.lock() {
+                                        match copy_result {
+                                            Ok(()) => {
+                                                toasts.push(CopyToast::Success("Copied image to clipboard".into()))
+                                            }
+                                            Err(err) => {
+                                                eprintln!("Failed to copy image to clipboard: {err}");
+                                                toasts
+                                                    .push(CopyToast::Error("Failed to copy image to clipboard".into()));
+                                            }
+                                        }
+                                    }
+                                } else if let Ok(mut toasts) = copy_toasts.lock() {
+                                    eprintln!("Failed to open clipboard for image copy");
+                                    toasts.push(CopyToast::Error("Failed to copy image to clipboard".into()));
                                 }
                             }
                             gl.bind_framebuffer(GL::FRAMEBUFFER, None);
@@ -935,6 +964,20 @@ impl ImageViewer {
         self.copy_requested = true;
     }
 
+    pub fn take_copy_toasts(&mut self) -> Vec<(bool, String)> {
+        let Ok(mut toasts) = self.copy_toasts.lock() else {
+            return Vec::new();
+        };
+
+        toasts
+            .drain(..)
+            .map(|toast| match toast {
+                CopyToast::Success(message) => (true, message),
+                CopyToast::Error(message) => (false, message),
+            })
+            .collect()
+    }
+
     pub fn take_shader_error(&mut self) -> Option<String> {
         if self.last_shader_error.is_none() {
             self.last_reported_shader_error = None;
@@ -957,6 +1000,15 @@ impl ImageViewer {
         if self.last_shader_error.is_none() {
             self.last_reported_shader_error = None;
         }
+    }
+
+    fn copy_rect(&self, app_state: &AppState, image_width: i32, image_height: i32) -> Recti {
+        let selection = app_state.marquee_rect.validate();
+        if !selection.empty() {
+            return selection;
+        }
+
+        Recti::from_min_size(vec2i(0, 0), vec2i(image_width, image_height))
     }
 }
 
