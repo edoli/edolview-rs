@@ -521,8 +521,11 @@ impl ViewerApp {
 
     /// For rect comparison mode, returns the secondary asset if the rect is valid and the primary asset otherwise.
     fn visible_asset_for_rect(&self, rect: Recti) -> Option<&crate::model::SharedAsset> {
-        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect && !rect.empty() {
-            return self.state.asset_secondary.as_ref().or(self.state.asset.as_ref());
+        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect {
+            if !rect.empty() {
+                return self.state.asset_secondary.as_ref();
+            }
+            return self.state.asset_primary.as_ref();
         }
 
         self.state.asset.as_ref()
@@ -533,8 +536,9 @@ impl ViewerApp {
         if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Rect {
             let rect = self.state.marquee_rect.validate();
             if !rect.empty() && pos.x >= rect.min.x && pos.x < rect.max.x && pos.y >= rect.min.y && pos.y < rect.max.y {
-                return self.state.asset_secondary.as_ref().or(self.state.asset.as_ref());
+                return self.state.asset_secondary.as_ref();
             }
+            return self.state.asset_primary.as_ref();
         }
 
         self.state.asset.as_ref()
@@ -1017,7 +1021,8 @@ impl eframe::App for ViewerApp {
                                 ui.label_with_colored_rect(cursor_color, dtype);
 
                                 let rect = self.state.marquee_rect;
-                                let rect_image = self.visible_asset_for_rect(rect).map_or(asset.image(), |asset| asset.image());
+                                let rect_image =
+                                    self.visible_asset_for_rect(rect).map_or(asset.image(), |asset| asset.image());
                                 let mean_color =
                                     if let Ok(mean) = rect_image.mean_value_in_rect(rect.to_cv_rect(), MeanDim::All) {
                                         mean.iter().map(|&v| v as f32).collect()
