@@ -1630,8 +1630,13 @@ impl eframe::App for ViewerApp {
                         .anchor(egui::Align2::LEFT_TOP, egui::vec2(6.0, 30.0))
                         .interactable(false)
                         .show(ctx, |ui| {
+                            let notice_color = if message.starts_with("Error:") {
+                                Color32::from_rgb(255, 60, 60)
+                            } else {
+                                Color32::from_rgb(255, 210, 120)
+                            };
                             ui.add(
-                                egui::Label::new(egui::RichText::new(message).color(Color32::from_rgb(255, 210, 120)))
+                                egui::Label::new(egui::RichText::new(message).color(notice_color))
                                     .wrap_mode(egui::TextWrapMode::Extend),
                             );
                         });

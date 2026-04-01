@@ -236,6 +236,17 @@ impl AppState {
                 if asset_primary.hash() == asset_secondary.hash() {
                     self.asset = Some(asset_primary.clone());
                 } else {
+                    let primary_spec = asset_primary.image().spec();
+                    let secondary_spec = asset_secondary.image().spec();
+                    if primary_spec.width != secondary_spec.width || primary_spec.height != secondary_spec.height {
+                        self.comparison_notice = Some(format!(
+                            "Error: image size mismatch: primary is {}x{}, secondary is {}x{}.",
+                            primary_spec.width, primary_spec.height, secondary_spec.width, secondary_spec.height
+                        ));
+                        self.asset = None;
+                        return;
+                    }
+
                     // Different assets, create a comparison asset
                     let (comp_asset, comparison_notice) = ComparisonAsset::new(
                         asset_primary.clone(),

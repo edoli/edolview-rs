@@ -1088,14 +1088,8 @@ impl ImageViewer {
         let secondary = app_state.asset_secondary.as_ref()?;
         let primary_spec = primary.image().spec();
         let secondary_spec = secondary.image().spec();
-        let full_rect = Recti::from_min_size(
-            vec2i(0, 0),
-            vec2i(
-                primary_spec.width.min(secondary_spec.width),
-                primary_spec.height.min(secondary_spec.height),
-            ),
-        );
-        let overlay_rect = app_state.marquee_rect.validate().intersect(full_rect);
+        let primary_rect = Recti::from_min_size(vec2i(0, 0), vec2i(primary_spec.width, primary_spec.height));
+        let overlay_rect = app_state.marquee_rect.validate().intersect(primary_rect);
 
         Some((
             egui::vec2(primary_spec.width as f32, primary_spec.height as f32),
