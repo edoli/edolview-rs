@@ -650,6 +650,15 @@ impl ViewerApp {
                             self.load_fail("Failed to open externally requested file", Some(&path), &err);
                         }
                     }
+                    if let Some(control_instance) = &self.control_instance {
+                        if let Err(err) = control_instance.touch_active() {
+                            eprintln!("Failed to update active window registry after external open: {err}");
+                        } else {
+                            self.last_control_touch = Instant::now();
+                        }
+                    }
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     ctx.request_repaint();
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
