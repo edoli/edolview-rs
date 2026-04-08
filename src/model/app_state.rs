@@ -221,6 +221,30 @@ impl AppState {
         self.validate_marquee_rect();
     }
 
+    pub fn reorder_asset_by_hash(&mut self, hash: &str, insertion_index: usize) -> bool {
+        let len = self.assets.len();
+        if len <= 1 || insertion_index > len {
+            return false;
+        }
+
+        let Some(from_index) = self.assets.get_index_of(hash) else {
+            return false;
+        };
+
+        let to_index = if insertion_index > from_index {
+            insertion_index.saturating_sub(1)
+        } else {
+            insertion_index
+        };
+
+        if to_index >= len || to_index == from_index {
+            return false;
+        }
+
+        self.assets.move_index(from_index, to_index);
+        true
+    }
+
     pub fn is_comparison(&self) -> bool {
         if let Some(asset) = &self.asset {
             asset.asset_type() == AssetType::Comparison

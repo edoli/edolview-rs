@@ -1,6 +1,6 @@
 use color_eyre::eyre::Report;
 use core::f32;
-use eframe::egui::{self, vec2, Color32, FontData, Rangef, Visuals};
+use eframe::egui::{self, pos2, vec2, Color32, FontData, Rangef, Visuals};
 use rfd::FileDialog;
 use std::{
     collections::HashSet,
@@ -735,6 +735,28 @@ impl ViewerApp {
             }
         }
     }
+
+    fn paint_asset_drag_preview(&self, ctx: &egui::Context) {
+        let Some(pointer_pos) = ctx.pointer_interact_pos() else {
+            return;
+        };
+        let Some(payload) = egui::DragAndDrop::payload::<String>(ctx) else {
+            return;
+        };
+        let Some(asset) = self.state.assets.get(payload.as_str()) else {
+            return;
+        };
+
+        egui::Area::new(egui::Id::new("asset_drag_preview"))
+            .order(egui::Order::Tooltip)
+            .interactable(false)
+            .fixed_pos(pointer_pos + vec2(16.0, 16.0))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(asset.name());
+                });
+            });
+    }
 }
 
 impl eframe::App for ViewerApp {
@@ -1454,25 +1476,28 @@ impl eframe::App for ViewerApp {
                             });
                         });
                     });
-                    let asset_primary_hash = if let Some(asset) = &self.state.asset_primary {
-                        Some(&asset.hash().to_string())
-                    } else {
-                        None
-                    };
-                    let asset_secondary_hash = if let Some(asset) = &self.state.asset_secondary {
-                        Some(&asset.hash().to_string())
-                    } else {
-                        None
-                    };
+                    let asset_primary_hash = self.state.asset_primary.as_ref().map(|asset| asset.hash().to_owned());
+                    let asset_secondary_hash = self.state.asset_secondary.as_ref().map(|asset| asset.hash().to_owned());
 
                     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                        let list_clip_rect = ui.clip_rect();
                         let mut to_set_primary: Option<_> = None;
                         let mut to_set_secondary: Option<_> = None;
                         let mut deselect_secondary = false;
                         let mut to_remove: HashSet<_> = HashSet::new();
                         let mut to_retain: HashSet<_> = HashSet::new();
+                        let mut reorder_request: Option<(String, usize)> = None;
+                        let mut first_row_rect: Option<egui::Rect> = None;
+                        let mut last_row_rect: Option<egui::Rect> = None;
+                        let asset_rows: Vec<_> = self
+                            .state
+                            .assets
+                            .iter()
+                            .enumerate()
+                            .map(|(index, (hash, asset))| (index, hash.clone(), asset.clone()))
+                            .collect();
 
-                        self.state.assets.iter().for_each(|(hash, asset)| {
+                        asset_rows.into_iter().for_each(|(asset_index, hash, asset)| {
                             let name = asset.name();
                             let available_width = ui.available_width();
 
@@ -1516,69 +1541,175 @@ impl eframe::App for ViewerApp {
                                 }
                             });
 
-                            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                                let btn = if Some(hash) == asset_primary_hash {
-                                    ui.selectable_label(true, &display_name)
-                                } else if Some(hash) == asset_secondary_hash {
-                                    ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(140, 70, 30);
-                                    ui.selectable_label(true, &display_name)
-                                } else {
-                                    ui.selectable_label(false, &display_name)
-                                };
-                                btn.context_menu(|ui| {
-                                    ui.visuals_mut().override_text_color = Some(Color32::from_rgb(255, 100, 100));
-                                    if ui.button("Delete").clicked() {
-                                        to_remove.insert(hash.clone());
-                                        ui.close();
-                                    }
-                                    if ui.button("Delete Others").clicked() {
-                                        to_retain.insert(hash.clone());
-                                        ui.close();
-                                    }
-                                    ui.visuals_mut().override_text_color = None;
-
-                                    match asset.asset_type() {
-                                        crate::model::AssetType::File => {
-                                            if ui.button("Copy Path").clicked() {
-                                                let path = asset.name();
-                                                arboard::Clipboard::new()
-                                                    .and_then(|mut cb| cb.set_text(path.to_string()))
-                                                    .unwrap_or_else(|e| {
-                                                        eprintln!("Failed to copy path to clipboard: {e}");
-                                                    });
-                                                ui.close();
-                                            }
-                                            if ui.button("Reveal in File Explorer").clicked() {
-                                                let path = asset.name();
-                                                let path_buf = PathBuf::from(path);
-                                                if let Err(e) = opener::open(
-                                                    path_buf.parent().unwrap_or_else(|| std::path::Path::new(".")),
-                                                ) {
-                                                    eprintln!("Failed to open file explorer: {e}");
-                                                }
-                                                ui.close();
-                                            }
-                                        }
-                                        crate::model::AssetType::Clipboard => {}
-                                        _ => {}
-                                    }
-                                });
-
-                                if btn.clicked() {
-                                    if ui.input(|i| i.modifiers.command) {
-                                        // Ctrl/Cmd + Click: set secondary
-                                        if self.state.asset_secondary.as_ref().is_some_and(|a| Arc::ptr_eq(a, asset)) {
-                                            deselect_secondary = true;
-                                        } else {
-                                            to_set_secondary = Some(asset.clone());
-                                        }
+                            let row = ui
+                                .with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                                    let btn = if Some(hash.as_str()) == asset_primary_hash.as_deref() {
+                                        ui.add(
+                                            egui::Button::selectable(true, &display_name)
+                                                .sense(egui::Sense::click_and_drag()),
+                                        )
+                                    } else if Some(hash.as_str()) == asset_secondary_hash.as_deref() {
+                                        ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(140, 70, 30);
+                                        ui.add(
+                                            egui::Button::selectable(true, &display_name)
+                                                .sense(egui::Sense::click_and_drag()),
+                                        )
                                     } else {
-                                        // Normal click: set primary
-                                        to_set_primary = Some(asset.clone());
+                                        ui.add(
+                                            egui::Button::selectable(false, &display_name)
+                                                .sense(egui::Sense::click_and_drag()),
+                                        )
+                                    };
+                                    btn.context_menu(|ui| {
+                                        ui.visuals_mut().override_text_color = Some(Color32::from_rgb(255, 100, 100));
+                                        if ui.button("Delete").clicked() {
+                                            to_remove.insert(hash.clone());
+                                            ui.close();
+                                        }
+                                        if ui.button("Delete Others").clicked() {
+                                            to_retain.insert(hash.clone());
+                                            ui.close();
+                                        }
+                                        ui.visuals_mut().override_text_color = None;
+
+                                        match asset.asset_type() {
+                                            crate::model::AssetType::File => {
+                                                if ui.button("Copy Path").clicked() {
+                                                    let path = asset.name();
+                                                    arboard::Clipboard::new()
+                                                        .and_then(|mut cb| cb.set_text(path.to_string()))
+                                                        .unwrap_or_else(|e| {
+                                                            eprintln!("Failed to copy path to clipboard: {e}");
+                                                        });
+                                                    ui.close();
+                                                }
+                                                if ui.button("Reveal in File Explorer").clicked() {
+                                                    let path = asset.name();
+                                                    let path_buf = PathBuf::from(path);
+                                                    if let Err(e) = opener::open(
+                                                        path_buf.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                                                    ) {
+                                                        eprintln!("Failed to open file explorer: {e}");
+                                                    }
+                                                    ui.close();
+                                                }
+                                            }
+                                            crate::model::AssetType::Clipboard => {}
+                                            _ => {}
+                                        }
+                                    });
+
+                                    btn.dnd_set_drag_payload(hash.clone());
+
+                                    if btn.clicked() {
+                                        if ui.input(|i| i.modifiers.command) {
+                                            // Ctrl/Cmd + Click: set secondary
+                                            if self
+                                                .state
+                                                .asset_secondary
+                                                .as_ref()
+                                                .is_some_and(|a| Arc::ptr_eq(a, &asset))
+                                            {
+                                                deselect_secondary = true;
+                                            } else {
+                                                to_set_secondary = Some(asset.clone());
+                                            }
+                                        } else {
+                                            // Normal click: set primary
+                                            to_set_primary = Some(asset.clone());
+                                        }
                                     }
+
+                                    btn
+                                })
+                                .inner;
+                            first_row_rect.get_or_insert(row.rect);
+                            last_row_rect = Some(row.rect);
+
+                            let pointer_pos = ui.ctx().pointer_interact_pos();
+                            let insertion_index = pointer_pos
+                                .map(|pos| {
+                                    if pos.y < row.rect.center().y {
+                                        asset_index
+                                    } else {
+                                        asset_index + 1
+                                    }
+                                })
+                                .unwrap_or(asset_index + 1);
+
+                            if row
+                                .dnd_hover_payload::<String>()
+                                .is_some_and(|payload| payload.as_ref().as_str() != hash.as_str())
+                            {
+                                let line_y = if insertion_index == asset_index {
+                                    row.rect.top() - 1.0
+                                } else {
+                                    row.rect.bottom() + 2.0
+                                };
+                                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                                ui.painter().line_segment(
+                                    [
+                                        pos2(row.rect.left() + 3.0, line_y),
+                                        pos2(row.rect.right() - 3.0, line_y),
+                                    ],
+                                    stroke,
+                                );
+                            }
+
+                            if let Some(payload) = row.dnd_release_payload::<String>() {
+                                let dragged_hash = payload.as_ref().clone();
+                                if dragged_hash != hash {
+                                    reorder_request = Some((dragged_hash, insertion_index));
                                 }
-                            });
+                            }
                         });
+
+                        let pointer_pos = ui.ctx().pointer_interact_pos();
+                        let pointer_in_list_x = pointer_pos
+                            .is_some_and(|pos| pos.x >= list_clip_rect.left() && pos.x <= list_clip_rect.right());
+                        let dragging_asset = egui::DragAndDrop::payload::<String>(ui.ctx());
+                        let top_drop_active = dragging_asset.is_some()
+                            && pointer_in_list_x
+                            && first_row_rect.zip(pointer_pos).is_some_and(|(rect, pos)| pos.y < rect.top());
+                        let bottom_drop_active = dragging_asset.is_some()
+                            && pointer_in_list_x
+                            && last_row_rect.zip(pointer_pos).is_some_and(|(rect, pos)| pos.y > rect.bottom());
+
+                        if top_drop_active {
+                            if let Some(rect) = first_row_rect {
+                                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                                ui.painter().line_segment(
+                                    [
+                                        pos2(rect.left() + 3.0, rect.top() - 1.0),
+                                        pos2(rect.right() - 3.0, rect.top() - 1.0),
+                                    ],
+                                    stroke,
+                                );
+                            }
+                        } else if bottom_drop_active {
+                            if let Some(rect) = last_row_rect {
+                                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                                ui.painter().line_segment(
+                                    [
+                                        pos2(rect.left() + 3.0, rect.bottom() + 2.0),
+                                        pos2(rect.right() - 3.0, rect.bottom() + 2.0),
+                                    ],
+                                    stroke,
+                                );
+                            }
+                        }
+
+                        if reorder_request.is_none() && ui.input(|i| i.pointer.any_released()) {
+                            if top_drop_active {
+                                if let Some(payload) = egui::DragAndDrop::take_payload::<String>(ui.ctx()) {
+                                    reorder_request = Some((payload.as_ref().clone(), 0));
+                                }
+                            } else if bottom_drop_active {
+                                if let Some(payload) = egui::DragAndDrop::take_payload::<String>(ui.ctx()) {
+                                    reorder_request = Some((payload.as_ref().clone(), self.state.assets.len()));
+                                }
+                            }
+                        }
 
                         if let Some(to_set_primary) = to_set_primary {
                             if self
@@ -1604,6 +1735,10 @@ impl eframe::App for ViewerApp {
                             self.state.assets.retain(|hash, _| to_retain.contains(hash));
                         }
 
+                        if let Some((hash, insertion_index)) = reorder_request {
+                            self.state.reorder_asset_by_hash(&hash, insertion_index);
+                        }
+
                         if let Some(asset) = &self.state.asset {
                             if asset.asset_type() != AssetType::Comparison
                                 && !self.state.assets.contains_key(asset.hash())
@@ -1614,6 +1749,8 @@ impl eframe::App for ViewerApp {
                     });
                 });
         }
+
+        self.paint_asset_drag_preview(ctx);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
