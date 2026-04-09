@@ -292,6 +292,53 @@ impl ViewerApp {
         }
     }
 
+    fn default_image_export_file_name(&self) -> String {
+        let base_name = self
+            .state
+            .path
+            .as_ref()
+            .and_then(|path| path.file_stem())
+            .and_then(|stem| stem.to_str())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or("image");
+
+        if self.state.marquee_rect.validate().empty() {
+            format!("{base_name}.png")
+        } else {
+            format!("{base_name}-selection.png")
+        }
+    }
+
+    fn prompt_image_save_path(&self) -> Option<PathBuf> {
+        let has_selection = !self.state.marquee_rect.validate().empty();
+        let title = if has_selection {
+            "Save Selected Image As"
+        } else {
+            "Save Image As"
+        };
+
+        let mut dialog = FileDialog::new()
+            .add_filter("PNG image", &["png"])
+            .add_filter("JPEG image", &["jpg", "jpeg"])
+            .set_title(title)
+            .set_file_name(self.default_image_export_file_name());
+
+        if let Some(directory) = self.state.path.as_ref().and_then(|path| path.parent()) {
+            dialog = dialog.set_directory(directory);
+        }
+
+        dialog.save_file()
+    }
+
+    fn request_viewer_image_save(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.prompt_image_save_path() else {
+            return;
+        };
+
+        self.viewer.request_save(path);
+        ctx.request_repaint();
+    }
+
     fn begin_update(&mut self, ctx: &egui::Context, update: crate::update::AvailableUpdate) {
         let (tx, rx) = mpsc::channel();
         self.update_apply_rx = Some(rx);
@@ -816,6 +863,7 @@ impl eframe::App for ViewerApp {
 
         if !ctx.wants_keyboard_input() {
             let mut request_copy = false;
+            let mut request_save = false;
             ctx.input_mut(|i| {
                 if i.consume_shortcut(&crate::res::SELECT_ALL_SC) {
                     if let Some(asset) = &self.state.asset {
@@ -838,6 +886,7 @@ impl eframe::App for ViewerApp {
                     }
                 });
                 request_copy |= i.consume_shortcut(&crate::res::COPY_SC);
+                request_save |= i.consume_shortcut(&crate::res::SAVE_IMAGE_SC);
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
                         let path = self.state.file_nav.navigate_prev();
@@ -869,6 +918,9 @@ impl eframe::App for ViewerApp {
             if request_copy {
                 self.viewer.request_copy();
                 ctx.request_repaint();
+            }
+            if request_save && self.state.asset.is_some() {
+                self.request_viewer_image_save(ctx);
             }
         }
 
@@ -1778,7 +1830,11 @@ impl eframe::App for ViewerApp {
             .show(ctx, |ui| {
                 self.viewer.show_image(ui, frame, &mut self.state);
 
-                for (is_success, message) in self.viewer.take_copy_toasts() {
+                if self.viewer.take_save_dialog_request() {
+                    self.request_viewer_image_save(ctx);
+                }
+
+                for (is_success, message) in self.viewer.take_export_toasts() {
                     if is_success {
                         self.toasts.add_success(message);
                     } else {
