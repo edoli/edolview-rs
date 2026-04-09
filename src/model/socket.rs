@@ -48,7 +48,22 @@ impl SocketInfo {
 
 pub struct SocketServer {
     stop: Arc<AtomicBool>,
-    handle: JoinHandle<io::Result<()>>,
+    handle: Option<JoinHandle<io::Result<()>>>,
+}
+
+impl SocketServer {
+    pub fn shutdown(&mut self) -> io::Result<()> {
+        self.stop.store(true, Ordering::Relaxed);
+
+        if let Some(handle) = self.handle.take() {
+            match handle.join() {
+                Ok(result) => result,
+                Err(_) => Err(io::Error::other("socket listener thread panicked")),
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub fn start_socket_listener(
@@ -57,11 +72,18 @@ pub fn start_socket_listener(
     socket_state: Arc<SocketState>,
 ) -> io::Result<SocketServer> {
     let listener = TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
 
     let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
 
     let handle = thread::spawn(move || -> io::Result<()> {
         loop {
+            if stop_thread.load(Ordering::Relaxed) {
+                socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
+                return Ok(());
+            }
+
             if socket_state.is_socket_active.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut stream, peer)) => {
@@ -69,11 +91,17 @@ pub fn start_socket_listener(
 
                         socket_state.is_socket_receiving.store(true, Ordering::Relaxed);
 
-                        if let Ok(asset) = handle_client(&mut stream) {
-                            if tx.send(asset).is_err() {
+                        match handle_client(&mut stream) {
+                            Ok(asset) => {
+                                if tx.send(asset).is_err() {
+                                    socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
+                                    eprintln!("[socket_comm] receiver dropped");
+                                    continue;
+                                }
+                            }
+                            Err(err) => {
                                 socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
-                                eprintln!("[socket_comm] receiver dropped");
-                                continue;
+                                eprintln!("[socket_comm] failed to handle client {peer}: {err}");
                             }
                         }
 
@@ -91,7 +119,10 @@ pub fn start_socket_listener(
         }
     });
 
-    Ok(SocketServer { stop, handle })
+    Ok(SocketServer {
+        stop,
+        handle: Some(handle),
+    })
 }
 
 // Retry with next port if bind fails
@@ -101,22 +132,25 @@ pub fn start_server_with_retry(
     tx: NotifierSender<SocketAsset>,
     socket_state: Arc<SocketState>,
     socket_info: Arc<Mutex<SocketInfo>>,
-) -> io::Result<()> {
+) -> io::Result<SocketServer> {
     loop {
         let addr = format!("{}:{}", host, port);
-        if let Err(e) = start_socket_listener(addr.as_str(), tx.clone(), socket_state.clone()) {
-            eprintln!("bind {}:{} failed: {e}. trying next port ...", host, port);
-            port = port.wrapping_add(1);
-            if port == 0 {
-                return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "port range exhausted"));
+        match start_socket_listener(addr.as_str(), tx.clone(), socket_state.clone()) {
+            Ok(server) => {
+                let mut socket_info = socket_info.lock().unwrap();
+                socket_info.address = addr.clone();
+                socket_info.host = host.to_string();
+                socket_info.port = port;
+                eprintln!("Socket listener started on {addr}");
+                return Ok(server);
             }
-        } else {
-            let mut socket_info = socket_info.lock().unwrap();
-            socket_info.address = addr.clone();
-            socket_info.host = host.to_string();
-            socket_info.port = port;
-            eprintln!("Socket listener started on {addr}");
-            return Ok(());
+            Err(e) => {
+                eprintln!("bind {}:{} failed: {e}. trying next port ...", host, port);
+                port = port.wrapping_add(1);
+                if port == 0 {
+                    return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "port range exhausted"));
+                }
+            }
         }
     }
 }

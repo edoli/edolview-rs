@@ -79,6 +79,7 @@ pub struct ViewerApp {
 
     socket_rx: mpsc::Receiver<SocketAsset>,
     socket_nx: Option<mpsc::Receiver<()>>,
+    socket_server: Option<crate::model::SocketServer>,
     control_nx: Option<mpsc::Receiver<()>>,
 
     statistics_worker: Arc<Mutex<StatisticsWorker>>,
@@ -105,6 +106,12 @@ pub struct ViewerApp {
 
 impl Drop for ViewerApp {
     fn drop(&mut self) {
+        if let Some(socket_server) = self.socket_server.as_mut() {
+            if let Err(err) = socket_server.shutdown() {
+                eprintln!("Failed to stop socket listener: {err}");
+            }
+        }
+
         if let Some(control_instance) = &self.control_instance {
             if let Err(err) = control_instance.remove() {
                 eprintln!("Failed to remove active window registration: {err}");
@@ -132,13 +139,16 @@ impl ViewerApp {
         let (statistics_tx, statistics_rx) = mpsc::channel::<Vec<StatisticsUpdate>>();
         let (control_tx, control_rx, control_nx) = mpsc_with_notify::<Vec<PathBuf>>();
 
-        thread::spawn(move || {
-            start_server_with_retry(host, port, socket_tx, socket_state, socket_info).unwrap_or_else(|e| {
-                eprintln!("Failed to start socket server: {e}");
-            });
-        });
-
         let mut toasts = Vec::new();
+        let socket_server = match start_server_with_retry(host, port, socket_tx, socket_state, socket_info) {
+            Ok(server) => Some(server),
+            Err(err) => {
+                state.socket_state.is_socket_active.store(false, Ordering::Relaxed);
+                eprintln!("Failed to start socket server: {err}");
+                toasts.add_error(format!("Failed to start socket server: {err}"));
+                None
+            }
+        };
         let control_instance = match crate::control::start_control_listener(control_tx) {
             Ok(instance) => Some(instance),
             Err(err) => {
@@ -202,6 +212,7 @@ impl ViewerApp {
 
             socket_rx,
             socket_nx: Some(socket_nx),
+            socket_server,
             control_nx: Some(control_nx),
 
             statistics_tx,
