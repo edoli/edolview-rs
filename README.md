@@ -4,7 +4,7 @@ A lightning-fast, versatile image viewer 🚀
 Designed for researchers, engineers, and graphics professionals who need **speed, flexibility, and powerful visualization**.
 
 
-* ⚡ **Blazing Fast Startup & I/O**: Instant starts up and rapid image loading without delays
+* ⚡ **Blazing Fast Startup & I/O**: Instant startup and rapid image loading without delays
 * 📂 **Wide Format Support**: Open and explore all major research and [graphics formats](#supported-file-formats)
 * 🎨 **Colormap Visualization**: Go beyond raw images with rich colormap-based data visualization
 * 🔧 **Flexible Display Controls**: Fine-tune normalization, exposure, gamma, and offset with ease
@@ -13,9 +13,16 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 
 ## Installation
 
-- __Windows__: [edolview-windows.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-windows.zip)
-- __Linux__:  [edolview-mac.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-mac.zip)
-- __macOS__: [edolview-linux.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-linux.zip)
+- __Windows__:
+  - [edolview-windows.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-windows.zip)
+  - [edolview-installer-msi.msi](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-installer-msi.msi)
+- __macOS__:
+  - [edolview-mac.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-mac.zip)
+  - [edolview-installer-dmg.dmg](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-installer-dmg.dmg)
+- __Linux__:
+  - [edolview-linux.zip](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-linux.zip)
+  - [edolview-installer-appimage.AppImage](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-installer-appimage.AppImage)
+  - [edolview-installer-deb.deb](https://github.com/edoli/edolview-rs/releases/latest/download/edolview-installer-deb.deb)
 
 ## Usage
 
@@ -23,21 +30,23 @@ Designed for researchers, engineers, and graphics professionals who need **speed
 
 * **Navigation**
   * `←` / `→` : navigate image files in current directory
+  * `page up` / `page down` : navigate loaded assets
   * `+` / `-`, `scroll` : zoom in / out
   * `r` : reset view
   * `f11` : fullscreen mode
 
 * **Selection**
-  * `shift` + `drag` : Select rectangle region
-  * `ctrl` + `a` : Select all region
-  * `esc` : Deselect region
-  * `ctrl` + `d` : Copy selected region
+  * `shift` + `drag` : select rectangle region
+  * `ctrl` / `cmd` + `a` : select full image
+  * `esc` : deselect region
+  * `ctrl` / `cmd` + `c` : copy image or selected region
+  * `ctrl` / `cmd` + `s` : save image or selected region
 
 ### Features
 
 * Color maps: **Edolview** supports various color maps. To get more information of color maps, see the wiki page: https://github.com/edoli/edolview-rs/wiki/Color-Map
  
-* **Remote Viewer**: **Edolview** can also be controlled remotely over the network. Currently, network protocol is already implemented in [Python](https://pypi.org/project/edolview/) and [VScode extension](https://marketplace.visualstudio.com/items?itemName=edolview-vscode.edolview). Follow the instruction to use network features: [Remote-Viewer](https://github.com/edoli/edolview-rs/wiki/Remote%E2%80%90Viewer).
+* **Remote Viewer**: **Edolview** can also be controlled remotely over the network. The current protocol is implemented in the [Python package](https://pypi.org/project/edolview/) and the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=edolview-vscode.edolview). See [Remote-Viewer](https://github.com/edoli/edolview-rs/wiki/Remote%E2%80%90Viewer).
 
 * **Copy-Paste Selected Region**
 
@@ -50,7 +59,8 @@ https://github.com/user-attachments/assets/4a219f8b-39f3-48a8-a5ea-b9d610bb3f40
 
 ## How to Build
 
-The project is Rust-based and links to **OpenCV 4.12.0 (static)** with a minimal module set (`core,imgproc,imgcodecs`) and **OpenEXR** enabled.
+The project is Rust-based and uses **OpenCV 4.12.0** for image decoding and processing.
+Release builds in CI enable the optional `heif` feature; local builds can omit it, or enable it with `--features heif` when `libheif` is available.
 
 ### 0) Prerequisites (all platforms)
 * Rust
@@ -146,14 +156,16 @@ $env:OPENCV_LINK_STATIC = "1"
 cargo run -p xtask -- icons
 # from project root
 cargo build --release
+# enable optional HEIF/HEIC support when libheif is available
+# cargo build --release --features heif
 # or run directly
 cargo run
 ```
 
 **Built executable files path**
 
-* Linux/macOS: `target/release/edolview-rs`
-* Windows: `target/release/edolview-rs.exe`
+* Linux/macOS: `target/release/edolview`
+* Windows: `target/release/edolview.exe`
 
 ---
 
@@ -164,19 +176,13 @@ cargo run
 * macOS libclang issues → ensure Homebrew LLVM is on `PATH`, with `LIBCLANG_PATH`/`DYLD_LIBRARY_PATH` set.
 
 ## Supported file formats
-EdolView internally uses OpenCV for image loading, so image formats supported by OpenCV should be work on EdolView.
-* EXR (\*.exr)
-* HDR (\*.hdr)
-* Flow (\*.flo)
-* PFM (\*.pfm)
-* PGM (\*.pgm), PPM (\*.ppm)
-* JPG (\*.jpg, \*.jpeg)
-* PNG (\*.png)
-* TIFF (\*.tif, \*.tiff)
-* BMP (\*.bmp)
-* WEBP (\*.webp)
-* GIF (\*.gif)
-* HEIC/HEIF (\*.heic, \*.heif)
+EdolView accepts the following file extensions in the current build:
+
+* Common image formats: `png`, `jpg`, `jpeg`, `jpe`, `jp2`, `bmp`, `dib`, `tif`, `tiff`, `webp`
+* HDR and analysis formats: `exr`, `hdr`, `pic`, `raw`, `pfm`, `flo`
+* Netpbm family: `pbm`, `pgm`, `ppm`, `pnm`, `pxm`
+* Other raster formats: `sr`
+* Optional HEIF support: `heic`, `heif`
 
 ## License
 EdolView is available under the MIT license.
