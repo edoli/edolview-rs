@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-pub fn is_unicode_path(path: &PathBuf) -> bool {
+pub fn is_ascii_path(path: &PathBuf) -> bool {
     match path.to_str() {
         Some(s) => s.chars().all(|c| c.is_ascii()),
         None => false,
@@ -10,12 +10,12 @@ pub fn is_unicode_path(path: &PathBuf) -> bool {
 }
 
 /// Crossplatform safe temporary directory path
-/// 1. If std::env::temp_dir() is representable in Unicode, use it
+/// 1. If std::env::temp_dir() is representable in ASCII, use it
 /// 2. Otherwise, fallback to environment variables / hardcoded ASCII paths
 pub fn safe_temp_dir() -> PathBuf {
     let tmp = env::temp_dir();
 
-    if is_unicode_path(&tmp) {
+    if is_ascii_path(&tmp) {
         return tmp;
     }
 
@@ -31,7 +31,7 @@ pub fn safe_temp_dir() -> PathBuf {
 
     for cand in candidates.iter().flatten() {
         let p = PathBuf::from(cand);
-        if is_unicode_path(&p) {
+        if is_ascii_path(&p) {
             let _ = fs::create_dir_all(&p);
             return p;
         }

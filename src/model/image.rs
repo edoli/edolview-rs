@@ -381,7 +381,7 @@ impl MatImage {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Image read");
 
-            let is_unicode_path = crate::util::path_ext::is_unicode_path(path);
+            let is_unicode_path = crate::util::path_ext::is_ascii_path(path);
 
             if is_unicode_path
                 && ext != "pfm"
