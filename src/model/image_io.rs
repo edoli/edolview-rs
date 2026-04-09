@@ -43,6 +43,11 @@ pub unsafe fn load_heif(path: &std::path::PathBuf) -> color_eyre::eyre::Result<o
     };
 
     let mut mat = core::Mat::new_rows_cols(height as i32, width as i32, cvtype)?;
+    let chroma = if has_alpha {
+        libheif_sys::heif_chroma_heif_chroma_interleaved_RGBA
+    } else {
+        libheif_sys::heif_chroma_heif_chroma_interleaved_RGB
+    };
 
     let mut image = std::ptr::null_mut();
     let options = libheif_sys::heif_decoding_options_alloc();
@@ -50,7 +55,7 @@ pub unsafe fn load_heif(path: &std::path::PathBuf) -> color_eyre::eyre::Result<o
         handle,
         &mut image,
         libheif_sys::heif_colorspace_heif_colorspace_RGB,
-        libheif_sys::heif_chroma_heif_chroma_interleaved_RGB,
+        chroma,
         options,
     );
     libheif_sys::heif_decoding_options_free(options);
@@ -79,11 +84,36 @@ pub unsafe fn load_heif(path: &std::path::PathBuf) -> color_eyre::eyre::Result<o
 
     let dst_ptr = mat.data_mut();
     let dst_step = mat.step1(0)? as usize;
+    let bytes_per_row = (width as usize) * num_channels;
+
+    if stride <= 0 {
+        libheif_sys::heif_image_release(image);
+        libheif_sys::heif_image_handle_release(handle);
+        libheif_sys::heif_context_free(ctx);
+        return Err(eyre!("Invalid HEIF stride: {}", stride));
+    }
+
+    let src_step = stride as usize;
+    if src_step < bytes_per_row || dst_step < bytes_per_row {
+        libheif_sys::heif_image_release(image);
+        libheif_sys::heif_image_handle_release(handle);
+        libheif_sys::heif_context_free(ctx);
+        return Err(eyre!(
+            "Invalid HEIF row stride: src_step={}, dst_step={}, bytes_per_row={}",
+            src_step,
+            dst_step,
+            bytes_per_row
+        ));
+    }
 
     for y in 0..height {
-        let src_row = src_ptr.add((y * stride) as usize);
+        // SAFETY:
+        // - `src_ptr` comes from libheif for the chosen interleaved chroma layout.
+        // - `src_step` and `bytes_per_row` are validated above, so each row copy stays in-bounds
+        //   for the visible width and channel count we requested.
+        // - `dst_ptr` points to a CV_8UC3/CV_8UC4 Mat allocated with matching width/height.
+        let src_row = src_ptr.add(y as usize * src_step);
         let dst_row = dst_ptr.add(y as usize * dst_step);
-        let bytes_per_row = (width as usize) * num_channels;
 
         std::ptr::copy_nonoverlapping(src_row, dst_row, bytes_per_row);
     }
