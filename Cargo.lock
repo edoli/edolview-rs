@@ -1172,6 +1172,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+ "windows-sys 0.59.0",
  "winres",
 ]
 

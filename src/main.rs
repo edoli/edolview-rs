@@ -22,6 +22,8 @@ mod util;
 mod debug;
 
 const ICON_DATA: &[u8] = include_bytes!("../icons/icon.png");
+#[cfg(target_os = "windows")]
+const WINDOWS_APP_USER_MODEL_ID: &str = "kr.edoli.edolview";
 
 /// Simple image viewer using OpenCV for decoding + egui for GUI.
 #[derive(Parser, Debug)]
@@ -33,6 +35,7 @@ struct Args {
 
 fn main() -> Result<()> {
     color_eyre::install()?;
+    set_windows_app_user_model_id();
     let args = Args::parse();
 
     let settings = crate::settings::AppSettings::load().unwrap_or_else(|err| {
@@ -96,3 +99,18 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(target_os = "windows")]
+fn set_windows_app_user_model_id() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    let mut app_id = WINDOWS_APP_USER_MODEL_ID.encode_utf16().collect::<Vec<_>>();
+    app_id.push(0);
+
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr());
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_windows_app_user_model_id() {}

@@ -13,6 +13,7 @@ mod supported_image;
 
 const APP_NAME: &str = "Edolview";
 const APP_NAME_LC: &str = "edolview";
+const WINDOWS_APP_USER_MODEL_ID: &str = "kr.edoli.edolview";
 
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -571,7 +572,9 @@ fn write_windows_wxs(path: &str) -> Result<()> {
           Target="[INSTALLFOLDER]edolview.exe"
           WorkingDirectory="INSTALLFOLDER"
           Icon="ProductIcon"
-          IconIndex="0" />
+          IconIndex="0">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="{WINDOWS_APP_USER_MODEL_ID}" />
+        </Shortcut>
         <Shortcut
           Id="UninstallShortcut"
           Name="Uninstall Edolview"
@@ -594,7 +597,9 @@ fn write_windows_wxs(path: &str) -> Result<()> {
           Target="[INSTALLFOLDER]edolview.exe"
           WorkingDirectory="INSTALLFOLDER"
           Icon="ProductIcon"
-          IconIndex="0" />
+          IconIndex="0">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="{WINDOWS_APP_USER_MODEL_ID}" />
+        </Shortcut>
         <RegistryValue Root="HKCU" Key="Software\Edolview" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </DirectoryRef>
