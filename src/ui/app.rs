@@ -482,6 +482,7 @@ impl ViewerApp {
             return;
         }
         let rect = self.state.marquee_rect.validate();
+        let rect_optional = (!rect.empty()).then(|| rect.to_cv_rect());
 
         if let Some(asset) = &self.state.asset {
             let img = asset.image();
@@ -490,7 +491,7 @@ impl ViewerApp {
             self.statistics_worker.lock().unwrap().run_minmax(
                 img.mat_shared(),
                 img.spec().dtype.alpha(),
-                rect.to_cv_rect(),
+                rect_optional,
             );
         }
 
@@ -506,11 +507,11 @@ impl ViewerApp {
                     img2.mat_shared(),
                     1.0,
                     img1.spec().dtype.alpha(),
-                    rect.to_cv_rect(),
+                    rect_optional,
                 );
 
                 // Temporarily disable SSIM due to performance issue
-                // self.statistics_worker.run_ssim(img1.mat_shared(), img2.mat_shared(), rect.to_cv_rect());
+                // self.statistics_worker.run_ssim(img1.mat_shared(), img2.mat_shared(), rect_optional);
             }
         }
     }

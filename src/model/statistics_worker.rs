@@ -8,6 +8,8 @@ use std::{
     thread,
 };
 
+use crate::util::cv_ext::CvMatExt;
+
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum StatisticsType {
     MinMax,
@@ -133,7 +135,7 @@ impl StatisticsWorker {
         }
     }
 
-    pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, rect: cv::Rect) {
+    pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, rect: Option<cv::Rect>) {
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
         if mat.empty() {
             return;
@@ -143,7 +145,7 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMax");
 
-            let mat_roi = cv::Mat::roi(mat.as_ref(), rect)?;
+            let mat_roi = mat.as_ref().roi_or_all(rect)?;
 
             let mut result = Vec::new();
 
@@ -181,7 +183,7 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, rect: cv::Rect) {
+    pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, rect: Option<cv::Rect>) {
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
         if mat1.empty() || mat2.empty() {
             return;
@@ -191,8 +193,8 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            let mat1_roi = Mat::roi(mat1.as_ref(), rect)?;
-            let mat2_roi = Mat::roi(mat2.as_ref(), rect)?;
+            let mat1_roi = mat1.as_ref().roi_or_all(rect)?;
+            let mat2_roi = mat2.as_ref().roi_or_all(rect)?;
             let psnr = cv::psnr(&mat1_roi, &mat2_roi, data_range)?;
 
             let rmse = scale / 10.0_f64.powf(psnr / 20.0);
@@ -201,7 +203,7 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, rect: cv::Rect) {
+    pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, rect: Option<cv::Rect>) {
         if mat1.empty() || mat2.empty() {
             return;
         }
@@ -210,8 +212,8 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIM");
 
-            let mat1_roi = Mat::roi(mat1.as_ref(), rect)?;
-            let mat2_roi = Mat::roi(mat2.as_ref(), rect)?;
+            let mat1_roi = mat1.as_ref().roi_or_all(rect)?;
+            let mat2_roi = mat2.as_ref().roi_or_all(rect)?;
 
             let lhs = SSIMMatData::new(mat1_roi.clone_pointee())?;
             let rhs = SSIMMatData::new(mat2_roi.clone_pointee())?;

@@ -1,3 +1,5 @@
+use opencv::{boxed_ref::BoxedRef, prelude::MatTraitConst};
+
 /// Bit shift for the channel part inside OpenCV Mat type flags.
 const CV_CN_SHIFT: i32 = 3; // from OpenCV core.hpp
 /// Maximum number of channels representable (OpenCV uses up to 512, but mask below limits calc).
@@ -136,6 +138,7 @@ pub trait CvMatExt {
     fn duplicate_mono_to_channels(&self, channels: i32) -> opencv::core::Mat;
     fn take_first_channels(&self, channels: i32) -> opencv::core::Mat;
     fn drop_alpha_channel(&self) -> opencv::core::Mat;
+    fn roi_or_all(&self, rect: Option<core::Rect>) -> opencv::Result<BoxedRef<'_, core::Mat>>;
 }
 
 impl CvMatExt for opencv::core::Mat {
@@ -163,5 +166,12 @@ impl CvMatExt for opencv::core::Mat {
 
     fn drop_alpha_channel(&self) -> opencv::core::Mat {
         self.take_first_channels(3)
+    }
+
+    fn roi_or_all(&self, rect: Option<core::Rect>) -> opencv::Result<BoxedRef<'_, core::Mat>> {
+        match rect {
+            Some(rect) => core::Mat::roi(self, rect),
+            None => core::Mat::roi(self, core::Rect::new(0, 0, self.cols(), self.rows())),
+        }
     }
 }
