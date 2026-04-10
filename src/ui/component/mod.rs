@@ -1,3 +1,4 @@
+mod bookmark_window;
 mod channel_toggle;
 mod custom_slider;
 mod display_controls;
@@ -7,6 +8,7 @@ mod histogram_plot;
 mod multi_line_plot;
 mod toast;
 
+pub use bookmark_window::*;
 pub use channel_toggle::*;
 pub use custom_slider::*;
 pub use display_controls::*;

@@ -24,7 +24,7 @@ use crate::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
-            CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
+            show_bookmark_window, CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
         },
         ImageViewer,
     },
@@ -727,128 +727,37 @@ impl ViewerApp {
     }
 
     fn show_bookmarks_dialog(&mut self, ctx: &egui::Context) {
-        if !self.show_bookmarks_modal {
-            return;
-        }
+        let bookmark_rects: Vec<_> = self.bookmarks.iter().map(|bookmark| bookmark.rect).collect();
+        let actions = show_bookmark_window(
+            ctx,
+            &self.icons,
+            &mut self.show_bookmarks_modal,
+            &bookmark_rects,
+            self.active_bookmark_index,
+            &crate::res::BOOKMARK_ADD.format_sys(),
+        );
 
-        let mut keep_open = self.show_bookmarks_modal;
-        let mut jump_to: Option<usize> = None;
-        let mut move_up: Option<usize> = None;
-        let mut move_down: Option<usize> = None;
-        let mut remove_index: Option<usize> = None;
-        let mut clear_all = false;
-
-        egui::Window::new("Bookmarks")
-            .default_pos(egui::pos2(1024.0, 72.0))
-            .collapsible(false)
-            .resizable(true)
-            .default_width(320.0)
-            .open(&mut keep_open)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    let add_clicked = ui
-                        .button("Add Current")
-                        .on_hover_text(format!(
-                            "Add current selection as bookmark ({})",
-                            crate::res::BOOKMARK_ADD.format_sys()
-                        ))
-                        .clicked();
-                    if add_clicked {
-                        self.toggle_bookmark();
-                    }
-
-                    if ui
-                        .add_enabled(!self.bookmarks.is_empty(), egui::Button::new("Clear All"))
-                        .clicked()
-                    {
-                        clear_all = true;
-                    }
-                });
-                ui.separator();
-
-                if self.bookmarks.is_empty() {
-                    ui.label("No bookmarks");
-                    return;
-                }
-
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    for (index, bookmark) in self.bookmarks.iter().enumerate() {
-                        let selected = self.active_bookmark_index == Some(index);
-                        
-                        ui.scope(|ui| {
-                            let mut style = (*ui.ctx().style()).clone();
-                            style.spacing.button_padding = egui::vec2(2.0, 2.0);
-                            ui.set_style(style);
-
-                            ui.columns_sized(
-                                [
-                                    Size::remainder(1.0),
-                                    Size::exact(16.0),
-                                    Size::exact(16.0),
-                                    Size::exact(16.0),
-                                ],
-                                |columns| {
-                                    let rect_label = format!("{}: {}", index + 1, bookmark.rect);
-
-                                    columns[0].with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                                        if ui.selectable_label(selected, rect_label).clicked() {
-                                            jump_to = Some(index);
-                                        }
-                                    });
-
-                                    let mut add_button =
-                                        |col: usize,
-                                        enabled: bool,
-                                        icon_fn: fn(&Icons, &egui::Context) -> egui::Image<'static>,
-                                        hover_text: &str,
-                                        action: &mut Option<usize>| {
-                                            if columns[col]
-                                                .add_enabled(
-                                                    enabled,
-                                                    egui::ImageButton::new(
-                                                        icon_fn(&self.icons, &ctx)
-                                                            .fit_to_exact_size(egui::vec2(14.0, 14.0)),
-                                                    ),
-                                                )
-                                                .on_hover_text(hover_text)
-                                                .clicked()
-                                            {
-                                                *action = Some(index);
-                                            }
-                                        };
-
-                                    let is_first = index == 0;
-                                    let is_last = index + 1 == self.bookmarks.len();
-
-                                    add_button(1, !is_first, Icons::get_arrow_up, "Move bookmark up", &mut move_up);
-                                    add_button(2, !is_last, Icons::get_arrow_down, "Move bookmark down", &mut move_down);
-                                    add_button(3, true, Icons::get_delete, "Delete bookmark", &mut remove_index);
-                                },
-                            );
-                        });
-                    }
-                });
-            });
-
-        if let Some(index) = move_up {
+        if let Some(index) = actions.move_up {
             self.move_bookmark(index, -1);
-        } else if let Some(index) = move_down {
+        } else if let Some(index) = actions.move_down {
             self.move_bookmark(index, 1);
         }
 
-        if let Some(index) = remove_index {
+        if let Some(index) = actions.remove_index {
             self.remove_bookmark(index);
         }
 
-        if clear_all {
+        if actions.clear_all {
             self.clear_bookmarks();
         }
 
-        if let Some(index) = jump_to {
-            self.apply_bookmark(index, ctx);
+        if actions.add_current {
+            self.toggle_bookmark();
         }
 
-        self.show_bookmarks_modal = keep_open;
+        if let Some(index) = actions.jump_to {
+            self.apply_bookmark(index, ctx);
+        }
     }
 
     fn refresh_control_registration(&mut self, ctx: &egui::Context) {
