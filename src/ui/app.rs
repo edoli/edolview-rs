@@ -107,6 +107,7 @@ pub struct ViewerApp {
     control_instance: Option<crate::control::ControlInstance>,
     last_control_touch: Instant,
     was_focused_last_frame: bool,
+    last_image_save_dir: Option<PathBuf>,
 }
 
 impl Drop for ViewerApp {
@@ -248,6 +249,7 @@ impl ViewerApp {
             control_instance,
             last_control_touch: Instant::now(),
             was_focused_last_frame: false,
+            last_image_save_dir: None,
         }
     }
 
@@ -305,10 +307,28 @@ impl ViewerApp {
         }
     }
 
+    fn active_display_source_label(&self) -> &'static str {
+        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Split {
+            if self.state.cursor_on_secondary {
+                "secondary"
+            } else {
+                "primary"
+            }
+        } else {
+            "image"
+        }
+    }
+
+    fn active_display_file_path(&self) -> Option<PathBuf> {
+        self.active_display_asset()
+            .filter(|asset| asset.asset_type() == AssetType::File)
+            .map(|asset| PathBuf::from(asset.name()))
+            .or_else(|| self.state.path.clone())
+    }
+
     fn default_image_export_file_name(&self) -> String {
-        let base_name = self
-            .state
-            .path
+        let active_path = self.active_display_file_path();
+        let base_name = active_path
             .as_ref()
             .and_then(|path| path.file_stem())
             .and_then(|stem| stem.to_str())
@@ -322,7 +342,7 @@ impl ViewerApp {
         }
     }
 
-    fn prompt_image_save_path(&self) -> Option<PathBuf> {
+    fn prompt_image_save_path(&mut self) -> Option<PathBuf> {
         let has_selection = !self.state.marquee_rect.validate().empty();
         let title = if has_selection {
             "Save Selected Image As"
@@ -336,11 +356,18 @@ impl ViewerApp {
             .set_title(title)
             .set_file_name(self.default_image_export_file_name());
 
-        if let Some(directory) = self.state.path.as_ref().and_then(|path| path.parent()) {
+        if let Some(directory) = self.last_image_save_dir.clone().or_else(|| {
+            self.active_display_file_path()
+                .and_then(|path| path.parent().map(PathBuf::from))
+        }) {
             dialog = dialog.set_directory(directory);
         }
 
-        dialog.save_file()
+        let path = dialog.save_file();
+        if let Some(parent) = path.as_ref().and_then(|path| path.parent()) {
+            self.last_image_save_dir = Some(parent.to_path_buf());
+        }
+        path
     }
 
     fn request_viewer_image_save(&mut self, ctx: &egui::Context) {
@@ -348,7 +375,7 @@ impl ViewerApp {
             return;
         };
 
-        self.viewer.request_save(path);
+        self.viewer.request_save(path, self.active_display_source_label().to_string());
         ctx.request_repaint();
     }
 
@@ -1165,7 +1192,7 @@ impl eframe::App for ViewerApp {
                 }
             });
             if request_copy {
-                self.viewer.request_copy();
+                self.viewer.request_copy(self.active_display_source_label().to_string());
                 ctx.request_repaint();
             }
             if request_save && self.state.asset.is_some() {

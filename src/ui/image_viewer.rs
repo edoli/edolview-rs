@@ -52,9 +52,9 @@ pub struct ImageViewer {
     pan: egui::Vec2,
     dragging: bool,
     drag_mode: DragMode,
-    copy_requested: bool,
+    copy_requested: Option<String>,
     save_dialog_requested: bool,
-    save_requested: Option<PathBuf>,
+    save_requested: Option<(PathBuf, String)>,
     export_toasts: Arc<Mutex<Vec<ExportToast>>>,
     last_primary_image_id: Option<u64>, // cache key to know when to re-upload texture
     last_secondary_image_id: Option<u64>,
@@ -76,7 +76,7 @@ impl ImageViewer {
             pan: egui::Vec2::ZERO,
             dragging: false,
             drag_mode: DragMode::None,
-            copy_requested: false,
+            copy_requested: None,
             save_dialog_requested: false,
             save_requested: None,
             export_toasts: Arc::new(Mutex::new(Vec::new())),
@@ -246,7 +246,13 @@ impl ImageViewer {
                     format!("Copy Image ({})", crate::res::COPY_SC.format_sys())
                 };
                 if ui.button(copy_label).clicked() {
-                    self.request_copy();
+                    self.request_copy(if split_view && app_state.cursor_on_secondary {
+                        "secondary".to_string()
+                    } else if split_view {
+                        "primary".to_string()
+                    } else {
+                        "image".to_string()
+                    });
                     ui.ctx().request_repaint();
                     ui.close();
                 }
@@ -439,10 +445,11 @@ impl ImageViewer {
                 secondary_selection_rect_view.map(|selection_rect_view| selection_rect_view.intersect(right_pane_rect));
 
             // Queue clipboard/save export operations to perform inside the GL callback.
-            let mut export_request: Option<(bool, Option<PathBuf>, i32, i32, egui::Vec2, f32, bool)> = None;
-            let copy_requested = std::mem::take(&mut self.copy_requested);
+            let mut export_request: Option<(Option<String>, Option<(PathBuf, String)>, i32, i32, egui::Vec2, f32)> =
+                None;
+            let copy_requested = self.copy_requested.take();
             let save_requested = self.save_requested.take();
-            if copy_requested || save_requested.is_some() {
+            if copy_requested.is_some() || save_requested.is_some() {
                 let export_rect = self.copy_rect(app_state, spec.width, spec.height);
                 if !export_rect.empty() {
                     let scale_for_export = if app_state.copy_use_original_size {
@@ -456,15 +463,7 @@ impl ImageViewer {
                         -(export_rect.min.x as f32) * scale_for_export,
                         -(export_rect.min.y as f32) * scale_for_export,
                     );
-                    export_request = Some((
-                        copy_requested,
-                        save_requested,
-                        out_w,
-                        out_h,
-                        position,
-                        scale_for_export,
-                        split_view && app_state.cursor_on_secondary,
-                    ));
+                    export_request = Some((copy_requested, save_requested, out_w, out_h, position, scale_for_export));
                 }
             }
 
@@ -553,15 +552,8 @@ impl ImageViewer {
                         }
 
                         // If an export was requested, render to an offscreen FBO once and reuse the RGBA readback.
-                        if let Some((
-                            copy_requested,
-                            save_requested,
-                            out_w,
-                            out_h,
-                            crop_pos,
-                            export_scale,
-                            export_secondary,
-                        )) = export_request.clone()
+                        if let Some((copy_requested, save_requested, out_w, out_h, crop_pos, export_scale)) =
+                            export_request.clone()
                         {
                             // Create offscreen target
                             let fbo = gl.create_framebuffer().unwrap();
@@ -597,6 +589,11 @@ impl ImageViewer {
                                 gl.clear_color(0.0, 0.0, 0.0, 0.0);
                                 gl.clear(GL::COLOR_BUFFER_BIT);
                                 if let Ok(mut image_prog) = image_prog.lock() {
+                                    let export_secondary = save_requested
+                                        .as_ref()
+                                        .map(|(_, source)| source == "secondary")
+                                        .or_else(|| copy_requested.as_ref().map(|source| source == "secondary"))
+                                        .unwrap_or(false);
                                     let export_tex = if export_secondary {
                                         secondary_tex_handle
                                     } else {
@@ -648,8 +645,14 @@ impl ImageViewer {
                                 }
 
                                 match (copy_requested, save_requested) {
-                                    (true, Some(path)) => {
-                                        copy_image_to_clipboard(out_w, out_h, flipped.clone(), &export_toasts);
+                                    (Some(copy_source), Some((path, save_source))) => {
+                                        copy_image_to_clipboard(
+                                            out_w,
+                                            out_h,
+                                            flipped.clone(),
+                                            &export_toasts,
+                                            copy_source.as_str(),
+                                        );
                                         save_image_async(
                                             path,
                                             out_w,
@@ -657,12 +660,19 @@ impl ImageViewer {
                                             flipped,
                                             export_toasts.clone(),
                                             repaint_ctx.clone(),
+                                            save_source,
                                         );
                                     }
-                                    (true, None) => {
-                                        copy_image_to_clipboard(out_w, out_h, flipped, &export_toasts);
+                                    (Some(copy_source), None) => {
+                                        copy_image_to_clipboard(
+                                            out_w,
+                                            out_h,
+                                            flipped,
+                                            &export_toasts,
+                                            copy_source.as_str(),
+                                        );
                                     }
-                                    (false, Some(path)) => {
+                                    (None, Some((path, save_source))) => {
                                         save_image_async(
                                             path,
                                             out_w,
@@ -670,9 +680,10 @@ impl ImageViewer {
                                             flipped,
                                             export_toasts.clone(),
                                             repaint_ctx.clone(),
+                                            save_source,
                                         );
                                     }
-                                    (false, None) => {}
+                                    (None, None) => {}
                                 }
                             }
                             gl.bind_framebuffer(GL::FRAMEBUFFER, None);
@@ -1161,8 +1172,8 @@ impl ImageViewer {
         self.pan = egui::vec2(viewport_cx - rect_cx * scale, viewport_cy - rect_cy * scale);
     }
 
-    pub fn request_copy(&mut self) {
-        self.copy_requested = true;
+    pub fn request_copy(&mut self, source_label: String) {
+        self.copy_requested = Some(source_label);
     }
 
     pub fn request_save_dialog(&mut self) {
@@ -1173,8 +1184,8 @@ impl ImageViewer {
         std::mem::take(&mut self.save_dialog_requested)
     }
 
-    pub fn request_save(&mut self, path: PathBuf) {
-        self.save_requested = Some(path);
+    pub fn request_save(&mut self, path: PathBuf, source_label: String) {
+        self.save_requested = Some((path, source_label));
     }
 
     pub fn is_marquee_interaction_active(&self) -> bool {
@@ -1229,7 +1240,13 @@ impl ImageViewer {
     }
 }
 
-fn copy_image_to_clipboard(width: i32, height: i32, bytes: Vec<u8>, export_toasts: &Arc<Mutex<Vec<ExportToast>>>) {
+fn copy_image_to_clipboard(
+    width: i32,
+    height: i32,
+    bytes: Vec<u8>,
+    export_toasts: &Arc<Mutex<Vec<ExportToast>>>,
+    source_label: &str,
+) {
     if let Ok(mut clipboard) = arboard::Clipboard::new() {
         let img = arboard::ImageData {
             width: width as usize,
@@ -1239,16 +1256,33 @@ fn copy_image_to_clipboard(width: i32, height: i32, bytes: Vec<u8>, export_toast
         let copy_result = clipboard.set_image(img);
         if let Ok(mut toasts) = export_toasts.lock() {
             match copy_result {
-                Ok(()) => toasts.push(ExportToast::Success("Copied image to clipboard".into())),
+                Ok(()) => {
+                    let message = if source_label == "image" {
+                        "Copied image to clipboard".to_string()
+                    } else {
+                        format!("Copied {source_label} image to clipboard")
+                    };
+                    toasts.push(ExportToast::Success(message))
+                }
                 Err(err) => {
                     eprintln!("Failed to copy image to clipboard: {err}");
-                    toasts.push(ExportToast::Error("Failed to copy image to clipboard".into()));
+                    let message = if source_label == "image" {
+                        "Failed to copy image to clipboard".to_string()
+                    } else {
+                        format!("Failed to copy {source_label} image to clipboard")
+                    };
+                    toasts.push(ExportToast::Error(message));
                 }
             }
         }
     } else if let Ok(mut toasts) = export_toasts.lock() {
         eprintln!("Failed to open clipboard for image copy");
-        toasts.push(ExportToast::Error("Failed to copy image to clipboard".into()));
+        let message = if source_label == "image" {
+            "Failed to copy image to clipboard".to_string()
+        } else {
+            format!("Failed to copy {source_label} image to clipboard")
+        };
+        toasts.push(ExportToast::Error(message));
     }
 }
 
@@ -1259,13 +1293,26 @@ fn save_image_async(
     bytes: Vec<u8>,
     export_toasts: Arc<Mutex<Vec<ExportToast>>>,
     repaint_ctx: egui::Context,
+    source_label: String,
 ) {
     std::thread::spawn(move || {
         let toast = match save_rendered_image(&path, width, height, bytes) {
-            Ok(()) => ExportToast::Success(format!("Saved image to {}", path.display())),
+            Ok(()) => {
+                let message = if source_label == "image" {
+                    format!("Saved image to {}", path.display())
+                } else {
+                    format!("Saved {source_label} image to {}", path.display())
+                };
+                ExportToast::Success(message)
+            }
             Err(err) => {
                 eprintln!("Failed to save image to {}: {err}", path.display());
-                ExportToast::Error(format!("Failed to save image to {}", path.display()))
+                let message = if source_label == "image" {
+                    format!("Failed to save image to {}", path.display())
+                } else {
+                    format!("Failed to save {source_label} image to {}", path.display())
+                };
+                ExportToast::Error(message)
             }
         };
 
