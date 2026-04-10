@@ -20,6 +20,7 @@ pub enum AssetType {
 pub enum ComparisonMode {
     Diff,
     Blend,
+    Split,
 }
 
 pub trait Asset<T: Image> {
@@ -240,6 +241,16 @@ impl ComparisonAsset {
         let mat2 = img2.mat();
         let mut comparison_notices = Vec::new();
 
+        if mode == ComparisonMode::Split {
+            return (
+                Self {
+                    name,
+                    image: MatImage::new(mat1.clone(), spec1.dtype),
+                },
+                None,
+            );
+        }
+
         let (mat1, mat2, comparison_notice) = if mat1.channels() == mat2.channels() {
             (mat1.clone(), mat2.clone(), None)
         } else if let Some((mat1, mat2, notice)) = normalize_comparison_inputs(mat1, mat2) {
@@ -285,6 +296,7 @@ impl ComparisonAsset {
                     opencv::core::add_weighted(&mat1_roi, 1.0 - alpha, &mat2_roi, alpha, 0.0, &mut mat_roi, -1)
                         .unwrap();
                 }
+                ComparisonMode::Split => unreachable!("split comparison is rendered directly by the viewer"),
             }
         }
 

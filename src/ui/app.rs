@@ -821,6 +821,17 @@ impl ViewerApp {
         self.update_statistics();
     }
 
+    fn active_display_asset(&self) -> Option<&crate::model::SharedAsset> {
+        if self.state.is_comparison() && self.state.comparison_mode == ComparisonMode::Split {
+            if self.state.cursor_on_secondary {
+                return self.state.asset_secondary.as_ref().or(self.state.asset_primary.as_ref());
+            }
+            return self.state.asset_primary.as_ref().or(self.state.asset_secondary.as_ref());
+        }
+
+        self.state.asset.as_ref()
+    }
+
     fn start_background_event_handlers(&mut self, ctx: &egui::Context) {
         let state = &self.state;
         let _ctx = ctx.clone();
@@ -1357,7 +1368,7 @@ impl eframe::App for ViewerApp {
                     ],
                     |columns| {
                         columns[0].vertical(|ui| {
-                            if let Some(asset) = &self.state.asset {
+                            if let Some(asset) = self.active_display_asset() {
                                 let cursor_image = asset.image();
                                 let spec = cursor_image.spec();
                                 let dtype = cursor_image.spec().dtype;
@@ -1566,7 +1577,7 @@ impl eframe::App for ViewerApp {
                         .on_hover_text("Apply gamma correction to the display.");
 
                     let desired_size_plot = egui::vec2(ui.available_width(), 100.0);
-                    if let Some(asset) = &self.state.asset {
+                    if let Some(asset) = self.active_display_asset() {
                         let rect = self.state.marquee_rect;
                         let mean_dim = match self.plot_dim {
                             PlotDim::Auto => {
@@ -1769,17 +1780,24 @@ impl eframe::App for ViewerApp {
 
                     if self.state.is_comparison() {
                         ui.heading("Comparison");
+                        let previous_comparison_mode = self.state.comparison_mode;
+                        let mut comparison_mode_changed = false;
                         let mut comparison_changed = false;
                         ui.horizontal(|ui| {
-                            comparison_changed |= ui
+                            comparison_mode_changed |= ui
                                 .radio_value(&mut self.state.comparison_mode, ComparisonMode::Diff, "Diff")
                                 .on_hover_text("Show the pixel-wise difference: primary - secondary.")
                                 .changed();
-                            comparison_changed |= ui
+                            comparison_mode_changed |= ui
                                 .radio_value(&mut self.state.comparison_mode, ComparisonMode::Blend, "Blend")
                                 .on_hover_text("Blend the primary and secondary images.")
                                 .changed();
+                            comparison_mode_changed |= ui
+                                .radio_value(&mut self.state.comparison_mode, ComparisonMode::Split, "Split")
+                                .on_hover_text("Show the primary and secondary images side by side with synchronized pan and zoom.")
+                                .changed();
                         });
+                        comparison_changed |= comparison_mode_changed;
                         if self.state.comparison_mode == ComparisonMode::Blend {
                             comparison_changed |= ui
                                 .add(egui::Slider::new(&mut self.state.comparison_blend, 0.0..=1.0).text("Blend"))
@@ -1787,6 +1805,15 @@ impl eframe::App for ViewerApp {
                         }
                         if comparison_changed {
                             self.state.update_asset();
+                            if comparison_mode_changed
+                                && previous_comparison_mode != ComparisonMode::Split
+                                && self.state.comparison_mode == ComparisonMode::Split
+                            {
+                                if let Some(asset) = self.state.asset_primary.as_ref() {
+                                    let spec = asset.image().spec();
+                                    self.viewer.fit_split(spec.width, spec.height);
+                                }
+                            }
                         }
                         ui.separator();
                     }

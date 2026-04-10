@@ -46,6 +46,7 @@ pub struct ImageViewer {
     background_prog: Option<Arc<BackgroundProgram>>,
     image_prog: Option<Arc<Mutex<ImageProgram>>>,
     gl_primary_tex: Option<GL::NativeTexture>,
+    gl_secondary_tex: Option<GL::NativeTexture>,
     zoom_level: f32,
     zoom_base: f32,
     pan: egui::Vec2,
@@ -56,6 +57,7 @@ pub struct ImageViewer {
     save_requested: Option<PathBuf>,
     export_toasts: Arc<Mutex<Vec<ExportToast>>>,
     last_primary_image_id: Option<u64>, // cache key to know when to re-upload texture
+    last_secondary_image_id: Option<u64>,
     last_viewport_size_px: Option<egui::Vec2>,
 
     last_shader_error: Option<String>,
@@ -68,6 +70,7 @@ impl ImageViewer {
             background_prog: None,
             image_prog: None,
             gl_primary_tex: None,
+            gl_secondary_tex: None,
             zoom_level: 0.0,
             zoom_base: 2.0_f32.powf(1.0 / 4.0),
             pan: egui::Vec2::ZERO,
@@ -78,6 +81,7 @@ impl ImageViewer {
             save_requested: None,
             export_toasts: Arc::new(Mutex::new(Vec::new())),
             last_primary_image_id: None,
+            last_secondary_image_id: None,
             last_viewport_size_px: None,
             last_shader_error: None,
             last_reported_shader_error: None,
@@ -86,29 +90,55 @@ impl ImageViewer {
 
     pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, app_state: &mut AppState) {
         self.refresh_shader_error();
-        let Some(asset) = app_state.asset.as_ref() else {
+        let Some(asset) = app_state.asset.clone() else {
             ui.centered_and_justified(|ui| {
                 ui.label("Drag & Drop an image file here.");
             });
             return;
         };
-        let image = asset.image();
+        let split_view = self.is_split_comparison(app_state);
+        let primary_asset = app_state.asset_primary.clone().unwrap_or_else(|| asset.clone());
+        let secondary_asset = if split_view {
+            app_state.asset_secondary.clone()
+        } else {
+            None
+        };
+        let primary_image = primary_asset.image();
+        let secondary_image = secondary_asset.as_ref().map(|a| a.image());
+        let image = if split_view { primary_image } else { asset.image() };
 
         // Determine if we need a (re)upload
         let spec = image.spec();
-        let min_max = if app_state.shader_params.auto_minmax && !app_state.shader_params.use_per_channel
-            || app_state.shader_params.auto_minmax_channels.iter().any(|&b| b)
-        {
-            asset.image().minmax().clone()
+        let use_auto_minmax = app_state.shader_params.auto_minmax && !app_state.shader_params.use_per_channel
+            || app_state.shader_params.auto_minmax_channels.iter().any(|&b| b);
+        let min_max_primary = if use_auto_minmax {
+            primary_image.minmax().clone()
+        } else {
+            EMPTY_MINMAX
+        };
+        let min_max_secondary = if use_auto_minmax {
+            secondary_image
+                .map(|secondary_image| secondary_image.minmax().clone())
+                .unwrap_or_else(|| min_max_primary.clone())
         } else {
             EMPTY_MINMAX
         };
 
         if let Some(gl) = frame.gl() {
-            sync_mat_texture(gl, &mut self.gl_primary_tex, &mut self.last_primary_image_id, image);
+            sync_mat_texture(gl, &mut self.gl_primary_tex, &mut self.last_primary_image_id, primary_image);
+            if let Some(secondary_image) = secondary_image {
+                sync_mat_texture(
+                    gl,
+                    &mut self.gl_secondary_tex,
+                    &mut self.last_secondary_image_id,
+                    secondary_image,
+                );
+            } else {
+                release_texture(gl, &mut self.gl_secondary_tex, &mut self.last_secondary_image_id);
+            }
         }
 
-        if self.gl_primary_tex.is_some() {
+        if self.gl_primary_tex.is_some() && (!split_view || self.gl_secondary_tex.is_some()) {
             if self.background_prog.is_none() {
                 if let Some(gl) = frame.gl() {
                     if let Ok(p) = BackgroundProgram::new(gl) {
@@ -138,13 +168,17 @@ impl ImageViewer {
 
             // Record viewport size in pixels for fit/center operations triggered from menus
             self.last_viewport_size_px = Some(vec2(rect_pixels.width(), rect_pixels.height()));
+            let (left_pane_rect, right_pane_rect) = self.split_pane_rects(rect);
+            let active_primary_rect = if split_view { left_pane_rect } else { rect };
 
             // Pre-compute selection rect in view space (points) for handle interactions
-            let selection_rect_view = {
-                let r = app_state.marquee_rect.to_rect();
-                let k = self.zoom() / pixel_per_point;
-                (r * k).translate(self.pan / pixel_per_point + rect.min.to_vec2())
-            };
+            let selection_rect_view =
+                self.selection_rect_in_view(active_primary_rect, app_state.marquee_rect, pixel_per_point);
+            let secondary_selection_rect_view = split_view
+                .then(|| self.selection_rect_in_view(right_pane_rect, app_state.marquee_rect, pixel_per_point));
+            let selection_rect_primary_clipped = selection_rect_view.intersect(active_primary_rect);
+            let selection_rect_secondary_clipped =
+                secondary_selection_rect_view.map(|selection_rect_view| selection_rect_view.intersect(right_pane_rect));
 
             // Detect if the built-in context menu popup for this response is open
             let context_menu_open = resp.context_menu_opened();
@@ -155,26 +189,39 @@ impl ImageViewer {
                     // Compute old scale before applying zoom change
                     let scroll_sign = scroll.signum();
                     if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
-                        let local = (pointer - rect.min) * pixel_per_point;
+                        let pane_rect = if split_view && right_pane_rect.contains(pointer) {
+                            right_pane_rect
+                        } else if split_view {
+                            left_pane_rect
+                        } else {
+                            rect
+                        };
+                        let local = (pointer - pane_rect.min) * pixel_per_point;
                         self.zoom_in(scroll_sign, Some(local));
                     }
                 }
 
                 let mouse_pos = ui.input(|i| i.pointer.hover_pos());
                 if let Some(pointer_pos) = mouse_pos {
-                    let local_pos = (pointer_pos - rect.min) * pixel_per_point;
-                    let image_pos = (local_pos - self.pan) / self.zoom();
+                    let (image_pos, cursor_on_secondary) =
+                        self.view_to_image_coords(pointer_pos, rect, pixel_per_point, split_view);
                     let pixel_pos = vec2i(image_pos.x as i32, image_pos.y as i32);
                     // Check if coordinates are within image bounds
                     if pixel_pos.x >= 0 && pixel_pos.x < spec.width && pixel_pos.y >= 0 && pixel_pos.y < spec.height {
                         app_state.cursor_pos = Some(pixel_pos);
+                        app_state.cursor_on_secondary = cursor_on_secondary;
                     } else {
                         app_state.cursor_pos = None;
+                        app_state.cursor_on_secondary = false;
                     }
 
                     // If marquee exists, set resize cursor when hovering corner handles
                     if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
-                        if let Some(handle) = hit_test_handles(selection_rect_view, pointer_pos) {
+                        let handle = hit_test_handles(selection_rect_primary_clipped, pointer_pos).or_else(|| {
+                            selection_rect_secondary_clipped
+                                .and_then(|selection_rect_view| hit_test_handles(selection_rect_view, pointer_pos))
+                        });
+                        if let Some(handle) = handle {
                             let icon = match handle {
                                 ResizeHandle::TopLeft | ResizeHandle::BottomRight => egui::CursorIcon::ResizeNwSe,
                                 ResizeHandle::TopRight | ResizeHandle::BottomLeft => egui::CursorIcon::ResizeNeSw,
@@ -187,6 +234,11 @@ impl ImageViewer {
 
             // Context menu (right-click)
             resp.context_menu(|ui| {
+                let active_image = if split_view && app_state.cursor_on_secondary {
+                    secondary_image.unwrap_or(primary_image)
+                } else {
+                    primary_image
+                };
                 let has_selection = !app_state.marquee_rect.empty();
                 let copy_label = if has_selection {
                     format!("Copy Selected Image ({})", crate::res::COPY_SC.format_sys())
@@ -210,8 +262,8 @@ impl ImageViewer {
                 ui.separator();
                 if ui.button("Copy Cursor Color").clicked() {
                     if let Some(cursor_pos) = app_state.cursor_pos {
-                        if let Ok(vals) = image.get_pixel_at(cursor_pos.x, cursor_pos.y) {
-                            let spec = image.spec();
+                        if let Ok(vals) = active_image.get_pixel_at(cursor_pos.x, cursor_pos.y) {
+                            let spec = active_image.spec();
                             let text = spec.pixel_values_to_string(vals);
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 let _ = cb.set_text(text);
@@ -230,8 +282,9 @@ impl ImageViewer {
                 }
                 ui.separator();
                 if ui.button("Copy Rect Mean Color").clicked() {
-                    if let Ok(vals) = image.mean_value_in_rect(app_state.marquee_rect.to_cv_rect(), MeanDim::All) {
-                        let spec = image.spec();
+                    if let Ok(vals) = active_image.mean_value_in_rect(app_state.marquee_rect.to_cv_rect(), MeanDim::All)
+                    {
+                        let spec = active_image.spec();
                         let text = spec.pixel_values_to_string(&vals);
                         if let Ok(mut cb) = arboard::Clipboard::new() {
                             let _ = cb.set_text(text);
@@ -254,7 +307,10 @@ impl ImageViewer {
                     // If a marquee exists and a corner handle is pressed, start resizing right away
                     let handle_under_mouse =
                         if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
-                            hit_test_handles(selection_rect_view, pos)
+                            hit_test_handles(selection_rect_primary_clipped, pos).or_else(|| {
+                                selection_rect_secondary_clipped
+                                    .and_then(|selection_rect_view| hit_test_handles(selection_rect_view, pos))
+                            })
                         } else {
                             None
                         };
@@ -264,7 +320,9 @@ impl ImageViewer {
                         self.drag_mode = DragMode::Resizing {
                             handle,
                             start_rect: app_state.marquee_rect,
-                            start_pointer_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
+                            start_pointer_image_pos: self
+                                .view_to_image_coords(pos, rect, pixel_per_point, split_view)
+                                .0,
                         };
                     }
                 }
@@ -276,7 +334,10 @@ impl ImageViewer {
                     // If a marquee exists and a corner handle is grabbed, start resizing
                     let handle_under_mouse =
                         if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
-                            hit_test_handles(selection_rect_view, pos)
+                            hit_test_handles(selection_rect_primary_clipped, pos).or_else(|| {
+                                selection_rect_secondary_clipped
+                                    .and_then(|selection_rect_view| hit_test_handles(selection_rect_view, pos))
+                            })
                         } else {
                             None
                         };
@@ -285,12 +346,14 @@ impl ImageViewer {
                         DragMode::Resizing {
                             handle,
                             start_rect: app_state.marquee_rect,
-                            start_pointer_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
+                            start_pointer_image_pos: self
+                                .view_to_image_coords(pos, rect, pixel_per_point, split_view)
+                                .0,
                         }
                     } else if ui.input(|i| i.modifiers.shift) {
                         // Start marquee creation
                         DragMode::Marquee {
-                            start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point),
+                            start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point, split_view).0,
                         }
                     } else {
                         // Start panning
@@ -308,7 +371,8 @@ impl ImageViewer {
                         // If Ctrl pressed, constrain to square relative to start
                         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
                         let image_pos = self
-                            .view_to_image_coords(pos, rect, pixel_per_point)
+                            .view_to_image_coords(pos, rect, pixel_per_point, split_view)
+                            .0
                             .cond_map(is_ctrl, |image_pos| enforce_square_from_anchor(start_image_pos, image_pos));
                         app_state.set_marquee_rect(Recti::bound_two_pos(start_image_pos, image_pos));
                     } else if let DragMode::Panning {
@@ -326,7 +390,7 @@ impl ImageViewer {
                     } = self.drag_mode
                     {
                         // Compute delta in image space from the initial press
-                        let curr_img = self.view_to_image_coords(pos, rect, pixel_per_point);
+                        let curr_img = self.view_to_image_coords(pos, rect, pixel_per_point, split_view).0;
                         let delta =
                             egui::vec2(curr_img.x - start_pointer_image_pos.x, curr_img.y - start_pointer_image_pos.y);
 
@@ -366,14 +430,16 @@ impl ImageViewer {
             }
 
             // Recalculate selection rect in view space (points) for drawing
-            let selection_rect_view = {
-                let r = app_state.marquee_rect.to_rect();
-                let k = self.zoom() / pixel_per_point;
-                (r * k).translate(self.pan / pixel_per_point + rect.min.to_vec2())
-            };
+            let selection_rect_view =
+                self.selection_rect_in_view(active_primary_rect, app_state.marquee_rect, pixel_per_point);
+            let secondary_selection_rect_view = split_view
+                .then(|| self.selection_rect_in_view(right_pane_rect, app_state.marquee_rect, pixel_per_point));
+            let selection_rect_primary_clipped = selection_rect_view.intersect(active_primary_rect);
+            let selection_rect_secondary_clipped =
+                secondary_selection_rect_view.map(|selection_rect_view| selection_rect_view.intersect(right_pane_rect));
 
             // Queue clipboard/save export operations to perform inside the GL callback.
-            let mut export_request: Option<(bool, Option<PathBuf>, i32, i32, egui::Vec2, f32)> = None;
+            let mut export_request: Option<(bool, Option<PathBuf>, i32, i32, egui::Vec2, f32, bool)> = None;
             let copy_requested = std::mem::take(&mut self.copy_requested);
             let save_requested = self.save_requested.take();
             if copy_requested || save_requested.is_some() {
@@ -390,7 +456,15 @@ impl ImageViewer {
                         -(export_rect.min.x as f32) * scale_for_export,
                         -(export_rect.min.y as f32) * scale_for_export,
                     );
-                    export_request = Some((copy_requested, save_requested, out_w, out_h, position, scale_for_export));
+                    export_request = Some((
+                        copy_requested,
+                        save_requested,
+                        out_w,
+                        out_h,
+                        position,
+                        scale_for_export,
+                        split_view && app_state.cursor_on_secondary,
+                    ));
                 }
             }
 
@@ -398,9 +472,13 @@ impl ImageViewer {
                 (self.background_prog.clone(), self.image_prog.clone(), frame.gl())
             {
                 let viewport_size = vec2(rect_pixels.width() as f32, rect_pixels.height() as f32);
+                let left_pane_pixels = left_pane_rect * pixel_per_point;
+                let right_pane_pixels = right_pane_rect * pixel_per_point;
+                let pane_viewport_size = vec2(left_pane_pixels.width() as f32, left_pane_pixels.height() as f32);
                 let image_size = vec2(spec.width as f32, spec.height as f32);
 
                 let primary_tex_handle = self.gl_primary_tex;
+                let secondary_tex_handle = self.gl_secondary_tex;
                 let scale = self.zoom() as f32;
                 let position = self.pan;
 
@@ -424,45 +502,66 @@ impl ImageViewer {
                         let gl = painter.gl();
                         let screen_h = info.screen_size_px[1] as i32;
                         let screen_w = info.screen_size_px[0] as i32;
-                        let x = rect_pixels.min.x.round() as i32;
-                        let y_top = rect_pixels.max.y.round() as i32;
-                        let height = rect_pixels.height().round() as i32;
-                        let y = screen_h - y_top;
-                        let width = rect_pixels.width().round() as i32;
-                        gl.viewport(x, y, width, height);
 
-                        if is_show_background {
-                            background_prog.draw(
-                                gl,
-                                viewport_size,
-                                position,
-                                16.0,
-                                visuals.extreme_bg_color,
-                                visuals.faint_bg_color,
-                            );
-                        }
+                        let draw_pane = |pane_pixels: egui::Rect,
+                                         pane_size: egui::Vec2,
+                                         tex: Option<GL::NativeTexture>,
+                                         min_max: &crate::model::MinMax| {
+                            let x = pane_pixels.min.x.round() as i32;
+                            let y_top = pane_pixels.max.y.round() as i32;
+                            let height = pane_pixels.height().round() as i32;
+                            let y = screen_h - y_top;
+                            let width = pane_pixels.width().round() as i32;
+                            gl.viewport(x, y, width, height);
 
-                        if let Ok(mut image_prog) = image_prog.lock() {
-                            if let Some(draw_tex) = primary_tex_handle {
+                            if is_show_background {
+                                background_prog.draw(
+                                    gl,
+                                    pane_size,
+                                    position,
+                                    16.0,
+                                    visuals.extreme_bg_color,
+                                    visuals.faint_bg_color,
+                                );
+                            }
+
+                            if let (Some(draw_tex), Ok(mut image_prog)) = (tex, image_prog.lock()) {
                                 image_prog.draw(
                                     gl,
                                     draw_tex,
                                     colormap.as_str(),
-                                    viewport_size,
+                                    pane_size,
                                     image_size,
                                     channel_index,
-                                    &min_max,
+                                    min_max,
                                     is_mono,
                                     scale,
                                     position,
                                     &shader_params,
                                 );
                             }
+                        };
+
+                        draw_pane(
+                            if split_view { left_pane_pixels } else { rect_pixels },
+                            if split_view { pane_viewport_size } else { viewport_size },
+                            primary_tex_handle,
+                            &min_max_primary,
+                        );
+                        if split_view {
+                            draw_pane(right_pane_pixels, pane_viewport_size, secondary_tex_handle, &min_max_secondary);
                         }
 
                         // If an export was requested, render to an offscreen FBO once and reuse the RGBA readback.
-                        if let Some((copy_requested, save_requested, out_w, out_h, crop_pos, export_scale)) =
-                            export_request.clone()
+                        if let Some((
+                            copy_requested,
+                            save_requested,
+                            out_w,
+                            out_h,
+                            crop_pos,
+                            export_scale,
+                            export_secondary,
+                        )) = export_request.clone()
                         {
                             // Create offscreen target
                             let fbo = gl.create_framebuffer().unwrap();
@@ -498,7 +597,17 @@ impl ImageViewer {
                                 gl.clear_color(0.0, 0.0, 0.0, 0.0);
                                 gl.clear(GL::COLOR_BUFFER_BIT);
                                 if let Ok(mut image_prog) = image_prog.lock() {
-                                    if let Some(draw_tex) = primary_tex_handle {
+                                    let export_tex = if export_secondary {
+                                        secondary_tex_handle
+                                    } else {
+                                        primary_tex_handle
+                                    };
+                                    let export_min_max = if export_secondary {
+                                        &min_max_secondary
+                                    } else {
+                                        &min_max_primary
+                                    };
+                                    if let Some(draw_tex) = export_tex {
                                         image_prog.draw(
                                             gl,
                                             draw_tex,
@@ -506,7 +615,7 @@ impl ImageViewer {
                                             egui::vec2(out_w as f32, out_h as f32),
                                             image_size,
                                             channel_index,
-                                            &min_max,
+                                            export_min_max,
                                             is_mono,
                                             export_scale,
                                             crop_pos,
@@ -579,8 +688,13 @@ impl ImageViewer {
                 });
 
                 // Draw marquee rectangle
-                let selection_rect = selection_rect_view.intersect(rect);
-                if selection_rect.width() > 0.0 && selection_rect.height() > 0.0 {
+                let selection_rects =
+                    std::iter::once(selection_rect_primary_clipped).chain(selection_rect_secondary_clipped.into_iter());
+                for selection_rect in selection_rects {
+                    if selection_rect.width() <= 0.0 || selection_rect.height() <= 0.0 {
+                        continue;
+                    }
+
                     ui.painter().rect_stroke(
                         selection_rect,
                         0.0,
@@ -607,13 +721,6 @@ impl ImageViewer {
                 // Draw crosshair
                 if app_state.is_show_crosshair {
                     if let Some(cursor_px) = app_state.cursor_pos {
-                        // Center of the hovered image pixel in view points
-                        let center_px = egui::vec2(
-                            (cursor_px.x as f32 + 0.5) * self.zoom(),
-                            (cursor_px.y as f32 + 0.5) * self.zoom(),
-                        );
-                        let center_pt = rect.min + (self.pan + center_px) / pixel_per_point;
-
                         // Draw a subtle shadow then a bright line for visibility
                         let painter = ui.painter();
                         let shadow = egui::Stroke {
@@ -625,59 +732,64 @@ impl ImageViewer {
                             color: egui::Color32::from_white_alpha(220),
                         };
 
-                        let h1 = [
-                            egui::pos2(rect.left(), center_pt.y),
-                            egui::pos2(rect.right(), center_pt.y),
-                        ];
-                        let v1 = [
-                            egui::pos2(center_pt.x, rect.top()),
-                            egui::pos2(center_pt.x, rect.bottom()),
-                        ];
+                        for pane_rect in
+                            std::iter::once(active_primary_rect).chain(split_view.then_some(right_pane_rect))
+                        {
+                            // Center of the hovered image pixel in view points
+                            let center_px = egui::vec2(
+                                (cursor_px.x as f32 + 0.5) * self.zoom(),
+                                (cursor_px.y as f32 + 0.5) * self.zoom(),
+                            );
+                            let center_pt = pane_rect.min + (self.pan + center_px) / pixel_per_point;
 
-                        painter.line_segment(h1, shadow);
-                        painter.line_segment(v1, shadow);
-                        painter.line_segment(h1, line);
-                        painter.line_segment(v1, line);
+                            let h1 = [
+                                egui::pos2(pane_rect.left(), center_pt.y),
+                                egui::pos2(pane_rect.right(), center_pt.y),
+                            ];
+                            let v1 = [
+                                egui::pos2(center_pt.x, pane_rect.top()),
+                                egui::pos2(center_pt.x, pane_rect.bottom()),
+                            ];
+
+                            painter.line_segment(h1, shadow);
+                            painter.line_segment(v1, shadow);
+                            painter.line_segment(h1, line);
+                            painter.line_segment(v1, line);
+                        }
                     }
                 };
 
                 // Draw per-pixel values when zoomed-in sufficiently and enabled
                 if app_state.is_show_pixel_value && self.zoom() > 64.0 {
                     let painter = ui.painter();
-
-                    // Compute visible image coordinate bounds
-                    let top_left_img = self.view_to_image_coords(rect.min, rect, pixel_per_point);
-                    let bottom_right_img = self.view_to_image_coords(rect.max, rect, pixel_per_point);
-
-                    let mut start_x = top_left_img.x.floor() as i32;
-                    let mut start_y = top_left_img.y.floor() as i32;
-                    let mut end_x = bottom_right_img.x.ceil() as i32;
-                    let mut end_y = bottom_right_img.y.ceil() as i32;
-
-                    // Clamp to image bounds
-                    start_x = start_x.max(0);
-                    start_y = start_y.max(0);
-                    end_x = end_x.min(spec.width);
-                    end_y = end_y.min(spec.height);
-
                     // Determine font size relative to on-screen pixel size
                     let font_size = 16.0 / pixel_per_point;
                     let spacing = font_size * 0.1;
                     let font_id = egui::FontId::monospace(font_size);
+                    let pane_iter = std::iter::once((active_primary_rect, primary_image))
+                        .chain(split_view.then(|| (right_pane_rect, secondary_image.unwrap())));
+                    for (pane_rect, pane_image) in pane_iter {
+                        let top_left_img = self.pane_view_to_image_coords(pane_rect.min, pane_rect, pixel_per_point);
+                        let bottom_right_img =
+                            self.pane_view_to_image_coords(pane_rect.max, pane_rect, pixel_per_point);
+                        let mut start_x = top_left_img.x.floor() as i32;
+                        let mut start_y = top_left_img.y.floor() as i32;
+                        let mut end_x = bottom_right_img.x.ceil() as i32;
+                        let mut end_y = bottom_right_img.y.ceil() as i32;
 
-                    if let Some(asset) = app_state.asset.as_ref() {
-                        let image = asset.image();
+                        start_x = start_x.max(0);
+                        start_y = start_y.max(0);
+                        end_x = end_x.min(spec.width);
+                        end_y = end_y.min(spec.height);
+
                         for j in start_y..end_y {
                             for i in start_x..end_x {
-                                if let Ok(vals) = image.get_pixel_at(i, j) {
+                                if let Ok(vals) = pane_image.get_pixel_at(i, j) {
                                     let num_c = vals.len();
-
-                                    // Center of the image pixel in points
                                     let center_px =
                                         egui::vec2((i as f32 + 0.5) * self.zoom(), (j as f32 + 0.5) * self.zoom());
-                                    let center_pt = rect.min + (self.pan + center_px) / pixel_per_point;
+                                    let center_pt = pane_rect.min + (self.pan + center_px) / pixel_per_point;
 
-                                    // Arrange channel lines vertically centered within the pixel cell
                                     let total_h = (num_c as f32) * font_size;
                                     for (c_idx, v) in vals.iter().enumerate() {
                                         let y_offset = -total_h * 0.5 + (font_size + spacing) * (c_idx as f32 + 0.5);
@@ -690,10 +802,10 @@ impl ImageViewer {
                                             _ => egui::Color32::GRAY,
                                         };
 
-                                        let text = if spec.dtype.cv_type_is_floating() {
-                                            format!("{:.4}", (*v as f64) * spec.dtype.alpha())
+                                        let text = if pane_image.spec().dtype.cv_type_is_floating() {
+                                            format!("{:.4}", (*v as f64) * pane_image.spec().dtype.alpha())
                                         } else {
-                                            format!("{:.0}", (*v as f64) * spec.dtype.alpha())
+                                            format!("{:.0}", (*v as f64) * pane_image.spec().dtype.alpha())
                                         };
                                         painter.text(pos, egui::Align2::CENTER_CENTER, text, font_id.clone(), color);
                                     }
@@ -703,9 +815,17 @@ impl ImageViewer {
                     }
                 }
 
+                if split_view {
+                    let divider_x = rect.center().x;
+                    ui.painter().line_segment(
+                        [egui::pos2(divider_x, rect.top()), egui::pos2(divider_x, rect.bottom())],
+                        egui::Stroke::new(1.0, egui::Color32::from_white_alpha(96)),
+                    );
+                }
+
                 // Draw a continuous-position arrow on the viewport edge pointing toward the offscreen image
                 // when the image is fully outside the viewport.
-                {
+                if !split_view {
                     let scale = self.zoom();
                     let image_rect_view = {
                         let min_view = rect.min + (self.pan) / pixel_per_point;
@@ -921,9 +1041,53 @@ impl ImageViewer {
         self.pan = self.pan * k + local * (1.0 - k);
     }
 
-    pub fn view_to_image_coords(&self, view_pos: egui::Pos2, rect: egui::Rect, pixel_per_point: f32) -> egui::Pos2 {
-        let local_pos = (view_pos - rect.min) * pixel_per_point;
+    fn is_split_comparison(&self, app_state: &AppState) -> bool {
+        app_state.is_comparison()
+            && app_state.comparison_mode == crate::model::ComparisonMode::Split
+            && app_state.asset_primary.is_some()
+            && app_state.asset_secondary.is_some()
+    }
+
+    fn split_pane_rects(&self, rect: egui::Rect) -> (egui::Rect, egui::Rect) {
+        let divider_x = rect.center().x;
+        (
+            egui::Rect::from_min_max(rect.min, egui::pos2(divider_x, rect.max.y)),
+            egui::Rect::from_min_max(egui::pos2(divider_x, rect.min.y), rect.max),
+        )
+    }
+
+    fn selection_rect_in_view(&self, pane_rect: egui::Rect, rect: Recti, pixel_per_point: f32) -> egui::Rect {
+        let r = rect.to_rect();
+        let k = self.zoom() / pixel_per_point;
+        (r * k).translate(self.pan / pixel_per_point + pane_rect.min.to_vec2())
+    }
+
+    fn pane_view_to_image_coords(
+        &self,
+        view_pos: egui::Pos2,
+        pane_rect: egui::Rect,
+        pixel_per_point: f32,
+    ) -> egui::Pos2 {
+        let local_pos = (view_pos - pane_rect.min) * pixel_per_point;
         ((local_pos - self.pan) / self.zoom()).to_pos2()
+    }
+
+    pub fn view_to_image_coords(
+        &self,
+        view_pos: egui::Pos2,
+        rect: egui::Rect,
+        pixel_per_point: f32,
+        split_view: bool,
+    ) -> (egui::Pos2, bool) {
+        if split_view {
+            let (left_rect, right_rect) = self.split_pane_rects(rect);
+            if right_rect.contains(view_pos) {
+                return (self.pane_view_to_image_coords(view_pos, right_rect, pixel_per_point), true);
+            }
+            return (self.pane_view_to_image_coords(view_pos, left_rect, pixel_per_point), false);
+        }
+
+        (self.pane_view_to_image_coords(view_pos, rect, pixel_per_point), false)
     }
 
     // Fit the given image-space rectangle fully within the last known viewport.
@@ -952,6 +1116,31 @@ impl ImageViewer {
         let scale = self.zoom();
         let rect_cx = (rect.min.x as f32 + rect.max.x as f32) * 0.5;
         let rect_cy = (rect.min.y as f32 + rect.max.y as f32) * 0.5;
+        let viewport_cx = vw * 0.5;
+        let viewport_cy = vh * 0.5;
+        self.pan = egui::vec2(viewport_cx - rect_cx * scale, viewport_cy - rect_cy * scale);
+    }
+
+    pub fn fit_split(&mut self, image_width: i32, image_height: i32) {
+        let Some(viewport_px) = self.last_viewport_size_px else {
+            return;
+        };
+
+        let rw = image_width.max(1) as f32;
+        let rh = image_height.max(1) as f32;
+        let vw = (viewport_px.x * 0.5).max(1.0);
+        let vh = viewport_px.y.max(1.0);
+        let scale_max = (vw / rw).min(vh / rh);
+        if !scale_max.is_finite() || scale_max <= 0.0 {
+            return;
+        }
+
+        let base = self.zoom_base.max(1.0000001);
+        self.zoom_level = (scale_max.ln() / base.ln()).floor();
+
+        let scale = self.zoom();
+        let rect_cx = image_width as f32 * 0.5;
+        let rect_cy = image_height as f32 * 0.5;
         let viewport_cx = vw * 0.5;
         let viewport_cy = vh * 0.5;
         self.pan = egui::vec2(viewport_cx - rect_cx * scale, viewport_cy - rect_cy * scale);
@@ -1154,6 +1343,15 @@ fn sync_mat_texture(
         *texture_slot = Some(tex);
         *last_image_id = Some(image_id);
     }
+}
+
+fn release_texture(gl: &GL::Context, texture_slot: &mut Option<GL::NativeTexture>, last_image_id: &mut Option<u64>) {
+    if let Some(old_tex) = texture_slot.take() {
+        unsafe {
+            gl.delete_texture(old_tex);
+        }
+    }
+    *last_image_id = None;
 }
 
 // Upload an CPU data directly as an OpenGL texture.

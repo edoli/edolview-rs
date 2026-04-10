@@ -26,6 +26,7 @@ pub struct AppState {
     pub comparison_notice: Option<String>,
     pub shader_params: ShaderParams,
     pub cursor_pos: Option<Vec2i>,
+    pub cursor_on_secondary: bool,
     pub marquee_rect: Recti,
 
     pub channel_index: i32,
@@ -88,6 +89,7 @@ impl AppState {
             comparison_notice: None,
             shader_params: ShaderParams::default(),
             cursor_pos: None,
+            cursor_on_secondary: false,
             marquee_rect: Recti::ZERO,
             channel_index: -1,
             colormap_rgb: String::from("rgb"),
@@ -253,6 +255,9 @@ impl AppState {
 
     pub fn update_asset(&mut self) {
         self.comparison_notice = None;
+        if self.comparison_mode != ComparisonMode::Split || self.asset_secondary.is_none() {
+            self.cursor_on_secondary = false;
+        }
         if let Some(asset_primary) = &self.asset_primary {
             if let Some(asset_secondary) = &self.asset_secondary {
                 if asset_primary.hash() == asset_secondary.hash() {
@@ -265,6 +270,7 @@ impl AppState {
                             "Error: image size mismatch: primary is {}x{}, secondary is {}x{}.",
                             primary_spec.width, primary_spec.height, secondary_spec.width, secondary_spec.height
                         ));
+                        self.cursor_on_secondary = false;
                         self.asset = None;
                         return;
                     }
@@ -307,6 +313,7 @@ impl AppState {
         self.asset_primary = None;
         self.asset_secondary = None;
         self.comparison_notice = None;
+        self.cursor_on_secondary = false;
         self.path = None;
         self.file_nav.clear();
         self.marquee_rect = Recti::ZERO;
