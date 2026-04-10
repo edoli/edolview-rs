@@ -13,6 +13,24 @@ use crate::{
     },
 };
 
+fn scale_mode_name(scale_mode: ScaleMode) -> &'static str {
+    match scale_mode {
+        ScaleMode::Linear => "Linear",
+        ScaleMode::Absolute => "Absolute",
+        ScaleMode::Inverse => "Inverse",
+        ScaleMode::Log => "Log",
+    }
+}
+
+fn scale_mode_icon<'a>(icons: &'a Icons, ctx: &'a egui::Context, scale_mode: ScaleMode) -> egui::Image<'a> {
+    match scale_mode {
+        ScaleMode::Linear => icons.get_scale_linear(ctx),
+        ScaleMode::Absolute => icons.get_scale_absolute(ctx),
+        ScaleMode::Inverse => icons.get_scale_inverse(ctx),
+        ScaleMode::Log => icons.get_scale_log(ctx),
+    }
+}
+
 pub fn display_controls_ui(
     ui: &mut egui::Ui,
     icons: &Icons,
@@ -30,9 +48,23 @@ pub fn display_controls_ui(
     }
     let locked = *auto_minmax && normalize_enabled;
 
-    ui.radio_icon(scale_mode, ScaleMode::Linear, icons.get_scale_linear(&ctx), "Linear");
-    ui.radio_icon(scale_mode, ScaleMode::Absolute, icons.get_scale_absolute(&ctx), "Absolute");
-    ui.radio_icon(scale_mode, ScaleMode::Inverse, icons.get_scale_inverse(&ctx), "Inverse");
+    ui.menu_image_button(scale_mode_icon(icons, &ctx, *scale_mode), |ui| {
+        for mode in [ScaleMode::Linear, ScaleMode::Absolute, ScaleMode::Inverse] {
+            if ui
+                .add(egui::Button::image_and_text(
+                    scale_mode_icon(icons, &ctx, mode),
+                    scale_mode_name(mode),
+                ))
+                .on_hover_text(scale_mode_name(mode))
+                .clicked()
+            {
+                *scale_mode = mode;
+                ui.close();
+            }
+        }
+    })
+    .response
+    .on_hover_text(format!("Pixel value display mode: {}", scale_mode_name(*scale_mode)));
 
     ui.separator();
 
