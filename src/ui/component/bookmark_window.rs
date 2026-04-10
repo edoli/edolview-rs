@@ -16,12 +16,31 @@ pub struct BookmarkWindowActions {
     pub remove_index: Option<usize>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum BookmarkJumpMode {
+    None,
+    #[default]
+    Center,
+    Fit,
+}
+
+impl BookmarkJumpMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "Do Nothing",
+            Self::Center => "Center",
+            Self::Fit => "Fit",
+        }
+    }
+}
+
 pub fn show_bookmark_window(
     ctx: &egui::Context,
     icons: &Icons,
     open: &mut bool,
     bookmarks: &[Recti],
     active_bookmark_index: Option<usize>,
+    jump_mode: &mut BookmarkJumpMode,
     add_shortcut_label: &str,
 ) -> BookmarkWindowActions {
     if !*open {
@@ -49,6 +68,14 @@ pub fn show_bookmark_window(
                 if ui.add_enabled(!bookmarks.is_empty(), egui::Button::new("Clear All")).clicked() {
                     actions.clear_all = true;
                 }
+                ui.label("Jump:");
+                egui::ComboBox::from_id_salt("bookmark_jump_mode")
+                    .selected_text(jump_mode.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(jump_mode, BookmarkJumpMode::None, BookmarkJumpMode::None.label());
+                        ui.selectable_value(jump_mode, BookmarkJumpMode::Center, BookmarkJumpMode::Center.label());
+                        ui.selectable_value(jump_mode, BookmarkJumpMode::Fit, BookmarkJumpMode::Fit.label());
+                    });
             });
             ui.separator();
 

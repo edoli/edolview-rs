@@ -24,7 +24,7 @@ use crate::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
             egui_ext::{ComboBoxExt, Size, UiExt},
-            show_bookmark_window, CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
+            show_bookmark_window, BookmarkJumpMode, CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
         },
         ImageViewer,
     },
@@ -66,6 +66,7 @@ pub struct ViewerApp {
     last_marquee_asset_hash: Option<String>,
     bookmarks: Vec<Bookmark>,
     active_bookmark_index: Option<usize>,
+    bookmark_jump_mode: BookmarkJumpMode,
 
     show_plot_channels: [bool; 4],
 
@@ -206,6 +207,7 @@ impl ViewerApp {
             last_marquee_asset_hash: None,
             bookmarks: Vec::new(),
             active_bookmark_index: None,
+            bookmark_jump_mode: BookmarkJumpMode::Center,
 
             show_plot_channels: [true, true, true, false],
 
@@ -529,7 +531,11 @@ impl ViewerApp {
             self.state.cursor_pos = None;
         } else {
             self.state.cursor_pos = Some(self.state.marquee_rect.min);
-            self.viewer.center_rect(self.state.marquee_rect);
+            match self.bookmark_jump_mode {
+                BookmarkJumpMode::None => {}
+                BookmarkJumpMode::Center => self.viewer.center_rect(self.state.marquee_rect),
+                BookmarkJumpMode::Fit => self.viewer.fit_rect(self.state.marquee_rect),
+            }
         }
 
         self.active_bookmark_index = Some(index);
@@ -734,6 +740,7 @@ impl ViewerApp {
             &mut self.show_bookmarks_modal,
             &bookmark_rects,
             self.active_bookmark_index,
+            &mut self.bookmark_jump_mode,
             &crate::res::BOOKMARK_ADD.format_sys(),
         );
 
