@@ -19,6 +19,29 @@ pub const NAVIGATE_NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NON
 pub const NAVIGATE_ASSET_PREV: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::PageUp);
 pub const NAVIGATE_ASSET_NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::PageDown);
 
+fn preset_key(slot: usize) -> Key {
+    match slot {
+        0 => Key::Num1,
+        1 => Key::Num2,
+        2 => Key::Num3,
+        3 => Key::Num4,
+        4 => Key::Num5,
+        5 => Key::Num6,
+        6 => Key::Num7,
+        7 => Key::Num8,
+        8 => Key::Num9,
+        _ => unreachable!("view preset slot out of range"),
+    }
+}
+
+pub fn preset_save_shortcut(slot: usize) -> KeyboardShortcut {
+    KeyboardShortcut::new(Modifiers::COMMAND, preset_key(slot))
+}
+
+pub fn preset_apply_shortcut(slot: usize) -> KeyboardShortcut {
+    KeyboardShortcut::new(Modifiers::ALT, preset_key(slot))
+}
+
 pub const MODIFIER_NAMES: ModifierNames = ModifierNames {
     is_short: false,
     alt: "Alt",

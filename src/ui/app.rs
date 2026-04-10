@@ -48,21 +48,6 @@ enum UpdateStatus {
     Error(String),
 }
 
-fn preset_key(slot: usize) -> egui::Key {
-    match slot {
-        0 => egui::Key::Num1,
-        1 => egui::Key::Num2,
-        2 => egui::Key::Num3,
-        3 => egui::Key::Num4,
-        4 => egui::Key::Num5,
-        5 => egui::Key::Num6,
-        6 => egui::Key::Num7,
-        7 => egui::Key::Num8,
-        8 => egui::Key::Num9,
-        _ => unreachable!("view preset slot out of range"),
-    }
-}
-
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -943,12 +928,11 @@ impl eframe::App for ViewerApp {
             let mut save_view_preset = None;
             ctx.input_mut(|i| {
                 for slot in 0..crate::settings::VIEW_PRESET_COUNT {
-                    let key = preset_key(slot);
-                    if i.consume_key(egui::Modifiers::COMMAND, key) {
+                    if i.consume_shortcut(&crate::res::preset_save_shortcut(slot)) {
                         save_view_preset = Some(slot);
                         break;
                     }
-                    if i.consume_key(egui::Modifiers::ALT, key) {
+                    if i.consume_shortcut(&crate::res::preset_apply_shortcut(slot)) {
                         apply_view_preset = Some(slot);
                         break;
                     }
