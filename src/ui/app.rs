@@ -1359,6 +1359,8 @@ impl eframe::App for ViewerApp {
 
                     ui.toggle_value(&mut self.state.is_show_statusbar, "Status Bar");
                     ui.toggle_value(&mut self.state.is_show_sidebar, "Sidebar");
+                    ui.toggle_value(&mut self.show_bookmarks_modal, "Bookmarks")
+                        .on_hover_text(format!("Show bookmark panel ({})", &crate::res::BOOKMARK_PANEL_TOGGLE.format_sys()));
                 });
             });
         });
