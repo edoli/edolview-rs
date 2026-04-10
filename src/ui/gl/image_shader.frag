@@ -32,13 +32,6 @@ uniform int u_scale_mode1;
 uniform int u_scale_mode2;
 uniform int u_scale_mode3;
 
-// For rect diff mode
-uniform sampler2D u_secondary_texture;
-uniform vec2 u_secondary_image_size;
-uniform int u_rect_mode;
-uniform ivec2 u_rect_min;
-uniform ivec2 u_rect_max;
-
 #define PI 3.1415926535897932384626433832795
 #define EPS 1e-12
 
@@ -158,19 +151,6 @@ float apply_scale_mode(float v, int mode)
 void main()
 {
     vec4 tex = texture2D(u_texture, v_tex_coord);
-
-    float image_x = v_tex_coord.x * float(u_image_size.x);
-    float image_y = v_tex_coord.y * float(u_image_size.y);
-
-    if (u_rect_mode != 0) {
-        vec2 image_pos = vec2(image_x, image_y);
-        bool inside_rect = image_x >= float(u_rect_min.x) && image_x < float(u_rect_max.x)
-            && image_y >= float(u_rect_min.y) && image_y < float(u_rect_max.y);
-        if (inside_rect && u_secondary_image_size.x > 0.0 && u_secondary_image_size.y > 0.0) {
-            vec2 secondary_uv = image_pos / u_secondary_image_size;
-            tex = texture2D(u_secondary_texture, secondary_uv);
-        }
-    }
 
     if (u_use_per_channel != 0) {
         tex.r = (apply_scale_mode(tex.r, u_scale_mode0) - u_min_v0) / (u_max_v0 - u_min_v0);

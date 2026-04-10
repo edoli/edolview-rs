@@ -5,16 +5,9 @@ use glow::HasContext;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    model::{MinMax, Recti},
+    model::MinMax,
     ui::gl::{gl_ext::GlExt, ShaderBuilder},
 };
-
-#[derive(Clone, Copy)]
-pub struct RectOverlay {
-    pub tex_id: glow::NativeTexture,
-    pub image_size: Vec2,
-    pub rect: Recti,
-}
 
 pub struct ImageProgram {
     pub program: glow::Program,
@@ -30,11 +23,6 @@ pub struct ImageProgram {
     u_image_size: glow::UniformLocation,
 
     u_texture: glow::UniformLocation,
-    u_secondary_texture: glow::UniformLocation,
-    u_secondary_image_size: glow::UniformLocation,
-    u_rect_mode: glow::UniformLocation,
-    u_rect_min: glow::UniformLocation,
-    u_rect_max: glow::UniformLocation,
     u_channel_index: glow::UniformLocation,
     u_scale: glow::UniformLocation,
     u_position: glow::UniformLocation,
@@ -215,11 +203,6 @@ impl ImageProgram {
             let u_image_size = gl.check_and_get_uniform_location(program, "u_image_size");
 
             let u_texture = gl.check_and_get_uniform_location(program, "u_texture");
-            let u_secondary_texture = gl.check_and_get_uniform_location(program, "u_secondary_texture");
-            let u_secondary_image_size = gl.check_and_get_uniform_location(program, "u_secondary_image_size");
-            let u_rect_mode = gl.check_and_get_uniform_location(program, "u_rect_mode");
-            let u_rect_min = gl.check_and_get_uniform_location(program, "u_rect_min");
-            let u_rect_max = gl.check_and_get_uniform_location(program, "u_rect_max");
             let u_channel_index = gl.check_and_get_uniform_location(program, "u_channel_index");
             let u_scale = gl.check_and_get_uniform_location(program, "u_scale");
             let u_position = gl.check_and_get_uniform_location(program, "u_position");
@@ -252,11 +235,6 @@ impl ImageProgram {
                 u_viewport_size,
                 u_image_size,
                 u_texture,
-                u_secondary_texture,
-                u_secondary_image_size,
-                u_rect_mode,
-                u_rect_min,
-                u_rect_max,
                 u_scale,
                 u_position,
                 u_channel_index,
@@ -283,11 +261,6 @@ impl ImageProgram {
         self.u_image_size = gl.check_and_get_uniform_location(program, "u_image_size");
 
         self.u_texture = gl.check_and_get_uniform_location(program, "u_texture");
-        self.u_secondary_texture = gl.check_and_get_uniform_location(program, "u_secondary_texture");
-        self.u_secondary_image_size = gl.check_and_get_uniform_location(program, "u_secondary_image_size");
-        self.u_rect_mode = gl.check_and_get_uniform_location(program, "u_rect_mode");
-        self.u_rect_min = gl.check_and_get_uniform_location(program, "u_rect_min");
-        self.u_rect_max = gl.check_and_get_uniform_location(program, "u_rect_max");
         self.u_channel_index = gl.check_and_get_uniform_location(program, "u_channel_index");
         self.u_scale = gl.check_and_get_uniform_location(program, "u_scale");
         self.u_position = gl.check_and_get_uniform_location(program, "u_position");
@@ -312,7 +285,6 @@ impl ImageProgram {
         &mut self,
         gl: &glow::Context,
         tex_id: glow::NativeTexture,
-        rect_overlay: Option<RectOverlay>,
         colormap_name: &str,
         viewport_size: Vec2,
         image_size: Vec2,
@@ -346,25 +318,11 @@ impl ImageProgram {
         gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_2D, Some(tex_id));
-        gl.active_texture(glow::TEXTURE1);
-        gl.bind_texture(glow::TEXTURE_2D, rect_overlay.map(|overlay| overlay.tex_id));
 
         gl.uniform_2_f32v(Some(&self.u_viewport_size), viewport_size);
         gl.uniform_2_f32v(Some(&self.u_image_size), image_size);
 
         gl.uniform_1_i32(Some(&self.u_texture), 0);
-        gl.uniform_1_i32(Some(&self.u_secondary_texture), 1);
-        if let Some(rect_overlay) = rect_overlay {
-            gl.uniform_1_i32(Some(&self.u_rect_mode), 1);
-            gl.uniform_2_f32v(Some(&self.u_secondary_image_size), rect_overlay.image_size);
-            gl.uniform_2_i32(Some(&self.u_rect_min), rect_overlay.rect.min.x, rect_overlay.rect.min.y);
-            gl.uniform_2_i32(Some(&self.u_rect_max), rect_overlay.rect.max.x, rect_overlay.rect.max.y);
-        } else {
-            gl.uniform_1_i32(Some(&self.u_rect_mode), 0);
-            gl.uniform_2_f32v(Some(&self.u_secondary_image_size), Vec2::ZERO);
-            gl.uniform_2_i32(Some(&self.u_rect_min), 0, 0);
-            gl.uniform_2_i32(Some(&self.u_rect_max), 0, 0);
-        }
         gl.uniform_1_i32(Some(&self.u_channel_index), channel_index);
         gl.uniform_1_f32(Some(&self.u_scale), scale);
         gl.uniform_2_f32v(Some(&self.u_position), position);
@@ -420,8 +378,6 @@ impl ImageProgram {
         gl.bind_vertex_array(Some(self.vao));
         gl.draw_elements(glow::TRIANGLES, 6, glow::UNSIGNED_INT, 0);
         gl.bind_vertex_array(None);
-        gl.active_texture(glow::TEXTURE1);
-        gl.bind_texture(glow::TEXTURE_2D, None);
         gl.active_texture(glow::TEXTURE0);
         gl.use_program(None);
     }

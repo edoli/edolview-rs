@@ -2,11 +2,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use opencv::core::{MatTrait, MatTraitConst};
 
-use crate::model::{Image, MatImage, Recti};
-use crate::util::{
-    cv_ext::{CvIntExt, CvMatExt},
-    math_ext::vec2i,
-};
+use crate::model::{Image, MatImage};
+use crate::util::cv_ext::{CvIntExt, CvMatExt};
 
 pub type SharedAsset = Arc<dyn Asset<MatImage>>;
 
@@ -23,7 +20,6 @@ pub enum AssetType {
 pub enum ComparisonMode {
     Diff,
     Blend,
-    Rect,
 }
 
 pub trait Asset<T: Image> {
@@ -227,7 +223,6 @@ impl ComparisonAsset {
         asset_secondary: SharedAsset,
         mode: ComparisonMode,
         blend_alpha: f32,
-        rect: Option<Recti>,
     ) -> (Self, Option<String>) {
         let name = format!(
             "Comparison ({:?}): {} vs {}",
@@ -274,19 +269,12 @@ impl ComparisonAsset {
         }
 
         let mut mat = mat1.clone();
-        let full_rect =
-            Recti::from_min_size(vec2i(0, 0), vec2i(mat1.cols().min(mat2.cols()), mat1.rows().min(mat2.rows())));
+        let roi_rect = opencv::core::Rect::new(0, 0, mat1.cols().min(mat2.cols()), mat1.rows().min(mat2.rows()));
 
-        let roi_rect = match mode {
-            ComparisonMode::Rect => rect.unwrap_or(Recti::ZERO).validate().intersect(full_rect),
-            _ => full_rect,
-        };
-
-        if !roi_rect.empty() {
-            let roi_cv = roi_rect.to_cv_rect();
-            let mat1_roi = mat1.roi(roi_cv).unwrap();
-            let mat2_roi = mat2.roi(roi_cv).unwrap();
-            let mut mat_roi = mat.roi_mut(roi_cv).unwrap();
+        if roi_rect.width > 0 && roi_rect.height > 0 {
+            let mat1_roi = mat1.roi(roi_rect).unwrap();
+            let mat2_roi = mat2.roi(roi_rect).unwrap();
+            let mut mat_roi = mat.roi_mut(roi_rect).unwrap();
 
             match mode {
                 ComparisonMode::Diff => {
@@ -296,9 +284,6 @@ impl ComparisonAsset {
                     let alpha = blend_alpha.clamp(0.0, 1.0) as f64;
                     opencv::core::add_weighted(&mat1_roi, 1.0 - alpha, &mat2_roi, alpha, 0.0, &mut mat_roi, -1)
                         .unwrap();
-                }
-                ComparisonMode::Rect => {
-                    mat2_roi.copy_to(&mut mat_roi).unwrap();
                 }
             }
         }
