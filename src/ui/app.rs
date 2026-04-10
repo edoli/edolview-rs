@@ -540,15 +540,12 @@ impl ViewerApp {
 
         self.active_bookmark_index = Some(index);
         ctx.request_repaint();
-        let prefix = format!("Jumped to bookmark {}/{}", index + 1, self.bookmarks.len());
         if clipped_rect.empty() {
             self.toasts
-                .add_info(format!("{prefix}; the bookmarked area is outside the current image bounds"));
+                .add_info(format!("The bookmarked area is outside the current image bounds"));
         } else if clipped_rect != requested_rect {
             self.toasts
-                .add_info(format!("{prefix}; the bookmarked area is clipped to the current image bounds"));
-        } else {
-            self.toasts.add_success(prefix);
+                .add_info(format!("The bookmarked area is clipped to the current image bounds"));
         }
     }
 
