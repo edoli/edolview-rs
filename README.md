@@ -42,6 +42,15 @@ Designed for researchers, engineers, and graphics professionals who need **speed
   * `ctrl` / `cmd` + `c` : copy image or selected region
   * `ctrl` / `cmd` + `s` : save image or selected region
 
+* **Bookmarks**
+  * `b` : toggle bookmarks window
+  * `ctrl` / `cmd` + `b` : add or remove current selection bookmark
+  * `[` / `]` : jump to previous / next bookmark
+
+* **View Presets**
+  * `ctrl` / `cmd` + `1` .. `9` : save current view preset to slot 1 .. 9
+  * `alt` + `1` .. `9` : apply view preset from slot 1 .. 9
+
 ### Features
 
 * Color maps: **Edolview** supports various color maps. To get more information of color maps, see the wiki page: https://github.com/edoli/edolview-rs/wiki/Color-Map
