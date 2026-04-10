@@ -528,9 +528,7 @@ impl ViewerApp {
         self.tmp_marquee_rect = self.state.marquee_rect;
         self.marquee_rect_text = self.state.marquee_rect.to_string();
         if clipped_rect.empty() {
-            self.state.cursor_pos = None;
         } else {
-            self.state.cursor_pos = Some(self.state.marquee_rect.min);
             match self.bookmark_jump_mode {
                 BookmarkJumpMode::None => {}
                 BookmarkJumpMode::Center => self.viewer.center_rect(self.state.marquee_rect),
