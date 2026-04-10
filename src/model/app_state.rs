@@ -35,7 +35,6 @@ pub struct AppState {
     pub colormap_mono_list: Vec<String>,
 
     pub is_show_background: bool,
-    pub is_show_pixel_tooltip: bool,
     pub is_show_pixel_value: bool,
     pub is_show_crosshair: bool,
     pub is_show_sidebar: bool,
@@ -96,7 +95,6 @@ impl AppState {
             colormap_rgb_list: list_colormaps("colormap/rgb"),
             colormap_mono_list: list_colormaps("colormap/mono"),
             is_show_background: true,
-            is_show_pixel_tooltip: true,
             is_show_pixel_value: true,
             is_show_crosshair: false,
             is_show_sidebar: true,

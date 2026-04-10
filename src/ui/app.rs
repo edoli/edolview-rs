@@ -48,6 +48,21 @@ enum UpdateStatus {
     Error(String),
 }
 
+fn preset_key(slot: usize) -> egui::Key {
+    match slot {
+        0 => egui::Key::Num1,
+        1 => egui::Key::Num2,
+        2 => egui::Key::Num3,
+        3 => egui::Key::Num4,
+        4 => egui::Key::Num5,
+        5 => egui::Key::Num6,
+        6 => egui::Key::Num7,
+        7 => egui::Key::Num8,
+        8 => egui::Key::Num9,
+        _ => unreachable!("view preset slot out of range"),
+    }
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -59,10 +74,6 @@ pub struct ViewerApp {
     // Marquee change callbacks
     last_marquee_rect_for_cb: Recti,
     last_marquee_asset_hash: Option<String>,
-
-    // Panel visibility toggles
-    show_side_panel: bool,
-    show_bottom_panel: bool,
 
     show_plot_channels: [bool; 4],
 
@@ -122,12 +133,19 @@ impl Drop for ViewerApp {
 
 impl ViewerApp {
     pub fn new() -> Self {
-        let state = AppState::empty();
+        let mut state = AppState::empty();
         let marquee_rect = state.marquee_rect.clone();
         let app_settings = crate::settings::AppSettings::load().unwrap_or_else(|err| {
             eprintln!("Failed to load settings: {err}");
             crate::settings::AppSettings::default()
         });
+        let persisted_ui_state = app_settings.ui_state.clone();
+        state.is_show_background = persisted_ui_state.is_show_background;
+        state.is_show_pixel_value = persisted_ui_state.is_show_pixel_value;
+        state.is_show_crosshair = persisted_ui_state.is_show_crosshair;
+        state.is_show_sidebar = persisted_ui_state.is_show_sidebar;
+        state.is_show_statusbar = persisted_ui_state.is_show_statusbar;
+        state.copy_use_original_size = persisted_ui_state.copy_use_original_size;
 
         // Start socket server for receiving images
         let host = "127.0.0.1";
@@ -193,9 +211,6 @@ impl ViewerApp {
 
             last_marquee_rect_for_cb: marquee_rect,
             last_marquee_asset_hash: None,
-
-            show_side_panel: true,
-            show_bottom_panel: true,
 
             show_plot_channels: [true, true, true, false],
 
@@ -337,6 +352,66 @@ impl ViewerApp {
 
         self.viewer.request_save(path);
         ctx.request_repaint();
+    }
+
+    fn save_view_preset(&mut self, slot: usize) {
+        let preset = crate::settings::ViewPreset {
+            colormap_rgb: self.state.colormap_rgb.clone(),
+            colormap_mono: self.state.colormap_mono.clone(),
+            shader_params: self.state.shader_params.clone(),
+        };
+
+        self.app_settings.set_view_preset(slot, preset);
+        match self.app_settings.save() {
+            Ok(()) => self.toasts.add_success(format!("Saved view preset {}", slot + 1)),
+            Err(err) => {
+                eprintln!("Failed to save view preset {}: {err}", slot + 1);
+                self.toasts.add_error(format!("Failed to save view preset {}", slot + 1));
+            }
+        }
+    }
+
+    fn apply_view_preset(&mut self, slot: usize, ctx: &egui::Context) {
+        let Some(preset) = self.app_settings.view_preset(slot).cloned() else {
+            self.toasts.add_info(format!("View preset {} is empty", slot + 1));
+            return;
+        };
+
+        self.state.shader_params = preset.shader_params;
+
+        if self.state.colormap_rgb_list.contains(&preset.colormap_rgb) {
+            self.state.colormap_rgb = preset.colormap_rgb;
+        }
+        if self.state.colormap_mono_list.contains(&preset.colormap_mono) {
+            self.state.colormap_mono = preset.colormap_mono;
+        }
+
+        ctx.request_repaint();
+        self.toasts.add_success(format!("Applied view preset {}", slot + 1));
+    }
+
+    fn current_persistent_ui_state(&self) -> crate::settings::PersistentUiState {
+        crate::settings::PersistentUiState {
+            is_show_background: self.state.is_show_background,
+            is_show_pixel_value: self.state.is_show_pixel_value,
+            is_show_crosshair: self.state.is_show_crosshair,
+            is_show_sidebar: self.state.is_show_sidebar,
+            is_show_statusbar: self.state.is_show_statusbar,
+            copy_use_original_size: self.state.copy_use_original_size,
+        }
+    }
+
+    fn save_persistent_ui_state_if_needed(&mut self) {
+        let ui_state = self.current_persistent_ui_state();
+        if self.app_settings.ui_state == ui_state {
+            return;
+        }
+
+        self.app_settings.ui_state = ui_state;
+        if let Err(err) = self.app_settings.save() {
+            eprintln!("Failed to save UI settings: {err}");
+            self.toasts.add_error("Failed to save UI settings".to_string());
+        }
     }
 
     fn begin_update(&mut self, ctx: &egui::Context, update: crate::update::AvailableUpdate) {
@@ -864,7 +939,20 @@ impl eframe::App for ViewerApp {
         if !ctx.wants_keyboard_input() {
             let mut request_copy = false;
             let mut request_save = false;
+            let mut apply_view_preset = None;
+            let mut save_view_preset = None;
             ctx.input_mut(|i| {
+                for slot in 0..crate::settings::VIEW_PRESET_COUNT {
+                    let key = preset_key(slot);
+                    if i.consume_key(egui::Modifiers::COMMAND, key) {
+                        save_view_preset = Some(slot);
+                        break;
+                    }
+                    if i.consume_key(egui::Modifiers::ALT, key) {
+                        apply_view_preset = Some(slot);
+                        break;
+                    }
+                }
                 if i.consume_shortcut(&crate::res::SELECT_ALL_SC) {
                     if let Some(asset) = &self.state.asset {
                         let spec = asset.image().spec();
@@ -921,6 +1009,12 @@ impl eframe::App for ViewerApp {
             }
             if request_save && self.state.asset.is_some() {
                 self.request_viewer_image_save(ctx);
+            }
+            if let Some(slot) = save_view_preset {
+                self.save_view_preset(slot);
+                ctx.request_repaint();
+            } else if let Some(slot) = apply_view_preset {
+                self.apply_view_preset(slot, ctx);
             }
         }
 
@@ -1075,8 +1169,8 @@ impl eframe::App for ViewerApp {
                             .circle_filled(indicator_center, 2.0, Color32::from_rgb(120, 220, 120));
                     }
 
-                    ui.toggle_value(&mut self.show_bottom_panel, "Status Bar");
-                    ui.toggle_value(&mut self.show_side_panel, "Sidebar");
+                    ui.toggle_value(&mut self.state.is_show_statusbar, "Status Bar");
+                    ui.toggle_value(&mut self.state.is_show_sidebar, "Sidebar");
                 });
             });
         });
@@ -1085,7 +1179,7 @@ impl eframe::App for ViewerApp {
         self.show_update_progress_dialog(ctx);
         self.show_settings_dialog(ctx);
 
-        if self.show_bottom_panel {
+        if self.state.is_show_statusbar {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
                 ui.columns_sized(
                     [
@@ -1180,7 +1274,7 @@ impl eframe::App for ViewerApp {
             });
         }
 
-        if self.show_side_panel {
+        if self.state.is_show_sidebar {
             egui::SidePanel::right("right")
                 .resizable(true)
                 .width_range(Rangef::new(240.0, f32::INFINITY))
@@ -1874,6 +1968,7 @@ impl eframe::App for ViewerApp {
         let current_asset_hash = self.state.asset.as_ref().map(|a| a.hash().to_string());
 
         let rect_changed = current_rect != self.last_marquee_rect_for_cb;
+        self.save_persistent_ui_state_if_needed();
         let content_changed = rect_changed || current_asset_hash != self.last_marquee_asset_hash;
         if rect_changed || content_changed {
             self.on_marquee_changed();

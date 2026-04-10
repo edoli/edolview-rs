@@ -28,6 +28,7 @@ pub const MODIFIER_NAMES: ModifierNames = ModifierNames {
     mac_alt: "Option",
     concat: "+",
 };
+
 pub trait KeyboardShortcutExt {
     fn format_sys(&self) -> String;
 }

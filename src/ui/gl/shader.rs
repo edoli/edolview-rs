@@ -2,6 +2,7 @@ use color_eyre::eyre::{eyre, Result};
 use eframe::egui::Vec2;
 use egui_glow::glow; // Re-exported glow
 use glow::HasContext;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     model::{MinMax, Recti},
@@ -57,7 +58,7 @@ pub struct ImageProgram {
     last_error: Option<String>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScaleMode {
     Linear = 0,
     Inverse = 1,
@@ -77,7 +78,7 @@ impl ScaleMode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShaderParams {
     pub use_alpha: bool,
     pub offset: f32,
