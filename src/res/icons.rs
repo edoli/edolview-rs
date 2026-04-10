@@ -4,21 +4,25 @@ use eframe::egui;
 
 use crate::ui::icon::{self, IconExt};
 
-pub const SHOW_BACKGROUND: &[u8] = include_bytes!("icons/show_background.svg");
-pub const SHOW_PIXEL_VALUE: &[u8] = include_bytes!("icons/show_pixel_value.svg");
-pub const SHOW_CROSSHAIR: &[u8] = include_bytes!("icons/show_crosshair.svg");
+const SHOW_BACKGROUND: &[u8] = include_bytes!("icons/show_background.svg");
+const SHOW_PIXEL_VALUE: &[u8] = include_bytes!("icons/show_pixel_value.svg");
+const SHOW_CROSSHAIR: &[u8] = include_bytes!("icons/show_crosshair.svg");
 
-pub const SCALE_LINEAR: &[u8] = include_bytes!("icons/scale_linear.svg");
-pub const SCALE_INVERSE: &[u8] = include_bytes!("icons/scale_inverse.svg");
-pub const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
-pub const SCALE_ABSOLUTE: &[u8] = include_bytes!("icons/scale_absolute.svg");
+const SCALE_LINEAR: &[u8] = include_bytes!("icons/scale_linear.svg");
+const SCALE_INVERSE: &[u8] = include_bytes!("icons/scale_inverse.svg");
+const SCALE_LOG: &[u8] = include_bytes!("icons/scale_log.svg");
+const SCALE_ABSOLUTE: &[u8] = include_bytes!("icons/scale_absolute.svg");
 
-pub const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
-pub const DOWNLOADING: &[u8] = include_bytes!("icons/downloading.svg");
+const NORMALIZE: &[u8] = include_bytes!("icons/normalize.svg");
+const DOWNLOADING: &[u8] = include_bytes!("icons/downloading.svg");
 
-pub const REDUCE_COLUMN: &[u8] = include_bytes!("icons/reduce_column.svg");
-pub const REDUCE_ROW: &[u8] = include_bytes!("icons/reduce_row.svg");
-pub const REDUCE_AUTO: &[u8] = include_bytes!("icons/reduce_auto.svg");
+const REDUCE_COLUMN: &[u8] = include_bytes!("icons/reduce_column.svg");
+const REDUCE_ROW: &[u8] = include_bytes!("icons/reduce_row.svg");
+const REDUCE_AUTO: &[u8] = include_bytes!("icons/reduce_auto.svg");
+
+const DELETE: &[u8] = include_bytes!("icons/delete.svg");
+const ARROW_UP: &[u8] = include_bytes!("icons/arrow_up.svg");
+const ARROW_DOWN: &[u8] = include_bytes!("icons/arrow_down.svg");
 
 pub struct Icons {
     show_background: OnceLock<egui::TextureHandle>,
@@ -37,6 +41,10 @@ pub struct Icons {
     reduce_column: OnceLock<egui::TextureHandle>,
     reduce_row: OnceLock<egui::TextureHandle>,
     reduce_auto: OnceLock<egui::TextureHandle>,
+
+    delete: OnceLock<egui::TextureHandle>,
+    arrow_up: OnceLock<egui::TextureHandle>,
+    arrow_down: OnceLock<egui::TextureHandle>,
 }
 
 impl Icons {
@@ -58,6 +66,10 @@ impl Icons {
             reduce_column: OnceLock::new(),
             reduce_row: OnceLock::new(),
             reduce_auto: OnceLock::new(),
+
+            delete: OnceLock::new(),
+            arrow_up: OnceLock::new(),
+            arrow_down: OnceLock::new(),
         }
     }
 
@@ -141,6 +153,27 @@ impl Icons {
     pub fn get_reduce_auto<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
         self.reduce_auto
             .get_or_init(|| icon::load_svg_icon_texture(ctx, "reduce_auto", REDUCE_AUTO))
+            .to_icon()
+    }
+
+    #[inline]
+    pub fn get_delete<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.delete
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "delete", DELETE))
+            .to_icon()
+    }
+
+    #[inline]
+    pub fn get_arrow_up<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.arrow_up
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "arrow_up", ARROW_UP))
+            .to_icon()
+    }
+
+    #[inline]
+    pub fn get_arrow_down<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
+        self.arrow_down
+            .get_or_init(|| icon::load_svg_icon_texture(ctx, "arrow_down", ARROW_DOWN))
             .to_icon()
     }
 }

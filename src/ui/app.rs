@@ -101,6 +101,7 @@ pub struct ViewerApp {
     pending_update_confirmation: Option<crate::update::AvailableUpdate>,
     app_settings: crate::settings::AppSettings,
     show_settings_modal: bool,
+    show_bookmarks_modal: bool,
     control_rx: mpsc::Receiver<Vec<PathBuf>>,
     control_instance: Option<crate::control::ControlInstance>,
     last_control_touch: Instant,
@@ -240,6 +241,7 @@ impl ViewerApp {
             pending_update_confirmation: None,
             app_settings,
             show_settings_modal: false,
+            show_bookmarks_modal: false,
             control_rx,
             control_instance,
             last_control_touch: Instant::now(),
@@ -437,6 +439,51 @@ impl ViewerApp {
         self.bookmarks.push(bookmark);
         self.active_bookmark_index = Some(self.bookmarks.len() - 1);
         self.toasts.add_success(format!("Added bookmark {}", self.bookmarks.len()));
+    }
+
+    fn remove_bookmark(&mut self, index: usize) {
+        if index >= self.bookmarks.len() {
+            return;
+        }
+
+        self.bookmarks.remove(index);
+        self.active_bookmark_index = match self.active_bookmark_index {
+            Some(active) if active == index => None,
+            Some(active) if active > index => Some(active - 1),
+            active => active,
+        };
+    }
+
+    fn move_bookmark(&mut self, index: usize, direction: i32) {
+        if index >= self.bookmarks.len() {
+            return;
+        }
+
+        let target = if direction < 0 {
+            index.saturating_sub(1)
+        } else {
+            (index + 1).min(self.bookmarks.len().saturating_sub(1))
+        };
+
+        if target == index {
+            return;
+        }
+
+        self.bookmarks.swap(index, target);
+        self.active_bookmark_index = self.active_bookmark_index.map(|active| {
+            if active == index {
+                target
+            } else if active == target {
+                index
+            } else {
+                active
+            }
+        });
+    }
+
+    fn clear_bookmarks(&mut self) {
+        self.bookmarks.clear();
+        self.active_bookmark_index = None;
     }
 
     fn navigate_bookmark(&mut self, direction: i32, ctx: &egui::Context) {
@@ -677,6 +724,131 @@ impl ViewerApp {
             });
 
         self.show_settings_modal = keep_open;
+    }
+
+    fn show_bookmarks_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_bookmarks_modal {
+            return;
+        }
+
+        let mut keep_open = self.show_bookmarks_modal;
+        let mut jump_to: Option<usize> = None;
+        let mut move_up: Option<usize> = None;
+        let mut move_down: Option<usize> = None;
+        let mut remove_index: Option<usize> = None;
+        let mut clear_all = false;
+
+        egui::Window::new("Bookmarks")
+            .default_pos(egui::pos2(1024.0, 72.0))
+            .collapsible(false)
+            .resizable(true)
+            .default_width(320.0)
+            .open(&mut keep_open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let add_clicked = ui
+                        .button("Add Current")
+                        .on_hover_text(format!(
+                            "Add current selection as bookmark ({})",
+                            crate::res::BOOKMARK_ADD.format_sys()
+                        ))
+                        .clicked();
+                    if add_clicked {
+                        self.toggle_bookmark();
+                    }
+
+                    if ui
+                        .add_enabled(!self.bookmarks.is_empty(), egui::Button::new("Clear All"))
+                        .clicked()
+                    {
+                        clear_all = true;
+                    }
+                });
+                ui.separator();
+
+                if self.bookmarks.is_empty() {
+                    ui.label("No bookmarks");
+                    return;
+                }
+
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    for (index, bookmark) in self.bookmarks.iter().enumerate() {
+                        let selected = self.active_bookmark_index == Some(index);
+                        
+                        ui.scope(|ui| {
+                            let mut style = (*ui.ctx().style()).clone();
+                            style.spacing.button_padding = egui::vec2(2.0, 2.0);
+                            ui.set_style(style);
+
+                            ui.columns_sized(
+                                [
+                                    Size::remainder(1.0),
+                                    Size::exact(16.0),
+                                    Size::exact(16.0),
+                                    Size::exact(16.0),
+                                ],
+                                |columns| {
+                                    let rect_label = format!("{}: {}", index + 1, bookmark.rect);
+
+                                    columns[0].with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                                        if ui.selectable_label(selected, rect_label).clicked() {
+                                            jump_to = Some(index);
+                                        }
+                                    });
+
+                                    let mut add_button =
+                                        |col: usize,
+                                        enabled: bool,
+                                        icon_fn: fn(&Icons, &egui::Context) -> egui::Image<'static>,
+                                        hover_text: &str,
+                                        action: &mut Option<usize>| {
+                                            if columns[col]
+                                                .add_enabled(
+                                                    enabled,
+                                                    egui::ImageButton::new(
+                                                        icon_fn(&self.icons, &ctx)
+                                                            .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                                                    ),
+                                                )
+                                                .on_hover_text(hover_text)
+                                                .clicked()
+                                            {
+                                                *action = Some(index);
+                                            }
+                                        };
+
+                                    let is_first = index == 0;
+                                    let is_last = index + 1 == self.bookmarks.len();
+
+                                    add_button(1, !is_first, Icons::get_arrow_up, "Move bookmark up", &mut move_up);
+                                    add_button(2, !is_last, Icons::get_arrow_down, "Move bookmark down", &mut move_down);
+                                    add_button(3, true, Icons::get_delete, "Delete bookmark", &mut remove_index);
+                                },
+                            );
+                        });
+                    }
+                });
+            });
+
+        if let Some(index) = move_up {
+            self.move_bookmark(index, -1);
+        } else if let Some(index) = move_down {
+            self.move_bookmark(index, 1);
+        }
+
+        if let Some(index) = remove_index {
+            self.remove_bookmark(index);
+        }
+
+        if clear_all {
+            self.clear_bookmarks();
+        }
+
+        if let Some(index) = jump_to {
+            self.apply_bookmark(index, ctx);
+        }
+
+        self.show_bookmarks_modal = keep_open;
     }
 
     fn refresh_control_registration(&mut self, ctx: &egui::Context) {
@@ -1026,7 +1198,8 @@ impl eframe::App for ViewerApp {
             let mut request_save = false;
             let mut apply_view_preset = None;
             let mut save_view_preset = None;
-            let mut toggle_bookmark = false;
+            let mut toggle_bookmark_panel = false;
+            let mut add_bookmark = false;
             let mut navigate_prev_bookmark = false;
             let mut navigate_next_bookmark = false;
             ctx.input_mut(|i| {
@@ -1062,7 +1235,8 @@ impl eframe::App for ViewerApp {
                 });
                 request_copy |= i.consume_shortcut(&crate::res::COPY_SC);
                 request_save |= i.consume_shortcut(&crate::res::SAVE_IMAGE_SC);
-                toggle_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_TOGGLE);
+                toggle_bookmark_panel |= i.consume_shortcut(&crate::res::BOOKMARK_PANEL_TOGGLE);
+                add_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_ADD);
                 navigate_prev_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_PREV);
                 navigate_next_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_NEXT);
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
@@ -1106,7 +1280,10 @@ impl eframe::App for ViewerApp {
             } else if let Some(slot) = apply_view_preset {
                 self.apply_view_preset(slot, ctx);
             }
-            if toggle_bookmark {
+            if toggle_bookmark_panel {
+                self.show_bookmarks_modal = !self.show_bookmarks_modal;
+                ctx.request_repaint();
+            } else if add_bookmark {
                 self.toggle_bookmark();
                 ctx.request_repaint();
             } else if navigate_prev_bookmark {
@@ -1276,6 +1453,7 @@ impl eframe::App for ViewerApp {
         self.show_update_confirmation_dialog(ctx);
         self.show_update_progress_dialog(ctx);
         self.show_settings_dialog(ctx);
+        self.show_bookmarks_dialog(ctx);
 
         if self.state.is_show_statusbar {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {

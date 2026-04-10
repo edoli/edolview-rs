@@ -21,6 +21,8 @@ pub trait IconExt {
 impl IconExt for egui::TextureHandle {
     fn to_icon<'c>(&self) -> egui::Image<'c> {
         let size = self.size_vec2();
+
+        // svg size is 24x24, but we want to fit it into 16x16 (default icon size)
         egui::Image::from(self).fit_to_exact_size(size / 1.5)
     }
 }
