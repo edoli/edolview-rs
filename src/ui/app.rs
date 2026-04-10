@@ -39,6 +39,11 @@ enum PlotDim {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+struct Bookmark {
+    rect: Recti,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 enum UpdateStatus {
     Idle,
     Checking,
@@ -59,6 +64,8 @@ pub struct ViewerApp {
     // Marquee change callbacks
     last_marquee_rect_for_cb: Recti,
     last_marquee_asset_hash: Option<String>,
+    bookmarks: Vec<Bookmark>,
+    active_bookmark_index: Option<usize>,
 
     show_plot_channels: [bool; 4],
 
@@ -196,6 +203,8 @@ impl ViewerApp {
 
             last_marquee_rect_for_cb: marquee_rect,
             last_marquee_asset_hash: None,
+            bookmarks: Vec::new(),
+            active_bookmark_index: None,
 
             show_plot_channels: [true, true, true, false],
 
@@ -396,6 +405,97 @@ impl ViewerApp {
         if let Err(err) = self.app_settings.save() {
             eprintln!("Failed to save UI settings: {err}");
             self.toasts.add_error("Failed to save UI settings".to_string());
+        }
+    }
+
+    fn current_bookmark_rect(&self) -> Option<Recti> {
+        let rect = self.state.marquee_rect.validate();
+        if !rect.empty() {
+            return Some(rect);
+        }
+        None
+    }
+
+    fn toggle_bookmark(&mut self) {
+        let Some(rect) = self.current_bookmark_rect() else {
+            self.toasts.add_info("No selection to bookmark".to_string());
+            return;
+        };
+
+        let bookmark = Bookmark { rect };
+        if let Some(index) = self.bookmarks.iter().position(|entry| entry == &bookmark) {
+            self.bookmarks.remove(index);
+            self.active_bookmark_index = match self.active_bookmark_index {
+                Some(active) if active == index => None,
+                Some(active) if active > index => Some(active - 1),
+                active => active,
+            };
+            self.toasts.add_success("Removed bookmark".to_string());
+            return;
+        }
+
+        self.bookmarks.push(bookmark);
+        self.active_bookmark_index = Some(self.bookmarks.len() - 1);
+        self.toasts.add_success(format!("Added bookmark {}", self.bookmarks.len()));
+    }
+
+    fn navigate_bookmark(&mut self, direction: i32, ctx: &egui::Context) {
+        if self.bookmarks.is_empty() {
+            self.toasts.add_info("No bookmarks".to_string());
+            return;
+        }
+
+        let len = self.bookmarks.len();
+        let current = match self.active_bookmark_index {
+            Some(index) => index,
+            None if direction >= 0 => len - 1,
+            None => 0,
+        };
+        let next = if direction >= 0 {
+            (current + 1) % len
+        } else if current == 0 {
+            len - 1
+        } else {
+            current - 1
+        };
+
+        self.apply_bookmark(next, ctx);
+    }
+
+    fn apply_bookmark(&mut self, index: usize, ctx: &egui::Context) {
+        let Some(bookmark) = self.bookmarks.get(index).cloned() else {
+            return;
+        };
+        let Some(asset) = &self.state.asset else {
+            self.toasts.add_info("No image loaded".to_string());
+            return;
+        };
+        let spec = asset.image().spec();
+        let image_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+        let requested_rect = bookmark.rect.validate();
+        let clipped_rect = requested_rect.intersect(image_rect);
+
+        self.state.set_marquee_rect(requested_rect);
+        self.tmp_marquee_rect = self.state.marquee_rect;
+        self.marquee_rect_text = self.state.marquee_rect.to_string();
+        if clipped_rect.empty() {
+            self.state.cursor_pos = None;
+        } else {
+            self.state.cursor_pos = Some(self.state.marquee_rect.min);
+            self.viewer.center_rect(self.state.marquee_rect);
+        }
+
+        self.active_bookmark_index = Some(index);
+        ctx.request_repaint();
+        let prefix = format!("Jumped to bookmark {}/{}", index + 1, self.bookmarks.len());
+        if clipped_rect.empty() {
+            self.toasts
+                .add_info(format!("{prefix}; the bookmarked area is outside the current image bounds"));
+        } else if clipped_rect != requested_rect {
+            self.toasts
+                .add_info(format!("{prefix}; the bookmarked area is clipped to the current image bounds"));
+        } else {
+            self.toasts.add_success(prefix);
         }
     }
 
@@ -926,6 +1026,9 @@ impl eframe::App for ViewerApp {
             let mut request_save = false;
             let mut apply_view_preset = None;
             let mut save_view_preset = None;
+            let mut toggle_bookmark = false;
+            let mut navigate_prev_bookmark = false;
+            let mut navigate_next_bookmark = false;
             ctx.input_mut(|i| {
                 for slot in 0..crate::settings::VIEW_PRESET_COUNT {
                     if i.consume_shortcut(&crate::res::PRESET_SAVE_SHORTCUTS[slot]) {
@@ -959,6 +1062,9 @@ impl eframe::App for ViewerApp {
                 });
                 request_copy |= i.consume_shortcut(&crate::res::COPY_SC);
                 request_save |= i.consume_shortcut(&crate::res::SAVE_IMAGE_SC);
+                toggle_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_TOGGLE);
+                navigate_prev_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_PREV);
+                navigate_next_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_NEXT);
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
                         let path = self.state.file_nav.navigate_prev();
@@ -999,6 +1105,14 @@ impl eframe::App for ViewerApp {
                 ctx.request_repaint();
             } else if let Some(slot) = apply_view_preset {
                 self.apply_view_preset(slot, ctx);
+            }
+            if toggle_bookmark {
+                self.toggle_bookmark();
+                ctx.request_repaint();
+            } else if navigate_prev_bookmark {
+                self.navigate_bookmark(-1, ctx);
+            } else if navigate_next_bookmark {
+                self.navigate_bookmark(1, ctx);
             }
         }
 

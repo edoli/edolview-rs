@@ -6,6 +6,9 @@ pub const SELECT_ALL_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COM
 pub const SELECT_NONE_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Escape);
 pub const COPY_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::C);
 pub const SAVE_IMAGE_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
+pub const BOOKMARK_TOGGLE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::B);
+pub const BOOKMARK_PREV: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::OpenBracket);
+pub const BOOKMARK_NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::CloseBracket);
 
 pub const RESET_VIEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::R);
 
