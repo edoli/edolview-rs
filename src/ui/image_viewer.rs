@@ -1338,6 +1338,11 @@ fn save_rendered_image(path: &Path, width: i32, height: i32, rgba_bytes: Vec<u8>
     let rgba = rgba_row.reshape(4, height)?.clone_pointee();
     let mut encoded = core::Mat::default();
     let mut params = core::Vector::<i32>::new();
+    let encode_ext = match extension.as_str() {
+        "png" => ".png",
+        "jpg" | "jpeg" => ".jpg",
+        other => return Err(eyre!("Unsupported export extension: {other}")),
+    };
 
     match extension.as_str() {
         "png" => {
@@ -1360,11 +1365,14 @@ fn save_rendered_image(path: &Path, width: i32, height: i32, rgba_bytes: Vec<u8>
             params.push(imgcodecs::IMWRITE_JPEG_QUALITY);
             params.push(95);
         }
-        other => return Err(eyre!("Unsupported export extension: {other}")),
+        _ => unreachable!(),
     }
 
-    let path_string = path.to_string_lossy();
-    imgcodecs::imwrite(path_string.as_ref(), &encoded, &params)?;
+    let mut encoded_bytes = core::Vector::<u8>::new();
+    if !imgcodecs::imencode(encode_ext, &encoded, &mut encoded_bytes, &params)? {
+        return Err(eyre!("OpenCV failed to encode image as {encode_ext}"));
+    }
+    std::fs::write(path, encoded_bytes.as_slice())?;
     Ok(())
 }
 
