@@ -53,6 +53,10 @@ enum UpdateStatus {
     Error(String),
 }
 
+struct PendingImageSaveDialog {
+    rx: mpsc::Receiver<Option<(PathBuf, String)>>,
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -108,6 +112,7 @@ pub struct ViewerApp {
     last_control_touch: Instant,
     was_focused_last_frame: bool,
     last_image_save_dir: Option<PathBuf>,
+    pending_image_save_dialog: Option<PendingImageSaveDialog>,
 }
 
 impl Drop for ViewerApp {
@@ -250,6 +255,7 @@ impl ViewerApp {
             last_control_touch: Instant::now(),
             was_focused_last_frame: false,
             last_image_save_dir: None,
+            pending_image_save_dialog: None,
         }
     }
 
@@ -342,7 +348,7 @@ impl ViewerApp {
         }
     }
 
-    fn prompt_image_save_path(&mut self) -> Option<PathBuf> {
+    fn build_image_save_dialog(&self) -> FileDialog {
         let has_selection = !self.state.marquee_rect.validate().empty();
         let title = if has_selection {
             "Save Selected Image As"
@@ -363,20 +369,49 @@ impl ViewerApp {
             dialog = dialog.set_directory(directory);
         }
 
-        let path = dialog.save_file();
-        if let Some(parent) = path.as_ref().and_then(|path| path.parent()) {
-            self.last_image_save_dir = Some(parent.to_path_buf());
-        }
-        path
+        dialog
     }
 
     fn request_viewer_image_save(&mut self, ctx: &egui::Context) {
-        let Some(path) = self.prompt_image_save_path() else {
+        if self.pending_image_save_dialog.is_some() {
+            return;
+        }
+
+        let dialog = self.build_image_save_dialog();
+        let source_label = self.active_display_source_label().to_string();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(dialog.save_file().map(|path| (path, source_label)));
+        });
+        self.pending_image_save_dialog = Some(PendingImageSaveDialog { rx });
+        ctx.request_repaint();
+    }
+
+    fn poll_pending_image_save_dialog(&mut self, ctx: &egui::Context) {
+        let Some(pending) = self.pending_image_save_dialog.as_ref() else {
             return;
         };
 
-        self.viewer.request_save(path, self.active_display_source_label().to_string());
-        ctx.request_repaint();
+        let result = match pending.rx.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(Duration::from_millis(16));
+                return;
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.pending_image_save_dialog = None;
+                return;
+            }
+        };
+
+        self.pending_image_save_dialog = None;
+        if let Some((path, source_label)) = result {
+            if let Some(parent) = path.parent() {
+                self.last_image_save_dir = Some(parent.to_path_buf());
+            }
+            self.viewer.request_save(path, source_label);
+            ctx.request_repaint();
+        }
     }
 
     fn save_view_preset(&mut self, slot: usize) {
@@ -1087,6 +1122,8 @@ impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(debug_assertions)]
         let _timer = ScopedTimer::new("ui.app.update");
+
+        self.poll_pending_image_save_dialog(ctx);
 
         ctx.set_visuals(Visuals::dark());
 
