@@ -70,6 +70,17 @@ impl Recti {
         }
     }
 
+    /// Returns (x, y, width, height)
+    #[inline]
+    pub fn xywh(&self) -> (i32, i32, i32, i32) {
+        let x = self.min.x;
+        let y = self.min.y;
+        let width = self.max.x - self.min.x;
+        let height = self.max.y - self.min.y;
+
+        (x, y, width, height)
+    }
+
     #[must_use]
     #[inline]
     pub fn intersects(self, other: Self) -> bool {

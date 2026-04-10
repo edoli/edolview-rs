@@ -341,10 +341,12 @@ impl ViewerApp {
             .filter(|stem| !stem.is_empty())
             .unwrap_or("image");
 
-        if self.state.marquee_rect.validate().empty() {
+        let rect = self.state.marquee_rect.validate();
+        if rect.empty() {
             format!("{base_name}.png")
         } else {
-            format!("{base_name}-selection.png")
+            let (x, y, width, height) = rect.xywh();
+            format!("{base_name}-{x}_{y}_{width}_{height}.png")
         }
     }
 
