@@ -928,11 +928,11 @@ impl eframe::App for ViewerApp {
             let mut save_view_preset = None;
             ctx.input_mut(|i| {
                 for slot in 0..crate::settings::VIEW_PRESET_COUNT {
-                    if i.consume_shortcut(&crate::res::preset_save_shortcut(slot)) {
+                    if i.consume_shortcut(&crate::res::PRESET_SAVE_SHORTCUTS[slot]) {
                         save_view_preset = Some(slot);
                         break;
                     }
-                    if i.consume_shortcut(&crate::res::preset_apply_shortcut(slot)) {
+                    if i.consume_shortcut(&crate::res::PRESET_APPLY_SHORTCUTS[slot]) {
                         apply_view_preset = Some(slot);
                         break;
                     }

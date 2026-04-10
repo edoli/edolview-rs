@@ -19,28 +19,30 @@ pub const NAVIGATE_NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NON
 pub const NAVIGATE_ASSET_PREV: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::PageUp);
 pub const NAVIGATE_ASSET_NEXT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::PageDown);
 
-fn preset_key(slot: usize) -> Key {
-    match slot {
-        0 => Key::Num1,
-        1 => Key::Num2,
-        2 => Key::Num3,
-        3 => Key::Num4,
-        4 => Key::Num5,
-        5 => Key::Num6,
-        6 => Key::Num7,
-        7 => Key::Num8,
-        8 => Key::Num9,
-        _ => unreachable!("view preset slot out of range"),
+pub const PRESET_KEYS: [Key; 9] = [
+    Key::Num1,
+    Key::Num2,
+    Key::Num3,
+    Key::Num4,
+    Key::Num5,
+    Key::Num6,
+    Key::Num7,
+    Key::Num8,
+    Key::Num9,
+];
+
+const fn preset_shortcuts(modifiers: Modifiers) -> [KeyboardShortcut; PRESET_KEYS.len()] {
+    let mut shortcuts = [KeyboardShortcut::new(Modifiers::NONE, Key::Num0); PRESET_KEYS.len()];
+    let mut index = 0;
+    while index < PRESET_KEYS.len() {
+        shortcuts[index] = KeyboardShortcut::new(modifiers, PRESET_KEYS[index]);
+        index += 1;
     }
+    shortcuts
 }
 
-pub fn preset_save_shortcut(slot: usize) -> KeyboardShortcut {
-    KeyboardShortcut::new(Modifiers::COMMAND, preset_key(slot))
-}
-
-pub fn preset_apply_shortcut(slot: usize) -> KeyboardShortcut {
-    KeyboardShortcut::new(Modifiers::ALT, preset_key(slot))
-}
+pub const PRESET_SAVE_SHORTCUTS: [KeyboardShortcut; PRESET_KEYS.len()] = preset_shortcuts(Modifiers::COMMAND);
+pub const PRESET_APPLY_SHORTCUTS: [KeyboardShortcut; PRESET_KEYS.len()] = preset_shortcuts(Modifiers::ALT);
 
 pub const MODIFIER_NAMES: ModifierNames = ModifierNames {
     is_short: false,
