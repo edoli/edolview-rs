@@ -11,7 +11,7 @@ pub const RESET_VIEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, 
 
 pub const FULLSCREEN_TOGGLE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F11);
 
-pub const ZOOM_IN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Plus);
+pub const ZOOM_IN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Equals);
 pub const ZOOM_OUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Minus);
 
 pub const NAVIGATE_PREV: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowLeft);
