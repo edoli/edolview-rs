@@ -4,6 +4,7 @@
 
 - After making code changes, run `cargo fmt`.
 - After Rust code changes, run `cargo build`.
+- If `cargo build` is blocked because a running `edolview` process is holding the executable open (for example from a VS Code debug session), terminate the `edolview` process and retry the build.
 
 ## Generated assets and packaging
 
