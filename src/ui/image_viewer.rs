@@ -105,14 +105,15 @@ impl ImageViewer {
         };
         let primary_image = primary_asset.image();
         let secondary_image = secondary_asset.as_ref().map(|a| a.image());
-        let image = if split_view { primary_image } else { asset.image() };
+        let image = asset.image();
+        let render_primary_image = if split_view { primary_image } else { image };
 
         // Determine if we need a (re)upload
-        let spec = image.spec();
+        let spec = render_primary_image.spec();
         let use_auto_minmax = app_state.shader_params.auto_minmax && !app_state.shader_params.use_per_channel
             || app_state.shader_params.auto_minmax_channels.iter().any(|&b| b);
         let min_max_primary = if use_auto_minmax {
-            primary_image.minmax().clone()
+            render_primary_image.minmax().clone()
         } else {
             EMPTY_MINMAX
         };
@@ -125,7 +126,12 @@ impl ImageViewer {
         };
 
         if let Some(gl) = frame.gl() {
-            sync_mat_texture(gl, &mut self.gl_primary_tex, &mut self.last_primary_image_id, primary_image);
+            sync_mat_texture(
+                gl,
+                &mut self.gl_primary_tex,
+                &mut self.last_primary_image_id,
+                render_primary_image,
+            );
             if let Some(secondary_image) = secondary_image {
                 sync_mat_texture(
                     gl,
@@ -236,8 +242,10 @@ impl ImageViewer {
             resp.context_menu(|ui| {
                 let active_image = if split_view && app_state.cursor_on_secondary {
                     secondary_image.unwrap_or(primary_image)
-                } else {
+                } else if split_view {
                     primary_image
+                } else {
+                    image
                 };
                 let has_selection = !app_state.marquee_rect.empty();
                 let copy_label = if has_selection {
