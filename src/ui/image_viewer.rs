@@ -212,7 +212,7 @@ impl ImageViewer {
                         app_state.cursor_on_secondary = cursor_on_secondary;
                     } else {
                         app_state.cursor_pos = None;
-                        app_state.cursor_on_secondary = false;
+                        app_state.cursor_on_secondary = split_view && cursor_on_secondary;
                     }
 
                     // If marquee exists, set resize cursor when hovering corner handles
