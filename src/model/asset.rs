@@ -172,50 +172,93 @@ pub struct ComparisonAsset {
     image: MatImage,
 }
 
-fn normalize_comparison_inputs(
-    mat1: &opencv::core::Mat,
-    mat2: &opencv::core::Mat,
-) -> Option<(opencv::core::Mat, opencv::core::Mat, String)> {
-    let channels1 = mat1.channels();
-    let channels2 = mat2.channels();
+#[derive(Clone, Copy)]
+enum ChannelComparisonStrategy {
+    Match,
+    DuplicatePrimaryToChannels(i32),
+    DuplicateSecondaryToChannels(i32),
+    UsePrimaryFirstChannels(i32),
+    UseSecondaryFirstChannels(i32),
+    Unsupported,
+}
 
-    match (channels1, channels2) {
-        (1, 2) | (1, 3) | (1, 4) => Some((
-            mat1.duplicate_mono_to_channels(channels2),
-            mat2.clone(),
-            format!(
-                "Channel mismatch: comparing the single channel image against each channel of the {channels2}-channel image."
-            ),
-        )),
-        (2, 1) | (3, 1) | (4, 1) => Some((
-            mat1.clone(),
-            mat2.duplicate_mono_to_channels(channels1),
-            format!(
-                "Channel mismatch: comparing each channel of the {channels1}-channel image against the single channel image."
-            ),
-        )),
-        (2, 3) | (2, 4) => Some((
-            mat1.clone(),
-            mat2.take_first_channels(2),
-            format!("Channel mismatch: showing the first two channels only from the {channels2}-channel image."),
-        )),
-        (3, 2) | (4, 2) => Some((
-            mat1.take_first_channels(2),
-            mat2.clone(),
-            format!("Channel mismatch: showing the first two channels only from the {channels1}-channel image."),
-        )),
-        (3, 4) => Some((
-            mat1.clone(),
-            mat2.take_first_channels(3),
-            "Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string(),
-        )),
-        (4, 3) => Some((
-            mat1.take_first_channels(3),
-            mat2.clone(),
-            "Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string(),
-        )),
-        _ => None,
+impl ChannelComparisonStrategy {
+    fn from_channels(channels1: i32, channels2: i32) -> Self {
+        match (channels1, channels2) {
+            (c1, c2) if c1 == c2 => Self::Match,
+            (1, 2) | (1, 3) | (1, 4) => Self::DuplicatePrimaryToChannels(channels2),
+            (2, 1) | (3, 1) | (4, 1) => Self::DuplicateSecondaryToChannels(channels1),
+            (2, 3) | (2, 4) => Self::UsePrimaryFirstChannels(2),
+            (3, 2) | (4, 2) => Self::UseSecondaryFirstChannels(2),
+            (3, 4) => Self::UsePrimaryFirstChannels(3),
+            (4, 3) => Self::UseSecondaryFirstChannels(3),
+            _ => Self::Unsupported,
+        }
     }
+
+    fn notice(self, channels1: i32, channels2: i32) -> Option<String> {
+        match self {
+            Self::Match => None,
+            Self::DuplicatePrimaryToChannels(_) => Some(format!(
+                "Channel mismatch: comparing the single channel image against each channel of the {channels2}-channel image."
+            )),
+            Self::DuplicateSecondaryToChannels(_) => Some(format!(
+                "Channel mismatch: comparing each channel of the {channels1}-channel image against the single channel image."
+            )),
+            Self::UsePrimaryFirstChannels(2) => {
+                Some(format!("Channel mismatch: showing the first two channels only from the {channels2}-channel image."))
+            }
+            Self::UseSecondaryFirstChannels(2) => {
+                Some(format!("Channel mismatch: showing the first two channels only from the {channels1}-channel image."))
+            }
+            Self::UsePrimaryFirstChannels(3) | Self::UseSecondaryFirstChannels(3) => {
+                Some("Channel mismatch: showing RGB comparison only; the 4-channel image alpha is ignored.".to_string())
+            }
+            Self::UsePrimaryFirstChannels(_) | Self::UseSecondaryFirstChannels(_) => None,
+            Self::Unsupported => Some(format!(
+                "Channel mismatch: unsupported comparison between {} and {} channels.",
+                channels1, channels2
+            )),
+        }
+    }
+
+    fn normalize(
+        self,
+        mat1: &opencv::core::Mat,
+        mat2: &opencv::core::Mat,
+    ) -> Option<(opencv::core::Mat, opencv::core::Mat)> {
+        match self {
+            Self::Match => Some((mat1.clone(), mat2.clone())),
+            Self::DuplicatePrimaryToChannels(channels) => {
+                Some((mat1.duplicate_mono_to_channels(channels), mat2.clone()))
+            }
+            Self::DuplicateSecondaryToChannels(channels) => {
+                Some((mat1.clone(), mat2.duplicate_mono_to_channels(channels)))
+            }
+            Self::UsePrimaryFirstChannels(channels) => Some((mat1.clone(), mat2.take_first_channels(channels))),
+            Self::UseSecondaryFirstChannels(channels) => Some((mat1.take_first_channels(channels), mat2.clone())),
+            Self::Unsupported => None,
+        }
+    }
+}
+
+fn build_comparison_notices(
+    strategy: ChannelComparisonStrategy,
+    spec1: &crate::model::ImageSpec,
+    spec2: &crate::model::ImageSpec,
+) -> Vec<String> {
+    let mut notices = Vec::new();
+    if let Some(notice) = strategy.notice(spec1.channels, spec2.channels) {
+        notices.push(notice);
+    }
+    if spec1.dtype != spec2.dtype {
+        notices.push(format!(
+            "Data type mismatch: comparing {} against {}.",
+            spec1.dtype.cv_type_name(),
+            spec2.dtype.cv_type_name()
+        ));
+    }
+    notices
 }
 
 impl ComparisonAsset {
@@ -239,7 +282,8 @@ impl ComparisonAsset {
 
         let mat1 = img1.mat();
         let mat2 = img2.mat();
-        let mut comparison_notices = Vec::new();
+        let strategy = ChannelComparisonStrategy::from_channels(mat1.channels(), mat2.channels());
+        let comparison_notices = build_comparison_notices(strategy, &spec1, &spec2);
 
         if mode == ComparisonMode::Split {
             return (
@@ -247,37 +291,19 @@ impl ComparisonAsset {
                     name,
                     image: MatImage::new(mat1.clone(), spec1.dtype),
                 },
-                None,
+                (!comparison_notices.is_empty()).then(|| comparison_notices.join("\n")),
             );
         }
 
-        let (mat1, mat2, comparison_notice) = if mat1.channels() == mat2.channels() {
-            (mat1.clone(), mat2.clone(), None)
-        } else if let Some((mat1, mat2, notice)) = normalize_comparison_inputs(mat1, mat2) {
-            (mat1, mat2, Some(notice))
-        } else {
+        let Some((mat1, mat2)) = strategy.normalize(mat1, mat2) else {
             return (
                 Self {
                     name,
                     image: MatImage::new(opencv::core::Mat::default(), img1.spec().dtype),
                 },
-                Some(format!(
-                    "Channel mismatch: unsupported comparison between {} and {} channels.",
-                    mat1.channels(),
-                    mat2.channels()
-                )),
+                (!comparison_notices.is_empty()).then(|| comparison_notices.join("\n")),
             );
         };
-        if let Some(notice) = comparison_notice {
-            comparison_notices.push(notice);
-        }
-        if spec1.dtype != spec2.dtype {
-            comparison_notices.push(format!(
-                "Data type mismatch: comparing {} against {}.",
-                spec1.dtype.cv_type_name(),
-                spec2.dtype.cv_type_name()
-            ));
-        }
 
         let mut mat = mat1.clone();
         let roi_rect = opencv::core::Rect::new(0, 0, mat1.cols().min(mat2.cols()), mat1.rows().min(mat2.rows()));
