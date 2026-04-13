@@ -1,6 +1,6 @@
 use color_eyre::eyre::Report;
 use core::f32;
-use eframe::egui::{self, pos2, vec2, Color32, FontData, Rangef, Visuals};
+use eframe::egui::{self, pos2, vec2, Color32, Rangef, Visuals};
 use rfd::FileDialog;
 use std::{
     collections::HashSet,
@@ -26,6 +26,7 @@ use crate::{
             egui_ext::{ComboBoxExt, Size, UiExt},
             show_bookmark_window, BookmarkJumpMode, CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
         },
+        fonts::{apply_fallback_fonts, spawn_fallback_font_loader, LoadedFallbackFonts},
         ImageViewer,
     },
     util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef},
@@ -94,8 +95,8 @@ pub struct ViewerApp {
     statistics_tx: mpsc::Sender<Vec<StatisticsUpdate>>,
     statistics_rx: mpsc::Receiver<Vec<StatisticsUpdate>>,
 
-    // Async font loading: receiver for fallback font bytes (if any)
-    font_rx: Option<mpsc::Receiver<FontData>>,
+    // Async font loading: receiver for optional user/system fallback fonts.
+    font_rx: Option<mpsc::Receiver<LoadedFallbackFonts>>,
     fallback_font_applied: bool,
 
     update_rx: Option<mpsc::Receiver<Result<Option<crate::update::AvailableUpdate>, String>>>,
@@ -175,29 +176,8 @@ impl ViewerApp {
             }
         };
 
-        // Spawn async loader for optional fallback font placed next to the executable.
-        // If a file named "fallback_font.ttf" exists beside the executable, we read it on a
-        // background thread and later (non-blocking) apply it as a fallback font in egui.
-        let font_rx = (|| {
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(dir) = exe_path.parent() {
-                    let font_path = dir.join("fallback_font.ttf");
-                    if font_path.exists() {
-                        let (tx_font, rx_font) = mpsc::channel();
-                        std::thread::spawn(move || match std::fs::read(&font_path) {
-                            Ok(bytes) => {
-                                let _ = tx_font.send(FontData::from_owned(bytes));
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to read fallback font '{}': {e}", font_path.display());
-                            }
-                        });
-                        return Some(rx_font);
-                    }
-                }
-            }
-            None
-        })();
+        // Load optional user override and platform CJK fallback fonts off the UI thread.
+        let font_rx = spawn_fallback_font_loader();
 
         Self {
             state,
@@ -1018,23 +998,12 @@ impl ViewerApp {
             }
         }
 
-        // Non-blocking check for fallback font data and apply once.
+        // Non-blocking check for fallback fonts and apply once.
         if !self.fallback_font_applied {
             if let Some(rx) = &self.font_rx {
                 match rx.try_recv() {
-                    Ok(font_data) => {
-                        let mut fonts = egui::FontDefinitions::default();
-                        // Insert the user-provided fallback font.
-                        fonts.font_data.insert("user_fallback".to_owned(), font_data.into());
-                        // Append to both proportional & monospace families so it's used only when
-                        // glyphs are missing in earlier fonts.
-                        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-                            family.push("user_fallback".to_owned());
-                        }
-                        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-                            family.push("user_fallback".to_owned());
-                        }
-                        ctx.set_fonts(fonts);
+                    Ok(fallback_fonts) => {
+                        apply_fallback_fonts(ctx, fallback_fonts);
                         self.fallback_font_applied = true;
                     }
                     Err(mpsc::TryRecvError::Empty) => {}

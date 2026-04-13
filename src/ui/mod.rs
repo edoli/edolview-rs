@@ -1,4 +1,5 @@
 pub mod component;
+pub mod fonts;
 pub mod gl;
 pub mod icon;
 
