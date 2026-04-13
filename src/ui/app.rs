@@ -1306,28 +1306,29 @@ impl eframe::App for ViewerApp {
                             }
                         }
                     }
+
+                    if ui
+                        .button("Open from clipboard")
+                        .on_hover_text("Load image from clipboard")
+                        .clicked()
+                    {
+                        self.state.load_from_clipboard().unwrap_or_else(|e| {
+                            self.load_fail("Failed to load image from clipboard", None, &e);
+                        });
+                    }
+
                     if ui.button("Exit").clicked() {
                         ui.close();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
 
-                if ui.button("Clipboard").on_hover_text("Load image from clipboard").clicked() {
-                    self.state.load_from_clipboard().unwrap_or_else(|e| {
-                        self.load_fail("Failed to load image from clipboard", None, &e);
-                    });
-                }
-
                 ui.separator();
-                if ui
-                    .button("Reset View")
-                    .on_hover_text("Reset zoom and pan to original")
-                    .clicked()
-                {
+                if ui.button("Reset").on_hover_text("Reset zoom and pan to original").clicked() {
                     self.viewer.reset_view();
                 }
 
-                if ui.button("Fit Selection").on_hover_text("Fit marquee to view").clicked() {
+                if ui.button("Fit").on_hover_text("Fit marquee to view").clicked() {
                     let rect = self.state.marquee_rect.validate();
                     if rect.empty() {
                         if let Some(asset) = &self.state.asset {
@@ -1339,7 +1340,7 @@ impl eframe::App for ViewerApp {
                         self.viewer.fit_rect(rect);
                     }
                 }
-                if ui.button("Center Selection").on_hover_text("Center marquee in view").clicked() {
+                if ui.button("Center").on_hover_text("Center marquee in view").clicked() {
                     let rect = self.state.marquee_rect.validate();
                     if rect.empty() {
                         if let Some(asset) = &self.state.asset {
