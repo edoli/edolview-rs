@@ -76,6 +76,9 @@ impl FileNav {
     }
 
     pub fn refresh_dir_listing_for(&mut self, dir: PathBuf) {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Refresh dir listing");
+
         let dir_abs = canonicalize_friendly(&dir).unwrap_or(dir.clone());
         self.dir_path = Some(dir_abs.clone());
         let mut files = Vec::new();
