@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -123,7 +123,12 @@ impl AppState {
             self.set_primary_asset(Arc::new(FileAsset::new(path_str, hash_str, MatImage::load_from_path(&path)?)));
         }
 
-        self.path = Some(path.clone());
+        self.sync_file_navigation_for_path(&path);
+        Ok(())
+    }
+
+    fn sync_file_navigation_for_path(&mut self, path: &PathBuf) {
+        self.path = Some(path.to_path_buf());
 
         #[cfg(debug_assertions)]
         let _timer_path = crate::util::timer::ScopedTimer::new("Path scan");
@@ -132,7 +137,7 @@ impl AppState {
         if let Some(dir) = path.parent() {
             if self.file_nav.check_is_current_dir(dir) {
                 // Same directory, no need to refresh
-                return Ok(());
+                return;
             }
             self.file_nav.refresh_dir_listing_for(dir.to_path_buf());
             self.file_nav.select_index_for_path(&path);
@@ -140,7 +145,17 @@ impl AppState {
         } else {
             self.file_nav.clear();
         }
-        Ok(())
+    }
+
+    fn sync_primary_file_navigation(&mut self) {
+        match self
+            .asset_primary
+            .as_ref()
+            .map(|asset| (asset.asset_type(), asset.name().to_string()))
+        {
+            Some((AssetType::File, path)) => self.sync_file_navigation_for_path(&PathBuf::from(path)),
+            _ => self.path = None,
+        }
     }
 
     pub fn load_from_clipboard(&mut self) -> Result<()> {
@@ -183,6 +198,7 @@ impl AppState {
 
     pub fn set_asset_primary_by_hash(&mut self, hash: &str) {
         self.asset_primary = self.assets.get(hash).cloned();
+        self.sync_primary_file_navigation();
 
         self.update_asset();
         self.validate_marquee_rect();
@@ -194,6 +210,7 @@ impl AppState {
         self.assets.insert(hash.clone(), asset.clone());
 
         self.asset_primary = self.assets.get(&hash).cloned();
+        self.sync_primary_file_navigation();
 
         self.update_asset();
         self.validate_marquee_rect();
