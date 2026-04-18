@@ -16,8 +16,8 @@ use std::{
 use crate::util::timer::ScopedTimer;
 use crate::{
     model::{
-        start_server_with_retry, AppState, AssetType, ComparisonMode, Image, MeanDim, Recti, SocketAsset,
-        StatisticsType, StatisticsUpdate, StatisticsWorker,
+        start_server_with_retry, AppState, AssetType, ComparisonMode, FileAsset, Image, MatImage, MeanDim, Recti,
+        SocketAsset, StatisticsType, StatisticsUpdate, StatisticsWorker,
     },
     res::{icons::Icons, KeyboardShortcutExt},
     ui::{
@@ -58,10 +58,24 @@ struct PendingImageSaveDialog {
     rx: mpsc::Receiver<Option<(PathBuf, String)>>,
 }
 
+enum StartupPathLoadResult {
+    Loaded {
+        path: PathBuf,
+        hash: String,
+        image: MatImage,
+    },
+    Failed {
+        path: PathBuf,
+        error: Report,
+    },
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
     last_path: Option<PathBuf>,
+    startup_paths: Vec<PathBuf>,
+    startup_path_rx: Option<mpsc::Receiver<StartupPathLoadResult>>,
     tmp_marquee_rect: Recti,
     marquee_rect_text: String,
     is_start_background_event_handlers_called: bool,
@@ -184,6 +198,8 @@ impl ViewerApp {
             viewer: ImageViewer::new(),
 
             last_path: None,
+            startup_paths: Vec::new(),
+            startup_path_rx: None,
 
             tmp_marquee_rect: marquee_rect.clone(),
             marquee_rect_text: marquee_rect.to_string().into(),
@@ -241,18 +257,43 @@ impl ViewerApp {
 
     #[inline]
     pub fn with_paths(mut self, paths: Vec<PathBuf>) -> Self {
-        for path in paths {
-            if let Err(e) = self.state.load_from_path(path.clone()) {
-                self.load_fail("Failed to load image", Some(&path), &e);
-            }
-        }
+        self.startup_paths = paths;
         self
     }
 
-    fn load_fail(&mut self, message: &str, path: Option<&PathBuf>, e: &Report) {
+    fn start_startup_path_loading(&mut self, ctx: &egui::Context) {
+        if self.startup_path_rx.is_some() || self.startup_paths.is_empty() {
+            return;
+        }
+
+        let paths = std::mem::take(&mut self.startup_paths);
+        let (tx, rx) = mpsc::channel();
+        self.startup_path_rx = Some(rx);
+
+        let load_ctx = ctx.clone();
+        thread::spawn(move || {
+            for path in paths {
+                let result = match FileAsset::hash_from_path(&path) {
+                    Ok(hash) => match MatImage::load_from_path(&path) {
+                        Ok(image) => StartupPathLoadResult::Loaded { path, hash, image },
+                        Err(err) => StartupPathLoadResult::Failed { path, error: err },
+                    },
+                    Err(err) => StartupPathLoadResult::Failed { path, error: err },
+                };
+
+                if tx.send(result).is_err() {
+                    break;
+                }
+
+                load_ctx.request_repaint();
+            }
+        });
+    }
+
+    fn load_fail(toasts: &mut Vec<Toast>, message: &str, path: Option<&PathBuf>, e: &Report) {
         eprintln!("{message}: {e}");
         let path_str = path.map_or("<invalid>", |p| p.to_str().unwrap_or("<invalid>"));
-        self.toasts.add_error(format!("{message}: {path_str}"));
+        toasts.add_error(format!("{message}: {path_str}"));
     }
 
     fn handle_export_action(&mut self, export: ExportAction) {
@@ -979,7 +1020,12 @@ impl ViewerApp {
                 Ok(paths) => {
                     for path in paths {
                         if let Err(err) = self.state.load_from_path(path.clone()) {
-                            self.load_fail("Failed to open externally requested file", Some(&path), &err);
+                            Self::load_fail(
+                                &mut self.toasts,
+                                "Failed to open externally requested file",
+                                Some(&path),
+                                &err,
+                            );
                         }
                     }
                     if let Some(control_instance) = &self.control_instance {
@@ -1064,6 +1110,30 @@ impl ViewerApp {
                 }
             }
         }
+
+        if let Some(rx) = &self.startup_path_rx {
+            let mut should_clear_rx = false;
+
+            loop {
+                match rx.try_recv() {
+                    Ok(StartupPathLoadResult::Loaded { path, hash, image }) => {
+                        self.state.apply_loaded_file_asset(path, hash, image);
+                    }
+                    Ok(StartupPathLoadResult::Failed { path, error }) => {
+                        Self::load_fail(&mut self.toasts, "Failed to load image", Some(&path), &error);
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        should_clear_rx = true;
+                        break;
+                    }
+                }
+            }
+
+            if should_clear_rx {
+                self.startup_path_rx = None;
+            }
+        }
     }
 
     fn paint_asset_drag_preview(&self, ctx: &egui::Context) {
@@ -1102,6 +1172,8 @@ impl eframe::App for ViewerApp {
             self.start_background_event_handlers(ctx);
             self.is_start_background_event_handlers_called = true;
         }
+
+        self.start_startup_path_loading(ctx);
 
         self.handle_event(ctx);
         self.refresh_control_registration(ctx);
@@ -1174,13 +1246,13 @@ impl eframe::App for ViewerApp {
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
                         let path = self.state.file_nav.navigate_prev();
-                        self.load_fail("Failed to load navigated file", path.as_ref(), &e);
+                        Self::load_fail(&mut self.toasts, "Failed to load navigated file", path.as_ref(), &e);
                     }
                 }
                 if i.consume_shortcut(&crate::res::NAVIGATE_NEXT) {
                     if let Err(e) = self.state.navigate_next() {
                         let path = self.state.file_nav.navigate_next();
-                        self.load_fail("Failed to load navigated file", path.as_ref(), &e);
+                        Self::load_fail(&mut self.toasts, "Failed to load navigated file", path.as_ref(), &e);
                     }
                 }
                 if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_PREV) {
@@ -1249,7 +1321,7 @@ impl eframe::App for ViewerApp {
                     match self.state.load_from_path(path.clone()) {
                         Ok(_) => {}
                         Err(e) => {
-                            self.load_fail("Failed to load dropped file", Some(&path), &e);
+                            Self::load_fail(&mut self.toasts, "Failed to load dropped file", Some(&path), &e);
                         }
                     }
                 }
@@ -1271,7 +1343,7 @@ impl eframe::App for ViewerApp {
                         {
                             match self.state.load_from_path(path.clone()) {
                                 Ok(_) => self.viewer.reset_view(),
-                                Err(e) => self.load_fail("Failed to open file", Some(&path), &e),
+                                Err(e) => Self::load_fail(&mut self.toasts, "Failed to open file", Some(&path), &e),
                             }
                         }
                     }
@@ -1282,7 +1354,7 @@ impl eframe::App for ViewerApp {
                         .clicked()
                     {
                         self.state.load_from_clipboard().unwrap_or_else(|e| {
-                            self.load_fail("Failed to load image from clipboard", None, &e);
+                            Self::load_fail(&mut self.toasts, "Failed to load image from clipboard", None, &e);
                         });
                     }
 

@@ -1,3 +1,4 @@
+use color_eyre::eyre::Result;
 use std::{path::PathBuf, sync::Arc};
 
 use opencv::core::{MatTrait, MatTraitConst};
@@ -41,7 +42,7 @@ impl FileAsset {
         Self { path, hash, image }
     }
 
-    pub fn hash_from_path(path: &PathBuf) -> std::io::Result<String> {
+    pub fn hash_from_path(path: &PathBuf) -> Result<String> {
         let meta = std::fs::metadata(path)?;
         let modified = meta.modified()?;
         let duration = modified.duration_since(std::time::UNIX_EPOCH).unwrap();

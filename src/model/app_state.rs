@@ -1,5 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -114,17 +114,29 @@ impl AppState {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from path]");
 
-        let path_str = path.to_string_lossy().to_string();
         let hash_str = FileAsset::hash_from_path(&path)?;
 
         if self.assets.contains_key(&hash_str) {
             self.set_asset_primary_by_hash(&hash_str);
-        } else {
-            self.set_primary_asset(Arc::new(FileAsset::new(path_str, hash_str, MatImage::load_from_path(&path)?)));
+            // `set_asset_primary_by_hash` syncs file navigation from `asset_primary.name()`.
+            // When loading from an explicit path, prefer the caller-provided path as the authoritative source.
+            self.sync_file_navigation_for_path(&path);
+            return Ok(());
         }
 
-        self.sync_file_navigation_for_path(&path);
+        let image = MatImage::load_from_path(&path)?;
+        self.apply_loaded_file_asset(path, hash_str, image);
         Ok(())
+    }
+
+    pub fn apply_loaded_file_asset(&mut self, path: PathBuf, hash: String, image: MatImage) {
+        let path_str = path.to_string_lossy().to_string();
+        let asset: SharedAsset = Arc::new(FileAsset::new(path_str, hash.clone(), image));
+
+        self.set_primary_asset(asset);
+        // `set_primary_asset` syncs file navigation via `asset_primary.name()`.
+        // Keep the concrete load path as the navigation source when the caller already has it.
+        self.sync_file_navigation_for_path(&path);
     }
 
     fn sync_file_navigation_for_path(&mut self, path: &PathBuf) {
