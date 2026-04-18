@@ -64,6 +64,10 @@ enum StartupPathLoadResult {
         hash: String,
         image: MatImage,
     },
+    Reused {
+        path: PathBuf,
+        hash: String,
+    },
     Failed {
         path: PathBuf,
         error: Report,
@@ -272,12 +276,20 @@ impl ViewerApp {
 
         let load_ctx = ctx.clone();
         thread::spawn(move || {
+            let mut seen_hashes = HashSet::new();
+
             for path in paths {
                 let result = match FileAsset::hash_from_path(&path) {
-                    Ok(hash) => match MatImage::load_from_path(&path) {
-                        Ok(image) => StartupPathLoadResult::Loaded { path, hash, image },
-                        Err(err) => StartupPathLoadResult::Failed { path, error: err },
-                    },
+                    Ok(hash) => {
+                        if seen_hashes.insert(hash.clone()) {
+                            match MatImage::load_from_path(&path) {
+                                Ok(image) => StartupPathLoadResult::Loaded { path, hash, image },
+                                Err(err) => StartupPathLoadResult::Failed { path, error: err },
+                            }
+                        } else {
+                            StartupPathLoadResult::Reused { path, hash }
+                        }
+                    }
                     Err(err) => StartupPathLoadResult::Failed { path, error: err },
                 };
 
@@ -1118,6 +1130,9 @@ impl ViewerApp {
                 match rx.try_recv() {
                     Ok(StartupPathLoadResult::Loaded { path, hash, image }) => {
                         self.state.apply_loaded_file_asset(path, hash, image);
+                    }
+                    Ok(StartupPathLoadResult::Reused { path, hash }) => {
+                        self.state.set_file_asset_primary_by_hash_and_path(&hash, &path);
                     }
                     Ok(StartupPathLoadResult::Failed { path, error }) => {
                         Self::load_fail(&mut self.toasts, "Failed to load image", Some(&path), &error);

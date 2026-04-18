@@ -117,10 +117,7 @@ impl AppState {
         let hash_str = FileAsset::hash_from_path(&path)?;
 
         if self.assets.contains_key(&hash_str) {
-            self.set_asset_primary_by_hash(&hash_str);
-            // `set_asset_primary_by_hash` syncs file navigation from `asset_primary.name()`.
-            // When loading from an explicit path, prefer the caller-provided path as the authoritative source.
-            self.sync_file_navigation_for_path(&path);
+            self.set_file_asset_primary_by_hash_and_path(&hash_str, &path);
             return Ok(());
         }
 
@@ -137,6 +134,13 @@ impl AppState {
         // `set_primary_asset` syncs file navigation via `asset_primary.name()`.
         // Keep the concrete load path as the navigation source when the caller already has it.
         self.sync_file_navigation_for_path(&path);
+    }
+
+    pub fn set_file_asset_primary_by_hash_and_path(&mut self, hash: &str, path: &PathBuf) {
+        self.set_asset_primary_by_hash(hash);
+        // `set_asset_primary_by_hash` syncs file navigation from `asset_primary.name()`.
+        // When a caller already has the resolved file path, prefer it as the authoritative source.
+        self.sync_file_navigation_for_path(path);
     }
 
     fn sync_file_navigation_for_path(&mut self, path: &PathBuf) {
