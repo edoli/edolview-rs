@@ -150,6 +150,15 @@ impl Drop for ViewerApp {
     }
 }
 
+fn marquee_angle_degrees(rect: Recti) -> Option<f32> {
+    let rect = rect.validate();
+    if rect.empty() {
+        return None;
+    }
+
+    Some((rect.height() as f32).atan2(rect.width() as f32).to_degrees())
+}
+
 impl ViewerApp {
     pub fn new() -> Self {
         let mut state = AppState::empty();
@@ -1484,10 +1493,11 @@ impl eframe::App for ViewerApp {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
                 ui.columns_sized(
                     [
-                        Size::exact(400.0),
+                        Size::exact(360.0),
                         Size::exact(160.0),
+                        Size::exact(72.0),
                         Size::remainder(1.0),
-                        Size::exact(128.0),
+                        Size::exact(100.0),
                     ],
                     |columns| {
                         columns[0].vertical(|ui| {
@@ -1556,7 +1566,16 @@ impl eframe::App for ViewerApp {
                             });
                         });
 
-                        columns[3].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
+                        columns[2].vertical(|ui| {
+                            ui.label("");
+                            if let Some(angle) = marquee_angle_degrees(self.state.marquee_rect) {
+                                ui.label(format!("Angle: {:.1}°", angle));
+                            } else {
+                                ui.label("Angle: -");
+                            }
+                        });
+
+                        columns[4].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
                             if let Some(asset) = &self.state.asset {
                                 let spec = asset.image().spec();
                                 ui.label(format!("{}×{} | {}", spec.width, spec.height, spec.dtype.cv_type_name()));
