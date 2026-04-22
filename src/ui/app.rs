@@ -1493,11 +1493,11 @@ impl eframe::App for ViewerApp {
             egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
                 ui.columns_sized(
                     [
-                        Size::exact(360.0),
+                        Size::exact(400.0),
                         Size::exact(160.0),
-                        Size::exact(72.0),
+                        Size::exact(40.0),
                         Size::remainder(1.0),
-                        Size::exact(100.0),
+                        Size::exact(108.0),
                     ],
                     |columns| {
                         columns[0].vertical(|ui| {
@@ -1540,6 +1540,7 @@ impl eframe::App for ViewerApp {
                                 &mut self.state.marquee_rect,
                                 &mut self.tmp_marquee_rect,
                             )
+                            .on_hover_text("Selected marquee rectangle bounds (x, y, width, height)")
                             .context_menu(|ui| {
                                 if ui.button("Copy Numpy Indexing").clicked() {
                                     let rect = self.state.marquee_rect.validate();
@@ -1568,10 +1569,11 @@ impl eframe::App for ViewerApp {
 
                         columns[2].vertical(|ui| {
                             ui.label("");
+                            const ANGLE_TOOLTIP: &str = "Arc tan of marquee aspect ratio (height / width).";
                             if let Some(angle) = marquee_angle_degrees(self.state.marquee_rect) {
-                                ui.label(format!("Angle: {:.1}°", angle));
+                                ui.label(format!("{:.1}°", angle)).on_hover_text(ANGLE_TOOLTIP);
                             } else {
-                                ui.label("Angle: -");
+                                ui.label("-").on_hover_text(ANGLE_TOOLTIP);
                             }
                         });
 
