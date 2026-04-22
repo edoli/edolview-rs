@@ -708,14 +708,20 @@ impl ImageViewer {
 
                 // Draw marquee rectangle
                 let selection_rects =
-                    std::iter::once(selection_rect_primary_clipped).chain(selection_rect_secondary_clipped.into_iter());
-                for selection_rect in selection_rects {
+                    std::iter::once((selection_rect_view, selection_rect_primary_clipped, active_primary_rect)).chain(
+                        secondary_selection_rect_view.zip(selection_rect_secondary_clipped).map(
+                            |(selection_rect_view, selection_rect_clipped)| {
+                                (selection_rect_view, selection_rect_clipped, right_pane_rect)
+                            },
+                        ),
+                    );
+                for (selection_rect_view, selection_rect, _pane_rect) in selection_rects {
                     if selection_rect.width() <= 0.0 || selection_rect.height() <= 0.0 {
                         continue;
                     }
 
                     ui.painter().rect_stroke(
-                        selection_rect,
+                        selection_rect_view,
                         0.0,
                         (1.0, egui::Color32::from_gray(150)),
                         egui::StrokeKind::Middle,
@@ -724,16 +730,29 @@ impl ImageViewer {
                     // Draw corner handles (small squares)
                     let painter = ui.painter();
                     let handle_size = 8.0; // in points
-                    let corners = [
-                        selection_rect.min,                                     // TL
-                        egui::pos2(selection_rect.max.x, selection_rect.min.y), // TR
-                        egui::pos2(selection_rect.min.x, selection_rect.max.y), // BL
-                        selection_rect.max,                                     // BR
+                    let handles = [
+                        ResizeHandle::TopLeft,
+                        ResizeHandle::TopRight,
+                        ResizeHandle::BottomLeft,
+                        ResizeHandle::BottomRight,
                     ];
-                    for &c in &corners {
+                    for handle in handles {
+                        let c = handle_center(selection_rect, handle);
+                        let actual_corner = handle_center(selection_rect_view, handle);
+                        let is_clipped = actual_corner != c;
                         let r = egui::Rect::from_center_size(c, egui::vec2(handle_size, handle_size));
-                        painter.rect_filled(r, 0.0, egui::Color32::from_white_alpha(230));
-                        painter.rect_stroke(r, 0.0, (1.0, egui::Color32::BLACK), egui::StrokeKind::Outside);
+                        let fill = if is_clipped {
+                            egui::Color32::from_rgba_unmultiplied(255, 174, 174, 240)
+                        } else {
+                            egui::Color32::from_white_alpha(230)
+                        };
+                        let stroke = if is_clipped {
+                            egui::Color32::from_rgb(120, 72, 0)
+                        } else {
+                            egui::Color32::BLACK
+                        };
+                        painter.rect_filled(r, 0.0, fill);
+                        painter.rect_stroke(r, 0.0, (1.0, stroke), egui::StrokeKind::Outside);
                     }
                 }
 
@@ -1474,10 +1493,16 @@ fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<R
     // Slightly larger hit area than the visual handle for easier grabbing.
     let handle_size = 16.0; // hit area in points
     let corners = [
-        (selection_rect.min, ResizeHandle::TopLeft),
-        (egui::pos2(selection_rect.max.x, selection_rect.min.y), ResizeHandle::TopRight),
-        (egui::pos2(selection_rect.min.x, selection_rect.max.y), ResizeHandle::BottomLeft),
-        (selection_rect.max, ResizeHandle::BottomRight),
+        (handle_center(selection_rect, ResizeHandle::TopLeft), ResizeHandle::TopLeft),
+        (handle_center(selection_rect, ResizeHandle::TopRight), ResizeHandle::TopRight),
+        (
+            handle_center(selection_rect, ResizeHandle::BottomLeft),
+            ResizeHandle::BottomLeft,
+        ),
+        (
+            handle_center(selection_rect, ResizeHandle::BottomRight),
+            ResizeHandle::BottomRight,
+        ),
     ];
 
     for (center, handle) in corners {
@@ -1487,6 +1512,15 @@ fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<R
         }
     }
     None
+}
+
+fn handle_center(selection_rect: egui::Rect, handle: ResizeHandle) -> egui::Pos2 {
+    match handle {
+        ResizeHandle::TopLeft => selection_rect.min,
+        ResizeHandle::TopRight => egui::pos2(selection_rect.max.x, selection_rect.min.y),
+        ResizeHandle::BottomLeft => egui::pos2(selection_rect.min.x, selection_rect.max.y),
+        ResizeHandle::BottomRight => selection_rect.max,
+    }
 }
 
 fn enforce_square_from_anchor(anchor: egui::Pos2, free: egui::Pos2) -> egui::Pos2 {
