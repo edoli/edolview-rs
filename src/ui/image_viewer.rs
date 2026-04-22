@@ -223,10 +223,14 @@ impl ImageViewer {
 
                     // If marquee exists, set resize cursor when hovering corner handles
                     if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
-                        let handle = hit_test_handles(selection_rect_primary_clipped, pointer_pos).or_else(|| {
-                            selection_rect_secondary_clipped
-                                .and_then(|selection_rect_view| hit_test_handles(selection_rect_view, pointer_pos))
-                        });
+                        let handle = hit_test_resize_handle_with_rects(
+                            selection_rect_view,
+                            selection_rect_primary_clipped,
+                            secondary_selection_rect_view,
+                            selection_rect_secondary_clipped,
+                            pointer_pos,
+                        )
+                        .map(|(handle, _, _)| handle);
                         if let Some(handle) = handle {
                             let icon = match handle {
                                 ResizeHandle::TopLeft | ResizeHandle::BottomRight => egui::CursorIcon::ResizeNwSe,
@@ -321,19 +325,30 @@ impl ImageViewer {
                     // If a marquee exists and a corner handle is pressed, start resizing right away
                     let handle_under_mouse =
                         if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
-                            hit_test_handles(selection_rect_primary_clipped, pos).or_else(|| {
-                                selection_rect_secondary_clipped
-                                    .and_then(|selection_rect_view| hit_test_handles(selection_rect_view, pos))
-                            })
+                            hit_test_resize_handle_with_rects(
+                                selection_rect_view,
+                                selection_rect_primary_clipped,
+                                secondary_selection_rect_view,
+                                selection_rect_secondary_clipped,
+                                pos,
+                            )
                         } else {
                             None
                         };
 
-                    if let Some(handle) = handle_under_mouse {
+                    if let Some((handle, selection_rect_view, selection_rect_clipped)) = handle_under_mouse {
                         self.dragging = true;
                         self.drag_mode = DragMode::Resizing {
                             handle,
-                            start_rect: app_state.marquee_rect,
+                            start_rect: self.resize_start_rect(
+                                app_state.marquee_rect,
+                                handle,
+                                selection_rect_view,
+                                selection_rect_clipped,
+                                rect,
+                                pixel_per_point,
+                                split_view,
+                            ),
                             start_pointer_image_pos: self
                                 .view_to_image_coords(pos, rect, pixel_per_point, split_view)
                                 .0,
@@ -348,33 +363,45 @@ impl ImageViewer {
                     // If a marquee exists and a corner handle is grabbed, start resizing
                     let handle_under_mouse =
                         if app_state.marquee_rect.width() > 0 && app_state.marquee_rect.height() > 0 {
-                            hit_test_handles(selection_rect_primary_clipped, pos).or_else(|| {
-                                selection_rect_secondary_clipped
-                                    .and_then(|selection_rect_view| hit_test_handles(selection_rect_view, pos))
-                            })
+                            hit_test_resize_handle_with_rects(
+                                selection_rect_view,
+                                selection_rect_primary_clipped,
+                                secondary_selection_rect_view,
+                                selection_rect_secondary_clipped,
+                                pos,
+                            )
                         } else {
                             None
                         };
 
-                    self.drag_mode = if let Some(handle) = handle_under_mouse {
-                        DragMode::Resizing {
-                            handle,
-                            start_rect: app_state.marquee_rect,
-                            start_pointer_image_pos: self
-                                .view_to_image_coords(pos, rect, pixel_per_point, split_view)
-                                .0,
-                        }
-                    } else if ui.input(|i| i.modifiers.shift) {
-                        // Start marquee creation
-                        DragMode::Marquee {
-                            start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point, split_view).0,
-                        }
-                    } else {
-                        // Start panning
-                        DragMode::Panning {
-                            last_pixel_pos: pos * pixel_per_point,
-                        }
-                    };
+                    self.drag_mode =
+                        if let Some((handle, selection_rect_view, selection_rect_clipped)) = handle_under_mouse {
+                            DragMode::Resizing {
+                                handle,
+                                start_rect: self.resize_start_rect(
+                                    app_state.marquee_rect,
+                                    handle,
+                                    selection_rect_view,
+                                    selection_rect_clipped,
+                                    rect,
+                                    pixel_per_point,
+                                    split_view,
+                                ),
+                                start_pointer_image_pos: self
+                                    .view_to_image_coords(pos, rect, pixel_per_point, split_view)
+                                    .0,
+                            }
+                        } else if ui.input(|i| i.modifiers.shift) {
+                            // Start marquee creation
+                            DragMode::Marquee {
+                                start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point, split_view).0,
+                            }
+                        } else {
+                            // Start panning
+                            DragMode::Panning {
+                                last_pixel_pos: pos * pixel_per_point,
+                            }
+                        };
                 }
             }
 
@@ -1128,6 +1155,30 @@ impl ImageViewer {
         (self.pane_view_to_image_coords(view_pos, rect, pixel_per_point), false)
     }
 
+    fn resize_start_rect(
+        &self,
+        start_rect: Recti,
+        handle: ResizeHandle,
+        selection_rect_view: egui::Rect,
+        selection_rect_clipped: egui::Rect,
+        rect: egui::Rect,
+        pixel_per_point: f32,
+        split_view: bool,
+    ) -> Recti {
+        let actual_handle_pos = handle_center(selection_rect_view, handle);
+        let visible_handle_pos = handle_center(selection_rect_clipped, handle);
+        if actual_handle_pos == visible_handle_pos {
+            return start_rect;
+        }
+
+        // If the handle is partially outside the viewport, we want to resize based on the visible position
+        // which corresponds to the clipped selection rect.
+        let visible_handle_image_pos = self
+            .view_to_image_coords(visible_handle_pos, rect, pixel_per_point, split_view)
+            .0;
+        rect_with_handle_at(start_rect, handle, visible_handle_image_pos)
+    }
+
     // Fit the given image-space rectangle fully within the last known viewport.
     // Chooses the largest integer zoom_level such that the rect is fully visible.
     pub fn fit_rect(&mut self, rect: Recti) {
@@ -1514,6 +1565,25 @@ fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<R
     None
 }
 
+fn hit_test_resize_handle_with_rects(
+    primary_selection_rect_view: egui::Rect,
+    primary_selection_rect_clipped: egui::Rect,
+    secondary_selection_rect_view: Option<egui::Rect>,
+    secondary_selection_rect_clipped: Option<egui::Rect>,
+    pointer: egui::Pos2,
+) -> Option<(ResizeHandle, egui::Rect, egui::Rect)> {
+    if let Some(handle) = hit_test_handles(primary_selection_rect_clipped, pointer) {
+        return Some((handle, primary_selection_rect_view, primary_selection_rect_clipped));
+    }
+
+    secondary_selection_rect_view.zip(secondary_selection_rect_clipped).and_then(
+        |(selection_rect_view, selection_rect_clipped)| {
+            hit_test_handles(selection_rect_clipped, pointer)
+                .map(|handle| (handle, selection_rect_view, selection_rect_clipped))
+        },
+    )
+}
+
 fn handle_center(selection_rect: egui::Rect, handle: ResizeHandle) -> egui::Pos2 {
     match handle {
         ResizeHandle::TopLeft => selection_rect.min,
@@ -1535,4 +1605,28 @@ fn enforce_square_from_anchor(anchor: egui::Pos2, free: egui::Pos2) -> egui::Pos
     let sx = if dx >= 0.0 { 1.0 } else { -1.0 };
     let sy = if dy >= 0.0 { 1.0 } else { -1.0 };
     egui::pos2(anchor.x + sx * side, anchor.y + sy * side)
+}
+
+fn rect_with_handle_at(rect: Recti, handle: ResizeHandle, handle_pos: egui::Pos2) -> Recti {
+    // Clip the handle position to be within the rect bounds.
+    let mut adjusted = rect;
+    match handle {
+        ResizeHandle::TopLeft => {
+            adjusted.min.x = handle_pos.x.floor() as i32;
+            adjusted.min.y = handle_pos.y.floor() as i32;
+        }
+        ResizeHandle::TopRight => {
+            adjusted.max.x = handle_pos.x.ceil() as i32;
+            adjusted.min.y = handle_pos.y.floor() as i32;
+        }
+        ResizeHandle::BottomLeft => {
+            adjusted.min.x = handle_pos.x.floor() as i32;
+            adjusted.max.y = handle_pos.y.ceil() as i32;
+        }
+        ResizeHandle::BottomRight => {
+            adjusted.max.x = handle_pos.x.ceil() as i32;
+            adjusted.max.y = handle_pos.y.ceil() as i32;
+        }
+    }
+    adjusted.validate()
 }
