@@ -13,6 +13,13 @@ pub enum ExternalOpenMode {
     ExistingWindow,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AngleDisplayUnit {
+    Degrees,
+    Radians,
+}
+
 impl ExternalOpenMode {
     pub fn label(self) -> &'static str {
         match self {
@@ -47,6 +54,8 @@ pub struct PersistentUiState {
     pub is_show_sidebar: bool,
     pub is_show_statusbar: bool,
     pub copy_use_original_size: bool,
+    #[serde(default)]
+    pub angle_display_unit: AngleDisplayUnit,
 }
 
 impl Default for AppSettings {
@@ -68,6 +77,7 @@ impl Default for PersistentUiState {
             is_show_sidebar: true,
             is_show_statusbar: true,
             copy_use_original_size: true,
+            angle_display_unit: AngleDisplayUnit::Degrees,
         }
     }
 }
@@ -75,6 +85,12 @@ impl Default for PersistentUiState {
 impl Default for ExternalOpenMode {
     fn default() -> Self {
         Self::NewWindow
+    }
+}
+
+impl Default for AngleDisplayUnit {
+    fn default() -> Self {
+        Self::Degrees
     }
 }
 

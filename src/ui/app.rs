@@ -74,6 +74,12 @@ enum StartupPathLoadResult {
     },
 }
 
+#[derive(Clone, Copy)]
+enum MarqueeAngleDisplay {
+    Degrees(f32),
+    Radians(f32),
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -150,13 +156,40 @@ impl Drop for ViewerApp {
     }
 }
 
-fn marquee_angle_degrees(rect: Recti) -> Option<f32> {
+fn marquee_angle_radian(rect: Recti) -> Option<f32> {
     let rect = rect.validate();
     if rect.empty() {
         return None;
     }
 
-    Some((rect.height() as f32).atan2(rect.width() as f32).to_degrees())
+    Some((rect.height() as f32).atan2(rect.width() as f32))
+}
+
+fn marquee_angle(rect: Recti, unit: crate::settings::AngleDisplayUnit) -> Option<MarqueeAngleDisplay> {
+    let angle_radians = marquee_angle_radian(rect)?;
+    Some(match unit {
+        crate::settings::AngleDisplayUnit::Degrees => MarqueeAngleDisplay::Degrees(angle_radians.to_degrees()),
+        crate::settings::AngleDisplayUnit::Radians => MarqueeAngleDisplay::Radians(angle_radians),
+    })
+}
+
+fn marquee_angle_tooltip(unit: crate::settings::AngleDisplayUnit) -> &'static str {
+    match unit {
+        crate::settings::AngleDisplayUnit::Degrees => {
+            "Arc tan of marquee aspect ratio (height / width), shown in degrees."
+        }
+        crate::settings::AngleDisplayUnit::Radians => {
+            "Arc tan of marquee aspect ratio (height / width), shown in radians."
+        }
+    }
+}
+
+fn format_marquee_angle(angle: Option<MarqueeAngleDisplay>) -> String {
+    match angle {
+        Some(MarqueeAngleDisplay::Degrees(value)) => format!("{value:.1}°"),
+        Some(MarqueeAngleDisplay::Radians(value)) => format!("{value:.3}"),
+        None => "-".to_string(),
+    }
 }
 
 impl ViewerApp {
@@ -502,6 +535,7 @@ impl ViewerApp {
             is_show_sidebar: self.state.is_show_sidebar,
             is_show_statusbar: self.state.is_show_statusbar,
             copy_use_original_size: self.state.copy_use_original_size,
+            angle_display_unit: self.app_settings.ui_state.angle_display_unit,
         }
     }
 
@@ -1569,12 +1603,22 @@ impl eframe::App for ViewerApp {
 
                         columns[2].vertical(|ui| {
                             ui.label("");
-                            const ANGLE_TOOLTIP: &str = "Arc tan of marquee aspect ratio (height / width).";
-                            if let Some(angle) = marquee_angle_degrees(self.state.marquee_rect) {
-                                ui.label(format!("{:.1}°", angle)).on_hover_text(ANGLE_TOOLTIP);
-                            } else {
-                                ui.label("-").on_hover_text(ANGLE_TOOLTIP);
-                            }
+                            let unit = self.app_settings.ui_state.angle_display_unit;
+                            let angle = marquee_angle(self.state.marquee_rect, unit);
+                            let angle_label = format_marquee_angle(angle);
+                            let mut show_radians = unit == crate::settings::AngleDisplayUnit::Radians;
+                            ui.label(angle_label)
+                                .on_hover_text(marquee_angle_tooltip(unit))
+                                .context_menu(|ui| {
+                                    if ui.checkbox(&mut show_radians, "Show in radians").changed() {
+                                        self.app_settings.ui_state.angle_display_unit = if show_radians {
+                                            crate::settings::AngleDisplayUnit::Radians
+                                        } else {
+                                            crate::settings::AngleDisplayUnit::Degrees
+                                        };
+                                        ui.close();
+                                    }
+                                });
                         });
 
                         columns[4].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
