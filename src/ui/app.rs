@@ -1362,10 +1362,12 @@ impl eframe::App for ViewerApp {
                 .fixed_pos(egui::pos2(16.0, 16.0))
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.label("Release to open image...");
+                        ui.add(egui::Label::new("Release to open image...").wrap_mode(egui::TextWrapMode::Extend));
                         for f in ctx.input(|i| i.raw.hovered_files.clone()) {
                             if let Some(path) = f.path {
-                                ui.label(format!("{}", path.display()));
+                                ui.add(
+                                    egui::Label::new(path.display().to_string()).wrap_mode(egui::TextWrapMode::Extend),
+                                );
                             }
                         }
                     });
