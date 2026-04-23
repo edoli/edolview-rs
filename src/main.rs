@@ -56,6 +56,7 @@ fn main() -> Result<()> {
         std::env::remove_var("WAYLAND_DISPLAY");
     }
 
+    #[cfg(debug_assertions)]
     println!("{}", core::get_build_information()?);
 
     let icon_raw = core::Mat::new_rows_cols_with_data(1, ICON_DATA.len() as i32, &ICON_DATA)?;
