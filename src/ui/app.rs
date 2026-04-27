@@ -979,6 +979,25 @@ impl ViewerApp {
         self.state.asset.as_ref()
     }
 
+    #[cfg(debug_assertions)]
+    fn statistics_rect_mismatch_message(&self) -> Option<String> {
+        if !self.show_statistics {
+            return None;
+        }
+
+        let statistics_scope = self.state.statistics.scope.as_ref()?;
+        let statistics_rect = statistics_scope.rect.validate();
+        let current_rect = self.state.marquee_rect.validate();
+        if statistics_rect == current_rect {
+            return None;
+        }
+
+        Some(format!(
+            "Statistics rect {} differs from current marquee rect {}.",
+            statistics_rect, current_rect
+        ))
+    }
+
     fn start_background_event_handlers(&mut self, ctx: &egui::Context) {
         let state = &self.state;
         let _ctx = ctx.clone();
@@ -2333,6 +2352,20 @@ impl eframe::App for ViewerApp {
                             };
                             ui.add(
                                 egui::Label::new(egui::RichText::new(message).color(notice_color))
+                                    .wrap_mode(egui::TextWrapMode::Extend),
+                            );
+                        });
+                }
+
+                #[cfg(debug_assertions)]
+                if let Some(message) = self.statistics_rect_mismatch_message() {
+                    egui::Area::new(egui::Id::new("statistics_rect_mismatch_overlay"))
+                        .order(egui::Order::Foreground)
+                        .anchor(egui::Align2::LEFT_TOP, egui::vec2(6.0, 54.0))
+                        .interactable(false)
+                        .show(ctx, |ui| {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(message).color(Color32::from_rgb(255, 210, 120)))
                                     .wrap_mode(egui::TextWrapMode::Extend),
                             );
                         });
