@@ -43,6 +43,14 @@ pub struct ImageProgram {
     u_max_v_chs: [glow::UniformLocation; 4],
     u_scale_mode_chs: [glow::UniformLocation; 4],
 
+    u_min_max_overlay_enabled: glow::UniformLocation,
+    u_min_max_scope: glow::UniformLocation,
+    u_min_max_channel_count: glow::UniformLocation,
+    u_min_max_value_scale: glow::UniformLocation,
+    u_min_max_compare_epsilon: glow::UniformLocation,
+    u_min_max_min_values: glow::UniformLocation,
+    u_min_max_max_values: glow::UniformLocation,
+
     last_error: Option<String>,
 }
 
@@ -81,6 +89,31 @@ pub struct ShaderParams {
     pub max_v_channels: [f32; 4],
     pub auto_minmax_channels: [bool; 4],
     pub scale_mode_channels: [ScaleMode; 4],
+}
+
+#[derive(Clone, Debug)]
+pub struct MinMaxOverlay {
+    pub enabled: bool,
+    pub scope_rect: [i32; 4],
+    pub channel_count: i32,
+    pub value_scale: f32,
+    pub compare_epsilon: f32,
+    pub min_values: [f32; 4],
+    pub max_values: [f32; 4],
+}
+
+impl Default for MinMaxOverlay {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            scope_rect: [0; 4],
+            channel_count: 0,
+            value_scale: 1.0,
+            compare_epsilon: 0.0,
+            min_values: [0.0; 4],
+            max_values: [0.0; 4],
+        }
+    }
 }
 
 impl Default for ShaderParams {
@@ -223,6 +256,13 @@ impl ImageProgram {
                 std::array::from_fn(|i| gl.check_and_get_uniform_location(program, &format!("u_max_v{i}")));
             let u_scale_mode_chs =
                 std::array::from_fn(|i| gl.check_and_get_uniform_location(program, &format!("u_scale_mode{i}")));
+            let u_min_max_overlay_enabled = gl.check_and_get_uniform_location(program, "u_min_max_overlay_enabled");
+            let u_min_max_scope = gl.check_and_get_uniform_location(program, "u_min_max_scope");
+            let u_min_max_channel_count = gl.check_and_get_uniform_location(program, "u_min_max_channel_count");
+            let u_min_max_value_scale = gl.check_and_get_uniform_location(program, "u_min_max_value_scale");
+            let u_min_max_compare_epsilon = gl.check_and_get_uniform_location(program, "u_min_max_compare_epsilon");
+            let u_min_max_min_values = gl.check_and_get_uniform_location(program, "u_min_max_min_values");
+            let u_min_max_max_values = gl.check_and_get_uniform_location(program, "u_min_max_max_values");
 
             Ok(Self {
                 program,
@@ -249,6 +289,13 @@ impl ImageProgram {
                 u_min_v_chs,
                 u_max_v_chs,
                 u_scale_mode_chs,
+                u_min_max_overlay_enabled,
+                u_min_max_scope,
+                u_min_max_channel_count,
+                u_min_max_value_scale,
+                u_min_max_compare_epsilon,
+                u_min_max_min_values,
+                u_min_max_max_values,
                 last_error: None,
             })
         }
@@ -279,6 +326,13 @@ impl ImageProgram {
         self.u_max_v_chs = std::array::from_fn(|i| gl.check_and_get_uniform_location(program, &format!("u_max_v{i}")));
         self.u_scale_mode_chs =
             std::array::from_fn(|i| gl.check_and_get_uniform_location(program, &format!("u_scale_mode{i}")));
+        self.u_min_max_overlay_enabled = gl.check_and_get_uniform_location(program, "u_min_max_overlay_enabled");
+        self.u_min_max_scope = gl.check_and_get_uniform_location(program, "u_min_max_scope");
+        self.u_min_max_channel_count = gl.check_and_get_uniform_location(program, "u_min_max_channel_count");
+        self.u_min_max_value_scale = gl.check_and_get_uniform_location(program, "u_min_max_value_scale");
+        self.u_min_max_compare_epsilon = gl.check_and_get_uniform_location(program, "u_min_max_compare_epsilon");
+        self.u_min_max_min_values = gl.check_and_get_uniform_location(program, "u_min_max_min_values");
+        self.u_min_max_max_values = gl.check_and_get_uniform_location(program, "u_min_max_max_values");
     }
 
     pub unsafe fn draw(
@@ -294,6 +348,7 @@ impl ImageProgram {
         scale: f32,
         position: Vec2,
         shader_params: &ShaderParams,
+        min_max_overlay: &MinMaxOverlay,
     ) {
         if self.last_color_map_name != colormap_name || self.last_is_mono != is_mono {
             match compile_colormap_shader(gl, &self.shader_builder, colormap_name, is_mono) {
@@ -374,6 +429,35 @@ impl ImageProgram {
                 gl.uniform_1_i32(Some(&self.u_scale_mode_chs[i]), scale_mode_chs[i] as i32);
             }
         }
+
+        gl.uniform_1_i32(
+            Some(&self.u_min_max_overlay_enabled),
+            if min_max_overlay.enabled { 1 } else { 0 },
+        );
+        gl.uniform_4_i32(
+            Some(&self.u_min_max_scope),
+            min_max_overlay.scope_rect[0],
+            min_max_overlay.scope_rect[1],
+            min_max_overlay.scope_rect[2],
+            min_max_overlay.scope_rect[3],
+        );
+        gl.uniform_1_i32(Some(&self.u_min_max_channel_count), min_max_overlay.channel_count);
+        gl.uniform_1_f32(Some(&self.u_min_max_value_scale), min_max_overlay.value_scale);
+        gl.uniform_1_f32(Some(&self.u_min_max_compare_epsilon), min_max_overlay.compare_epsilon);
+        gl.uniform_4_f32(
+            Some(&self.u_min_max_min_values),
+            min_max_overlay.min_values[0],
+            min_max_overlay.min_values[1],
+            min_max_overlay.min_values[2],
+            min_max_overlay.min_values[3],
+        );
+        gl.uniform_4_f32(
+            Some(&self.u_min_max_max_values),
+            min_max_overlay.max_values[0],
+            min_max_overlay.max_values[1],
+            min_max_overlay.max_values[2],
+            min_max_overlay.max_values[3],
+        );
 
         gl.bind_vertex_array(Some(self.vao));
         gl.draw_elements(glow::TRIANGLES, 6, glow::UNSIGNED_INT, 0);

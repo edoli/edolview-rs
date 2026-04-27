@@ -32,6 +32,14 @@ uniform int u_scale_mode1;
 uniform int u_scale_mode2;
 uniform int u_scale_mode3;
 
+uniform int u_min_max_overlay_enabled;
+uniform ivec4 u_min_max_scope; // x, y, width, height; zero size means full image
+uniform int u_min_max_channel_count;
+uniform float u_min_max_value_scale;
+uniform float u_min_max_compare_epsilon;
+uniform vec4 u_min_max_min_values;
+uniform vec4 u_min_max_max_values;
+
 #define PI 3.1415926535897932384626433832795
 #define EPS 1e-12
 
@@ -146,6 +154,44 @@ float apply_scale_mode(float v, int mode)
     }
 }
 
+float component_at(vec4 value, int index)
+{
+    if (index == 0) {
+        return value.r;
+    } else if (index == 1) {
+        return value.g;
+    } else if (index == 2) {
+        return value.b;
+    } else {
+        return value.a;
+    }
+}
+
+bool min_max_scope_contains(ivec2 pixel)
+{
+    if (u_min_max_scope.z <= 0 || u_min_max_scope.w <= 0) {
+        return true;
+    }
+
+    return pixel.x >= u_min_max_scope.x
+        && pixel.x < u_min_max_scope.x + u_min_max_scope.z
+        && pixel.y >= u_min_max_scope.y
+        && pixel.y < u_min_max_scope.y + u_min_max_scope.w;
+}
+
+bool should_check_min_max_channel(int channel)
+{
+    if (channel >= u_min_max_channel_count) {
+        return false;
+    }
+
+    if (u_channel_index != -1) {
+        return channel == u_channel_index;
+    }
+
+    return channel < 3 || (channel == 3 && u_use_alpha != 0);
+}
+
 %colormap_function%
 
 void main()
@@ -181,4 +227,36 @@ void main()
     %color_process%
 
     frag_color = vec4(cm.r, cm.g, cm.b, alpha);
+
+    if (u_min_max_overlay_enabled != 0) {
+        ivec2 image_extent = max(ivec2(u_image_size), ivec2(1));
+        ivec2 texel_coord = clamp(ivec2(v_tex_coord * u_image_size), ivec2(0), image_extent - ivec2(1));
+
+        if (min_max_scope_contains(texel_coord)) {
+            vec4 scaled_texel = texelFetch(u_texture, texel_coord, 0) * u_min_max_value_scale;
+            bool is_min = false;
+            bool is_max = false;
+
+            for (int i = 0; i < 4; ++i) {
+                if (!should_check_min_max_channel(i)) {
+                    continue;
+                }
+
+                float texel_value = component_at(scaled_texel, i);
+                if (abs(texel_value - component_at(u_min_max_min_values, i)) <= u_min_max_compare_epsilon) {
+                    is_min = true;
+                }
+                if (abs(texel_value - component_at(u_min_max_max_values, i)) <= u_min_max_compare_epsilon) {
+                    is_max = true;
+                }
+            }
+
+            if (is_min || is_max) {
+                vec3 highlight = is_min && is_max
+                    ? vec3(1.0, 0.0, 1.0)
+                    : (is_max ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0));
+                frag_color = vec4(highlight, 1.0);
+            }
+        }
+    }
 }

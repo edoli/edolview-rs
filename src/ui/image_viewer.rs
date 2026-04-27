@@ -9,7 +9,7 @@ use std::{
 
 use crate::model::{AppState, Image, MeanDim, Recti, EMPTY_MINMAX};
 use crate::res::KeyboardShortcutExt;
-use crate::ui::gl::{BackgroundProgram, ImageProgram};
+use crate::ui::gl::{BackgroundProgram, ImageProgram, MinMaxOverlay};
 use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
@@ -88,7 +88,13 @@ impl ImageViewer {
         }
     }
 
-    pub fn show_image(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, app_state: &mut AppState) {
+    pub fn show_image(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &mut eframe::Frame,
+        app_state: &mut AppState,
+        show_statistics: bool,
+    ) {
         self.refresh_shader_error();
         let Some(asset) = app_state.asset.clone() else {
             ui.centered_and_justified(|ui| {
@@ -529,6 +535,29 @@ impl ImageViewer {
                 let is_show_background = app_state.is_show_background;
                 let export_toasts = self.export_toasts.clone();
                 let repaint_ctx = ui.ctx().clone();
+                let render_primary_asset_hash = if split_view {
+                    primary_asset.hash().to_string()
+                } else {
+                    asset.hash().to_string()
+                };
+                let primary_min_max_overlay = self.min_max_overlay_for_image(
+                    show_statistics,
+                    app_state,
+                    render_primary_image,
+                    render_primary_asset_hash.as_str(),
+                );
+                let secondary_min_max_overlay = secondary_asset
+                    .as_ref()
+                    .map(|secondary_asset| {
+                        self.min_max_overlay_for_image(
+                            show_statistics,
+                            app_state,
+                            secondary_asset.image(),
+                            secondary_asset.hash(),
+                        )
+                    })
+                    .unwrap_or_default();
+                let disabled_min_max_overlay = MinMaxOverlay::default();
 
                 ui.painter().add(egui::PaintCallback {
                     rect,
@@ -540,7 +569,8 @@ impl ImageViewer {
                         let draw_pane = |pane_pixels: egui::Rect,
                                          pane_size: egui::Vec2,
                                          tex: Option<GL::NativeTexture>,
-                                         min_max: &crate::model::MinMaxTotal| {
+                                         min_max: &crate::model::MinMaxTotal,
+                                         min_max_overlay: &MinMaxOverlay| {
                             let x = pane_pixels.min.x.round() as i32;
                             let y_top = pane_pixels.max.y.round() as i32;
                             let height = pane_pixels.height().round() as i32;
@@ -572,6 +602,7 @@ impl ImageViewer {
                                     scale,
                                     position,
                                     &shader_params,
+                                    min_max_overlay,
                                 );
                             }
                         };
@@ -581,9 +612,16 @@ impl ImageViewer {
                             if split_view { pane_viewport_size } else { viewport_size },
                             primary_tex_handle,
                             &min_max_primary,
+                            &primary_min_max_overlay,
                         );
                         if split_view {
-                            draw_pane(right_pane_pixels, pane_viewport_size, secondary_tex_handle, &min_max_secondary);
+                            draw_pane(
+                                right_pane_pixels,
+                                pane_viewport_size,
+                                secondary_tex_handle,
+                                &min_max_secondary,
+                                &secondary_min_max_overlay,
+                            );
                         }
 
                         // If an export was requested, render to an offscreen FBO once and reuse the RGBA readback.
@@ -652,6 +690,7 @@ impl ImageViewer {
                                             export_scale,
                                             crop_pos,
                                             &shader_params,
+                                            &disabled_min_max_overlay,
                                         );
                                     }
                                 }
@@ -1315,6 +1354,64 @@ impl ImageViewer {
         }
 
         Recti::from_min_size(vec2i(0, 0), vec2i(image_width, image_height))
+    }
+
+    fn min_max_overlay_for_image(
+        &self,
+        show_statistics: bool,
+        app_state: &AppState,
+        image: &impl Image,
+        asset_hash: &str,
+    ) -> MinMaxOverlay {
+        if !show_statistics {
+            return MinMaxOverlay::default();
+        }
+
+        let Some(scope) = app_state.statistics.min_max.scope.as_ref() else {
+            return MinMaxOverlay::default();
+        };
+        if scope.asset_hash.as_deref() != Some(asset_hash) {
+            return MinMaxOverlay::default();
+        }
+        if scope.rect.validate() != app_state.marquee_rect.validate() {
+            return MinMaxOverlay::default();
+        }
+
+        let mins = &app_state.statistics.min_max.value.min;
+        let maxs = &app_state.statistics.min_max.value.max;
+        let channel_count = mins.len().min(maxs.len()).min(image.spec().channels.max(0) as usize).min(4);
+        if channel_count == 0 {
+            return MinMaxOverlay::default();
+        }
+
+        let mut min_values = [0.0; 4];
+        let mut max_values = [0.0; 4];
+        for i in 0..channel_count {
+            min_values[i] = mins[i] as f32;
+            max_values[i] = maxs[i] as f32;
+        }
+
+        let (x, y, width, height) = scope.rect.validate().xywh();
+        let value_scale = image.spec().dtype.alpha() as f32;
+        let compare_epsilon = if image.spec().dtype.cv_type_is_floating() {
+            min_values[..channel_count]
+                .iter()
+                .chain(max_values[..channel_count].iter())
+                .fold(1.0_f32, |acc, value| acc.max(value.abs()))
+                * 1e-6
+        } else {
+            0.5
+        };
+
+        MinMaxOverlay {
+            enabled: true,
+            scope_rect: [x, y, width, height],
+            channel_count: channel_count as i32,
+            value_scale,
+            compare_epsilon,
+            min_values,
+            max_values,
+        }
     }
 }
 

@@ -2330,7 +2330,7 @@ impl eframe::App for ViewerApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
-                self.viewer.show_image(ui, frame, &mut self.state);
+                self.viewer.show_image(ui, frame, &mut self.state, self.show_statistics);
 
                 if self.viewer.take_save_dialog_request() {
                     self.request_viewer_image_save(ctx);
