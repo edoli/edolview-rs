@@ -42,6 +42,14 @@ enum ResizeHandle {
     BottomRight,
 }
 
+fn min_max_compare_epsilon(dtype: i32) -> f32 {
+    match dtype.cv_type_depth() {
+        core::CV_16F => 0.000_976_562_5,
+        core::CV_32F | core::CV_64F => 0.000_001,
+        _ => 0.5,
+    }
+}
+
 pub struct ImageViewer {
     background_prog: Option<Arc<BackgroundProgram>>,
     image_prog: Option<Arc<Mutex<ImageProgram>>>,
@@ -1393,15 +1401,7 @@ impl ImageViewer {
 
         let (x, y, width, height) = scope.rect.validate().xywh();
         let value_scale = image.spec().dtype.alpha() as f32;
-        let compare_epsilon = if image.spec().dtype.cv_type_is_floating() {
-            min_values[..channel_count]
-                .iter()
-                .chain(max_values[..channel_count].iter())
-                .fold(1.0_f32, |acc, value| acc.max(value.abs()))
-                * 1e-6
-        } else {
-            0.5
-        };
+        let compare_epsilon = min_max_compare_epsilon(image.spec().dtype);
 
         MinMaxOverlay {
             enabled: true,
