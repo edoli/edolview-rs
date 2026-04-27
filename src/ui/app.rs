@@ -17,7 +17,7 @@ use crate::util::timer::ScopedTimer;
 use crate::{
     model::{
         start_server_with_retry, AppState, AssetType, ComparisonMode, FileAsset, Image, MatImage, MeanDim, Recti,
-        SocketAsset, StatisticsType, StatisticsUpdate, StatisticsWorker,
+        SocketAsset, StatisticsScope, StatisticsType, StatisticsUpdate, StatisticsWorker,
     },
     res::{icons::Icons, KeyboardShortcutExt},
     ui::{
@@ -118,6 +118,7 @@ pub struct ViewerApp {
     statistics_worker: Arc<Mutex<StatisticsWorker>>,
     statistics_tx: mpsc::Sender<Vec<StatisticsUpdate>>,
     statistics_rx: mpsc::Receiver<Vec<StatisticsUpdate>>,
+    next_statistics_request_id: u64,
 
     // Async font loading: receiver for optional user/system fallback fonts.
     font_rx: Option<mpsc::Receiver<LoadedFallbackFonts>>,
@@ -279,6 +280,7 @@ impl ViewerApp {
             statistics_rx,
 
             statistics_worker: Arc::new(Mutex::new(StatisticsWorker::new())),
+            next_statistics_request_id: 1,
 
             font_rx,
             fallback_font_applied: false,
@@ -923,7 +925,12 @@ impl ViewerApp {
             return;
         }
         let rect = self.state.marquee_rect.validate();
-        let rect_optional = (!rect.empty()).then(|| rect.to_cv_rect());
+        let scope = StatisticsScope {
+            request_id: self.next_statistics_request_id,
+            rect,
+            asset_hash: self.state.asset.as_ref().map(|asset| asset.hash().to_string()),
+        };
+        self.next_statistics_request_id = self.next_statistics_request_id.saturating_add(1);
 
         if let Some(asset) = &self.state.asset {
             let img = asset.image();
@@ -932,7 +939,7 @@ impl ViewerApp {
             self.statistics_worker.lock().unwrap().run_minmax(
                 img.mat_shared(),
                 img.spec().dtype.alpha(),
-                rect_optional,
+                scope.clone(),
             );
         }
 
@@ -948,11 +955,11 @@ impl ViewerApp {
                     img2.mat_shared(),
                     1.0,
                     img1.spec().dtype.alpha(),
-                    rect_optional,
+                    scope.clone(),
                 );
 
                 // Temporarily disable SSIM due to performance issue
-                // self.statistics_worker.run_ssim(img1.mat_shared(), img2.mat_shared(), rect_optional);
+                // self.statistics_worker.run_ssim(img1.mat_shared(), img2.mat_shared(), scope.clone());
             }
         }
     }
@@ -1043,6 +1050,8 @@ impl ViewerApp {
             Ok(updates) => {
                 let mut is_pending_update = false;
                 for result in updates {
+                    self.state.statistics.scope = Some(result.scope.clone());
+
                     match result.stat_type {
                         StatisticsType::PSNRRMSE => {
                             is_pending_update |= result.is_pending;

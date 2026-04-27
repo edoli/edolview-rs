@@ -10,6 +10,8 @@ use std::{
 
 use crate::util::cv_ext::CvMatExt;
 
+use super::recti::Recti;
+
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum StatisticsType {
     MinMax,
@@ -56,12 +58,21 @@ impl std::fmt::Display for StatisticsType {
 pub struct StatisticsResult {
     pub stat_type: StatisticsType,
     pub value: Vec<f64>,
+    pub scope: StatisticsScope,
 }
 
 pub struct StatisticsUpdate {
     pub stat_type: StatisticsType,
     pub value: Vec<f64>,
     pub is_pending: bool,
+    pub scope: StatisticsScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatisticsScope {
+    pub request_id: u64,
+    pub rect: Recti,
+    pub asset_hash: Option<String>,
 }
 
 struct SSIMMatData {
@@ -113,6 +124,7 @@ pub struct Statistics {
     pub ssim: f64,
     pub min: Vec<f64>,
     pub max: Vec<f64>,
+    pub scope: Option<StatisticsScope>,
 }
 
 pub struct StatisticsWorker {
@@ -135,16 +147,18 @@ impl StatisticsWorker {
         }
     }
 
-    pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, rect: Option<cv::Rect>) {
+    pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, scope: StatisticsScope) {
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
         if mat.empty() {
             return;
         }
 
-        self.run(StatisticsType::MinMax, move || {
+        self.run(StatisticsType::MinMax, scope, move |scope| {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMax");
 
+            let rect = scope.rect.validate();
+            let rect = (!rect.empty()).then(|| rect.to_cv_rect());
             let mat_roi = mat.as_ref().roi_or_all(rect)?;
 
             let mut result = Vec::new();
@@ -183,16 +197,18 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, rect: Option<cv::Rect>) {
+    pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, scope: StatisticsScope) {
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
         if mat1.empty() || mat2.empty() {
             return;
         }
 
-        self.run(StatisticsType::PSNRRMSE, move || {
+        self.run(StatisticsType::PSNRRMSE, scope, move |scope| {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
+            let rect = scope.rect.validate();
+            let rect = (!rect.empty()).then(|| rect.to_cv_rect());
             let mat1_roi = mat1.as_ref().roi_or_all(rect)?;
             let mat2_roi = mat2.as_ref().roi_or_all(rect)?;
             let psnr = cv::psnr(&mat1_roi, &mat2_roi, data_range)?;
@@ -203,15 +219,17 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, rect: Option<cv::Rect>) {
+    pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, scope: StatisticsScope) {
         if mat1.empty() || mat2.empty() {
             return;
         }
 
-        self.run(StatisticsType::SSIM, move || unsafe {
+        self.run(StatisticsType::SSIM, scope, move |scope| unsafe {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIM");
 
+            let rect = scope.rect.validate();
+            let rect = (!rect.empty()).then(|| rect.to_cv_rect());
             let mat1_roi = mat1.as_ref().roi_or_all(rect)?;
             let mat2_roi = mat2.as_ref().roi_or_all(rect)?;
 
@@ -263,9 +281,9 @@ impl StatisticsWorker {
         });
     }
 
-    pub fn run<F, E>(&mut self, stat_type: StatisticsType, func: F)
+    pub fn run<F, E>(&mut self, stat_type: StatisticsType, scope: StatisticsScope, func: F)
     where
-        F: FnOnce() -> Result<Vec<f64>, E> + Send + 'static,
+        F: FnOnce(&StatisticsScope) -> Result<Vec<f64>, E> + Send + 'static,
         E: std::error::Error,
     {
         if self.processing.contains(&stat_type) {
@@ -279,9 +297,13 @@ impl StatisticsWorker {
 
         let tx = self.tx.clone();
         thread::spawn(move || {
-            match func() {
+            match func(&scope) {
                 Ok(val) => {
-                    let _ = tx.send(StatisticsResult { stat_type, value: val });
+                    let _ = tx.send(StatisticsResult {
+                        stat_type,
+                        value: val,
+                        scope,
+                    });
                 }
                 Err(e) => {
                     eprintln!("StatisticsWorker: Error computing {}: {:?}", stat_type, e);
@@ -289,6 +311,7 @@ impl StatisticsWorker {
                     let _ = tx.send(StatisticsResult {
                         stat_type,
                         value: vec![f64::NAN; result_size],
+                        scope,
                     });
                 }
             };
@@ -311,6 +334,7 @@ impl StatisticsWorker {
                         stat_type: msg.stat_type,
                         value: msg.value,
                         is_pending,
+                        scope: msg.scope,
                     });
                 }
                 Err(TryRecvError::Empty) => {
