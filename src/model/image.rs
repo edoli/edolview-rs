@@ -106,7 +106,7 @@ pub trait Image {
 pub static MEAN_PROCESSOR: LazyLock<Mutex<MeanProcessor>> = LazyLock::new(|| Mutex::new(MeanProcessor::new()));
 
 #[derive(Clone)]
-pub struct MinMax {
+pub struct MinMaxTotal {
     mins: Vec<f32>,
     maxs: Vec<f32>,
 
@@ -114,14 +114,14 @@ pub struct MinMax {
     total_max: OnceLock<f32>,
 }
 
-pub const EMPTY_MINMAX: MinMax = MinMax {
+pub const EMPTY_MINMAX: MinMaxTotal = MinMaxTotal {
     mins: Vec::new(),
     maxs: Vec::new(),
     total_min: OnceLock::new(),
     total_max: OnceLock::new(),
 };
 
-impl MinMax {
+impl MinMaxTotal {
     pub fn new(mins: Vec<f32>, maxs: Vec<f32>) -> Self {
         Self {
             mins,
@@ -216,7 +216,7 @@ pub struct MatImage {
     spec: ImageSpec,
 
     hist: OnceLock<Vec<Vec<f32>>>,
-    minmax: OnceLock<MinMax>,
+    minmax: OnceLock<MinMaxTotal>,
 }
 
 impl MatImage {
@@ -294,13 +294,13 @@ impl MatImage {
         self.hist.get_or_init(|| self.compute_hist())
     }
 
-    fn compute_minmax(&self) -> MinMax {
+    fn compute_minmax(&self) -> MinMaxTotal {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Compute minmax");
 
         let spec = self.spec();
         if spec.width == 0 || spec.height == 0 || spec.channels <= 0 {
-            return MinMax::new(vec![], vec![]);
+            return MinMaxTotal::new(vec![], vec![]);
         }
 
         let mut mins = vec![f32::INFINITY; spec.channels as usize];
@@ -328,10 +328,10 @@ impl MatImage {
             maxs[ch as usize] = max_val as f32;
         }
 
-        MinMax::new(mins, maxs)
+        MinMaxTotal::new(mins, maxs)
     }
 
-    pub fn minmax(&self) -> &MinMax {
+    pub fn minmax(&self) -> &MinMaxTotal {
         self.minmax.get_or_init(|| self.compute_minmax())
     }
 }

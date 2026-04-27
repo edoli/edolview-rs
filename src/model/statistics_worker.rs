@@ -118,13 +118,28 @@ impl SSIMMatData {
 }
 
 #[derive(Default)]
-pub struct Statistics {
-    pub rmse: f64,
-    pub psnr: f64,
-    pub ssim: f64,
+pub struct ValueWithScope<T> {
+    pub value: T,
+    pub scope: Option<StatisticsScope>,
+}
+
+#[derive(Default)]
+pub struct MinMax {
     pub min: Vec<f64>,
     pub max: Vec<f64>,
-    pub scope: Option<StatisticsScope>,
+}
+
+#[derive(Default)]
+pub struct PSNRRMSE {
+    pub psnr: f64,
+    pub rmse: f64,
+}
+
+#[derive(Default)]
+pub struct Statistics {
+    pub psnr_rmse: ValueWithScope<PSNRRMSE>,
+    pub ssim: ValueWithScope<f64>,
+    pub min_max: ValueWithScope<MinMax>,
 }
 
 pub struct StatisticsWorker {

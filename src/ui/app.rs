@@ -989,7 +989,7 @@ impl ViewerApp {
             return None;
         }
 
-        let statistics_scope = self.state.statistics.scope.as_ref()?;
+        let statistics_scope = self.state.statistics.min_max.scope.as_ref()?;
         let statistics_rect = statistics_scope.rect.validate();
         let current_rect = self.state.marquee_rect.validate();
         if statistics_rect == current_rect {
@@ -1073,22 +1073,24 @@ impl ViewerApp {
             Ok(updates) => {
                 let mut is_pending_update = false;
                 for result in updates {
-                    self.state.statistics.scope = Some(result.scope.clone());
-
                     match result.stat_type {
                         StatisticsType::PSNRRMSE => {
                             is_pending_update |= result.is_pending;
-                            self.state.statistics.psnr = result.value[0];
-                            self.state.statistics.rmse = result.value[1];
+                            self.state.statistics.psnr_rmse.value.psnr = result.value[0];
+                            self.state.statistics.psnr_rmse.value.rmse = result.value[1];
+                            self.state.statistics.psnr_rmse.scope = Some(result.scope.clone());
                         }
                         StatisticsType::SSIM => {
                             is_pending_update |= result.is_pending;
-                            self.state.statistics.ssim = result.value[0];
+                            self.state.statistics.ssim.value = result.value[0];
+                            self.state.statistics.ssim.scope = Some(result.scope.clone());
                         }
                         StatisticsType::MinMax => {
                             is_pending_update |= result.is_pending;
-                            self.state.statistics.min = result.value.iter().step_by(2).cloned().collect();
-                            self.state.statistics.max = result.value.iter().skip(1).step_by(2).cloned().collect();
+                            self.state.statistics.min_max.value.min = result.value.iter().step_by(2).cloned().collect();
+                            self.state.statistics.min_max.value.max =
+                                result.value.iter().skip(1).step_by(2).cloned().collect();
+                            self.state.statistics.min_max.scope = Some(result.scope.clone());
                         }
                         _ => {}
                     }
@@ -1960,35 +1962,35 @@ impl eframe::App for ViewerApp {
 
                     if self.show_statistics {
                         egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
-                            let num_channels = self.state.statistics.min.len();
+                            let num_channels = self.state.statistics.min_max.value.min.len();
 
                             if num_channels == 1 {
                                 ui.label("Min:");
-                                ui.label(format!("{:.4}", self.state.statistics.min[0]));
+                                ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[0]));
 
                                 ui.label("Max:");
-                                ui.label(format!("{:.4}", self.state.statistics.max[0]));
+                                ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[0]));
                                 ui.end_row();
                             } else {
                                 ui.label("Min:");
-                                for i in 0..self.state.statistics.min.len() {
-                                    ui.label(format!("{:.4}", self.state.statistics.min[i]));
+                                for i in 0..self.state.statistics.min_max.value.min.len() {
+                                    ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[i]));
                                 }
                                 ui.end_row();
 
                                 ui.label("Max:");
-                                for i in 0..self.state.statistics.max.len() {
-                                    ui.label(format!("{:.4}", self.state.statistics.max[i]));
+                                for i in 0..self.state.statistics.min_max.value.max.len() {
+                                    ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[i]));
                                 }
                                 ui.end_row();
                             }
 
                             if self.state.is_comparison() {
                                 ui.label("RMSE:");
-                                ui.label(format!("{:.4}", self.state.statistics.rmse));
+                                ui.label(format!("{:.4}", self.state.statistics.psnr_rmse.value.rmse));
 
                                 ui.label("PSNR:");
-                                ui.label(format!("{:.4}", self.state.statistics.psnr));
+                                ui.label(format!("{:.4}", self.state.statistics.psnr_rmse.value.psnr));
                                 ui.end_row();
 
                                 // ui.label("SSIM:");

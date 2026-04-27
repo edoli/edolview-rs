@@ -540,7 +540,7 @@ impl ImageViewer {
                         let draw_pane = |pane_pixels: egui::Rect,
                                          pane_size: egui::Vec2,
                                          tex: Option<GL::NativeTexture>,
-                                         min_max: &crate::model::MinMax| {
+                                         min_max: &crate::model::MinMaxTotal| {
                             let x = pane_pixels.min.x.round() as i32;
                             let y_top = pane_pixels.max.y.round() as i32;
                             let height = pane_pixels.height().round() as i32;

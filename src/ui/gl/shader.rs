@@ -5,7 +5,7 @@ use glow::HasContext;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    model::MinMax,
+    model::MinMaxTotal,
     ui::gl::{gl_ext::GlExt, ShaderBuilder},
 };
 
@@ -289,7 +289,7 @@ impl ImageProgram {
         viewport_size: Vec2,
         image_size: Vec2,
         channel_index: i32,
-        min_max: &MinMax,
+        min_max: &MinMaxTotal,
         is_mono: bool,
         scale: f32,
         position: Vec2,
