@@ -194,6 +194,10 @@ fn format_marquee_angle(angle: Option<MarqueeAngleDisplay>) -> String {
 }
 
 impl ViewerApp {
+    fn request_root_repaint(ctx: &egui::Context) {
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
+    }
+
     pub fn new() -> Self {
         let mut state = AppState::empty();
         let marquee_rect = state.marquee_rect.clone();
@@ -341,7 +345,7 @@ impl ViewerApp {
                     break;
                 }
 
-                load_ctx.request_repaint();
+                Self::request_root_repaint(&load_ctx);
             }
         });
     }
@@ -702,7 +706,7 @@ impl ViewerApp {
         thread::spawn(move || {
             let result = crate::update::start_update(&update);
             let _ = tx.send(result);
-            update_ctx.request_repaint();
+            Self::request_root_repaint(&update_ctx);
         });
     }
 
@@ -1014,13 +1018,13 @@ impl ViewerApp {
             loop {
                 let current_is_receiving = socket_state.is_socket_receiving.load(Ordering::Relaxed);
                 if tmp_is_receiving != current_is_receiving {
-                    _ctx.request_repaint();
+                    Self::request_root_repaint(&_ctx);
                     tmp_is_receiving = current_is_receiving;
                 }
 
                 match socket_nx.try_recv() {
                     Ok(()) => {
-                        _ctx.request_repaint();
+                        Self::request_root_repaint(&_ctx);
                     }
                     Err(mpsc::TryRecvError::Empty) => {}
                     Err(mpsc::TryRecvError::Disconnected) => {}
@@ -1028,7 +1032,7 @@ impl ViewerApp {
 
                 match control_nx.try_recv() {
                     Ok(()) => {
-                        _ctx.request_repaint();
+                        Self::request_root_repaint(&_ctx);
                     }
                     Err(mpsc::TryRecvError::Empty) => {}
                     Err(mpsc::TryRecvError::Disconnected) => {}
@@ -1037,7 +1041,7 @@ impl ViewerApp {
                 let updates = statistics_worker.lock().unwrap().invalidate();
                 if !updates.is_empty() {
                     statistics_tx.send(updates).unwrap();
-                    _ctx.request_repaint();
+                    Self::request_root_repaint(&_ctx);
                 }
 
                 thread::sleep(Duration::from_millis(100));
@@ -1052,7 +1056,7 @@ impl ViewerApp {
         thread::spawn(move || {
             let result = crate::update::check_for_update();
             let _ = update_tx.send(result);
-            update_ctx.request_repaint();
+            Self::request_root_repaint(&update_ctx);
         });
     }
 
