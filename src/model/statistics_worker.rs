@@ -148,7 +148,9 @@ impl StatisticsWorker {
     }
 
     pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, scope: StatisticsScope) {
+        #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
+
         if mat.empty() {
             return;
         }
@@ -198,7 +200,9 @@ impl StatisticsWorker {
     }
 
     pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, scope: StatisticsScope) {
-        let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNRWrapper");
+
         if mat1.empty() || mat2.empty() {
             return;
         }
@@ -220,6 +224,9 @@ impl StatisticsWorker {
     }
 
     pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, scope: StatisticsScope) {
+        #[cfg(debug_assertions)]
+        let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIMWrapper");
+
         if mat1.empty() || mat2.empty() {
             return;
         }
