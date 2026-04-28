@@ -8,3 +8,4 @@ pub mod path_ext;
 pub mod series;
 pub mod str_ext;
 pub mod timer;
+pub mod ui_color;

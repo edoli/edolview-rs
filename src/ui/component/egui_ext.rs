@@ -76,6 +76,7 @@ impl Size {
 }
 
 pub trait UiExt {
+    fn colored_label(&mut self, color: impl Into<Color32>, text: impl ToString) -> Response;
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
@@ -115,6 +116,11 @@ pub trait UiExt {
 }
 
 impl UiExt for Ui {
+    #[inline]
+    fn colored_label(&mut self, color: impl Into<Color32>, text: impl ToString) -> Response {
+        Label::new(egui::RichText::new(text.to_string()).color(color.into())).ui(self)
+    }
+
     #[inline]
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response {
         Label::new(text).ui(self)

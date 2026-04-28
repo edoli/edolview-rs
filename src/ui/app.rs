@@ -29,7 +29,10 @@ use crate::{
         fonts::{apply_fallback_fonts, spawn_fallback_font_loader, LoadedFallbackFonts},
         ImageViewer,
     },
-    util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef},
+    util::{
+        concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef,
+        ui_color::statistics_label_colors,
+    },
 };
 
 #[derive(PartialEq, Clone)]
@@ -1962,23 +1965,24 @@ impl eframe::App for ViewerApp {
 
                     if self.show_statistics {
                         egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
+                            let (min_label_color, max_label_color) = statistics_label_colors(ui.visuals());
                             let num_channels = self.state.statistics.min_max.value.min.len();
 
                             if num_channels == 1 {
-                                ui.label("Min:");
+                                ui.colored_label(min_label_color, "Min:");
                                 ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[0]));
 
-                                ui.label("Max:");
+                                ui.colored_label(max_label_color, "Max:");
                                 ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[0]));
                                 ui.end_row();
                             } else {
-                                ui.label("Min:");
+                                ui.colored_label(min_label_color, "Min:");
                                 for i in 0..self.state.statistics.min_max.value.min.len() {
                                     ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[i]));
                                 }
                                 ui.end_row();
 
-                                ui.label("Max:");
+                                ui.colored_label(max_label_color, "Max:");
                                 for i in 0..self.state.statistics.min_max.value.max.len() {
                                     ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[i]));
                                 }
