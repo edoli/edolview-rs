@@ -201,6 +201,10 @@ impl ViewerApp {
         ctx.request_repaint_of(egui::ViewportId::ROOT);
     }
 
+    fn egui_has_label_text_selection(ctx: &egui::Context) -> bool {
+        egui::text_selection::LabelSelectionState::load(ctx).has_selection()
+    }
+
     pub fn new() -> Self {
         let mut state = AppState::empty();
         let marquee_rect = state.marquee_rect.clone();
@@ -1293,7 +1297,6 @@ impl eframe::App for ViewerApp {
         }
 
         if !ctx.wants_keyboard_input() {
-            let mut request_copy = false;
             let mut request_save = false;
             let mut apply_view_preset = None;
             let mut save_view_preset = None;
@@ -1324,15 +1327,6 @@ impl eframe::App for ViewerApp {
                 if i.consume_shortcut(&crate::res::SELECT_NONE_SC) {
                     self.state.reset_marquee_rect();
                 }
-                i.events.retain(|event| {
-                    if matches!(event, egui::Event::Copy) {
-                        request_copy = true;
-                        false
-                    } else {
-                        true
-                    }
-                });
-                request_copy |= i.consume_shortcut(&crate::res::COPY_SC);
                 request_save |= i.consume_shortcut(&crate::res::SAVE_IMAGE_SC);
                 toggle_bookmark_panel |= i.consume_shortcut(&crate::res::BOOKMARK_PANEL_TOGGLE);
                 add_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_ADD);
@@ -1366,10 +1360,6 @@ impl eframe::App for ViewerApp {
                     self.viewer.zoom_in(-1.0, None);
                 }
             });
-            if request_copy {
-                self.viewer.request_copy(self.active_display_source_label().to_string());
-                ctx.request_repaint();
-            }
             if request_save && self.state.asset.is_some() {
                 self.request_viewer_image_save(ctx);
             }
@@ -2388,6 +2378,15 @@ impl eframe::App for ViewerApp {
                 self.toasts.retain_active();
                 ui.add(ToastUi::new(&mut self.toasts));
             });
+
+        let request_copy = !ctx.wants_keyboard_input()
+            && !Self::egui_has_label_text_selection(ctx)
+            && (ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Copy)))
+                || ctx.input_mut(|i| i.consume_shortcut(&crate::res::COPY_SC)));
+        if request_copy {
+            self.viewer.request_copy(self.active_display_source_label().to_string());
+            ctx.request_repaint();
+        }
 
         // Marquee change detection & callbacks (run once per frame after updates)
         let current_rect = self.state.marquee_rect;
