@@ -1653,7 +1653,15 @@ impl eframe::App for ViewerApp {
                         columns[4].with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
                             if let Some(asset) = &self.state.asset {
                                 let spec = asset.image().spec();
-                                ui.label(format!("{}×{} | {}", spec.width, spec.height, spec.dtype.cv_type_name()));
+                                ui.add(
+                                    egui::Label::new(format!(
+                                        "{}×{} | {}",
+                                        spec.width,
+                                        spec.height,
+                                        spec.dtype.cv_type_name()
+                                    ))
+                                    .extend(),
+                                );
                             } else {
                                 ui.label("No image loaded");
                             }
