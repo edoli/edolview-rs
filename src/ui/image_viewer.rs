@@ -26,11 +26,13 @@ enum DragMode {
     },
     Marquee {
         start_image_pos: egui::Pos2,
+        start_on_secondary: bool,
     },
     Resizing {
         handle: ResizeHandle,
         start_rect: Recti,
         start_pointer_image_pos: egui::Pos2,
+        start_on_secondary: bool,
     },
 }
 
@@ -351,6 +353,8 @@ impl ImageViewer {
                         };
 
                     if let Some((handle, selection_rect_view, selection_rect_clipped)) = handle_under_mouse {
+                        let (start_pointer_image_pos, start_on_secondary) =
+                            self.view_to_image_coords(pos, rect, pixel_per_point, split_view);
                         self.dragging = true;
                         self.drag_mode = DragMode::Resizing {
                             handle,
@@ -363,9 +367,8 @@ impl ImageViewer {
                                 pixel_per_point,
                                 split_view,
                             ),
-                            start_pointer_image_pos: self
-                                .view_to_image_coords(pos, rect, pixel_per_point, split_view)
-                                .0,
+                            start_pointer_image_pos,
+                            start_on_secondary,
                         };
                     }
                 }
@@ -390,6 +393,8 @@ impl ImageViewer {
 
                     self.drag_mode =
                         if let Some((handle, selection_rect_view, selection_rect_clipped)) = handle_under_mouse {
+                            let (start_pointer_image_pos, start_on_secondary) =
+                                self.view_to_image_coords(pos, rect, pixel_per_point, split_view);
                             DragMode::Resizing {
                                 handle,
                                 start_rect: self.resize_start_rect(
@@ -401,14 +406,16 @@ impl ImageViewer {
                                     pixel_per_point,
                                     split_view,
                                 ),
-                                start_pointer_image_pos: self
-                                    .view_to_image_coords(pos, rect, pixel_per_point, split_view)
-                                    .0,
+                                start_pointer_image_pos,
+                                start_on_secondary,
                             }
                         } else if ui.input(|i| i.modifiers.shift) {
                             // Start marquee creation
+                            let (start_image_pos, start_on_secondary) =
+                                self.view_to_image_coords(pos, rect, pixel_per_point, split_view);
                             DragMode::Marquee {
-                                start_image_pos: self.view_to_image_coords(pos, rect, pixel_per_point, split_view).0,
+                                start_image_pos,
+                                start_on_secondary,
                             }
                         } else {
                             // Start panning
@@ -422,12 +429,21 @@ impl ImageViewer {
             if self.dragging {
                 let pos_opt = resp.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.hover_pos()));
                 if let Some(pos) = pos_opt {
-                    if let DragMode::Marquee { start_image_pos } = self.drag_mode {
+                    if let DragMode::Marquee {
+                        start_image_pos,
+                        start_on_secondary,
+                    } = self.drag_mode
+                    {
                         // If Ctrl pressed, constrain to square relative to start
                         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
                         let image_pos = self
-                            .view_to_image_coords(pos, rect, pixel_per_point, split_view)
-                            .0
+                            .view_to_image_coords_in_fixed_pane(
+                                pos,
+                                rect,
+                                pixel_per_point,
+                                split_view,
+                                start_on_secondary,
+                            )
                             .cond_map(is_ctrl, |image_pos| enforce_square_from_anchor(start_image_pos, image_pos));
                         app_state.set_marquee_rect(Recti::bound_two_pos(start_image_pos, image_pos));
                     } else if let DragMode::Panning {
@@ -442,10 +458,17 @@ impl ImageViewer {
                         handle,
                         start_rect,
                         start_pointer_image_pos,
+                        start_on_secondary,
                     } = self.drag_mode
                     {
                         // Compute delta in image space from the initial press
-                        let curr_img = self.view_to_image_coords(pos, rect, pixel_per_point, split_view).0;
+                        let curr_img = self.view_to_image_coords_in_fixed_pane(
+                            pos,
+                            rect,
+                            pixel_per_point,
+                            split_view,
+                            start_on_secondary,
+                        );
                         let delta =
                             egui::vec2(curr_img.x - start_pointer_image_pos.x, curr_img.y - start_pointer_image_pos.y);
 
@@ -1207,6 +1230,27 @@ impl ImageViewer {
     ) -> egui::Pos2 {
         let local_pos = (view_pos - pane_rect.min) * pixel_per_point;
         ((local_pos - self.pan) / self.zoom()).to_pos2()
+    }
+
+    fn view_to_image_coords_in_fixed_pane(
+        &self,
+        view_pos: egui::Pos2,
+        rect: egui::Rect,
+        pixel_per_point: f32,
+        split_view: bool,
+        on_secondary: bool,
+    ) -> egui::Pos2 {
+        let pane_rect = if split_view {
+            let (left_rect, right_rect) = self.split_pane_rects(rect);
+            if on_secondary {
+                right_rect
+            } else {
+                left_rect
+            }
+        } else {
+            rect
+        };
+        self.pane_view_to_image_coords(view_pos, pane_rect, pixel_per_point)
     }
 
     pub fn view_to_image_coords(
