@@ -789,20 +789,45 @@ impl ImageViewer {
                             },
                         ),
                     );
-                for (selection_rect_view, selection_rect, _pane_rect) in selection_rects {
-                    if selection_rect.width() <= 0.0 || selection_rect.height() <= 0.0 {
+                for (selection_rect_view, selection_rect_clipped, pane_rect) in selection_rects {
+                    if selection_rect_clipped.width() <= 0.0 || selection_rect_clipped.height() <= 0.0 {
                         continue;
                     }
 
-                    ui.painter().rect_stroke(
-                        selection_rect_view,
-                        0.0,
-                        (1.0, egui::Color32::from_gray(150)),
-                        egui::StrokeKind::Middle,
-                    );
+                    let painter = ui.painter();
+                    let outline_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(150));
+                    if selection_rect_view.top() >= pane_rect.top() {
+                        painter.line_segment(
+                            [selection_rect_clipped.left_top(), selection_rect_clipped.right_top()],
+                            outline_stroke,
+                        );
+                    }
+                    if selection_rect_view.right() <= pane_rect.right() {
+                        painter.line_segment(
+                            [
+                                selection_rect_clipped.right_top(),
+                                selection_rect_clipped.right_bottom(),
+                            ],
+                            outline_stroke,
+                        );
+                    }
+                    if selection_rect_view.bottom() <= pane_rect.bottom() {
+                        painter.line_segment(
+                            [
+                                selection_rect_clipped.left_bottom(),
+                                selection_rect_clipped.right_bottom(),
+                            ],
+                            outline_stroke,
+                        );
+                    }
+                    if selection_rect_view.left() >= pane_rect.left() {
+                        painter.line_segment(
+                            [selection_rect_clipped.left_top(), selection_rect_clipped.left_bottom()],
+                            outline_stroke,
+                        );
+                    }
 
                     // Draw corner handles (small squares)
-                    let painter = ui.painter();
                     let handle_size = 8.0; // in points
                     let handles = [
                         ResizeHandle::TopLeft,
@@ -811,7 +836,7 @@ impl ImageViewer {
                         ResizeHandle::BottomRight,
                     ];
                     for handle in handles {
-                        let c = handle_center(selection_rect, handle);
+                        let c = handle_center(selection_rect_clipped, handle);
                         let actual_corner = handle_center(selection_rect_view, handle);
                         let is_clipped = actual_corner != c;
                         let r = egui::Rect::from_center_size(c, egui::vec2(handle_size, handle_size));
