@@ -143,7 +143,18 @@ pub fn display_controls_ui(
                 "Auto min/max disabled for Inverse/Log modes"
             };
             columns[4].add_enabled_ui(normalize_enabled, |ui| {
-                ui.toggle_icon(auto_minmax, icons.get_normalize(&ctx), auto_tip);
+                ui.toggle_icon(auto_minmax, icons.get_normalize(&ctx), auto_tip)
+                    .context_menu(|ui| {
+                        if ui
+                            .add_enabled(locked, egui::Button::new("Set current values as manual"))
+                            .clicked()
+                        {
+                            *min_v = tmp_min;
+                            *max_v = tmp_max;
+                            *auto_minmax = false;
+                            ui.close();
+                        }
+                    });
             });
         },
     );
