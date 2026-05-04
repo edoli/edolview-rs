@@ -7,7 +7,7 @@ use flate2::read::ZlibDecoder;
 use opencv::core::{Mat, MatExprTraitConst, MatTraitManual, Size};
 use std::{
     io::{self, Read},
-    net::{TcpListener, TcpStream},
+    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -15,6 +15,8 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+
+const SOCKET_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct SocketState {
     pub is_socket_active: AtomicBool,
@@ -48,17 +50,37 @@ impl SocketInfo {
 
 pub struct SocketServer {
     stop: Arc<AtomicBool>,
+    active_stream: Arc<Mutex<Option<TcpStream>>>,
+    addr: SocketAddr,
     handle: Option<JoinHandle<io::Result<()>>>,
 }
 
 impl SocketServer {
+    #[cfg(test)]
+    pub fn address(&self) -> SocketAddr {
+        self.addr
+    }
+
     pub fn shutdown(&mut self) -> io::Result<()> {
         self.stop.store(true, Ordering::Relaxed);
+        if let Some(stream) = self.active_stream.lock().unwrap().take() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
 
         if let Some(handle) = self.handle.take() {
-            match handle.join() {
-                Ok(result) => result,
-                Err(_) => Err(io::Error::other("socket listener thread panicked")),
+            let (tx, rx) = std::sync::mpsc::channel();
+            thread::spawn(move || {
+                let _ = tx.send(handle.join());
+            });
+            match rx.recv_timeout(SOCKET_SHUTDOWN_TIMEOUT) {
+                Ok(Ok(result)) => result,
+                Ok(Err(_)) => Err(io::Error::other("socket listener thread panicked")),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    Err(io::Error::new(io::ErrorKind::TimedOut, "socket listener shutdown timed out"))
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    Err(io::Error::other("socket listener shutdown result was disconnected"))
+                }
             }
         } else {
             Ok(())
@@ -73,9 +95,12 @@ pub fn start_socket_listener(
 ) -> io::Result<SocketServer> {
     let listener = TcpListener::bind(addr)?;
     listener.set_nonblocking(true)?;
+    let addr = listener.local_addr()?;
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = stop.clone();
+    let active_stream = Arc::new(Mutex::new(None::<TcpStream>));
+    let active_stream_thread = active_stream.clone();
 
     let handle = thread::spawn(move || -> io::Result<()> {
         loop {
@@ -90,6 +115,22 @@ pub fn start_socket_listener(
                         eprintln!("[socket_comm] connected: {peer}");
 
                         socket_state.is_socket_receiving.store(true, Ordering::Relaxed);
+                        match stream.try_clone() {
+                            Ok(cloned) => {
+                                *active_stream_thread.lock().unwrap() = Some(cloned);
+                            }
+                            Err(err) => {
+                                eprintln!("[socket_comm] failed to track client stream {peer}: {err}");
+                                socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
+                                continue;
+                            }
+                        }
+                        if stop_thread.load(Ordering::Relaxed) {
+                            active_stream_thread.lock().unwrap().take();
+                            let _ = stream.shutdown(Shutdown::Both);
+                            socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
+                            return Ok(());
+                        }
 
                         match handle_client(&mut stream) {
                             Ok(asset) => {
@@ -105,6 +146,7 @@ pub fn start_socket_listener(
                             }
                         }
 
+                        active_stream_thread.lock().unwrap().take();
                         socket_state.is_socket_receiving.store(false, Ordering::Relaxed);
                         eprintln!("[socket_comm] disconnected: {peer}");
                     }
@@ -121,6 +163,8 @@ pub fn start_socket_listener(
 
     Ok(SocketServer {
         stop,
+        active_stream,
+        addr,
         handle: Some(handle),
     })
 }

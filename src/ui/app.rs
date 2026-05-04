@@ -152,10 +152,11 @@ impl Drop for ViewerApp {
             }
         }
 
-        if let Some(control_instance) = &self.control_instance {
+        if let Some(mut control_instance) = self.control_instance.take() {
             if let Err(err) = control_instance.remove() {
                 eprintln!("Failed to remove active window registration: {err}");
             }
+            control_instance.shutdown();
         }
     }
 }

@@ -1,9 +1,14 @@
 use std::{
     fs,
     io::{Read, Write},
-    net::{TcpListener, TcpStream},
+    net::{Shutdown, TcpListener, TcpStream},
     path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
+    thread::JoinHandle,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -14,6 +19,7 @@ use crate::util::concurrency::NotifierSender;
 const CONTROL_HOST: &str = "127.0.0.1";
 const CONTROL_PORT_START: u16 = 21740;
 const CONTROL_PORT_END: u16 = 21790;
+const CONTROL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Serialize, Deserialize)]
 struct ControlOpenRequest {
@@ -37,6 +43,9 @@ pub struct ControlInstance {
     instance_id: String,
     pid: u32,
     control_addr: String,
+    stop: Arc<AtomicBool>,
+    active_stream: Arc<Mutex<Option<TcpStream>>>,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl ControlInstance {
@@ -62,6 +71,35 @@ impl ControlInstance {
         registry.windows.retain(|record| record.instance_id != self.instance_id);
         save_registry(&registry)
     }
+
+    pub fn shutdown(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(stream) = self.active_stream.lock().unwrap().take() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        if let Some(handle) = self.handle.take() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            thread::spawn(move || {
+                let _ = tx.send(handle.join());
+            });
+            match rx.recv_timeout(CONTROL_SHUTDOWN_TIMEOUT) {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => eprintln!("Control listener thread panicked during shutdown"),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    eprintln!("Control listener shutdown timed out");
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    eprintln!("Control listener shutdown result was disconnected");
+                }
+            }
+        }
+    }
+}
+
+impl Drop for ControlInstance {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
 }
 
 pub fn start_control_listener(tx: NotifierSender<Vec<PathBuf>>) -> Result<ControlInstance, String> {
@@ -73,12 +111,36 @@ pub fn start_control_listener(tx: NotifierSender<Vec<PathBuf>>) -> Result<Contro
                     .set_nonblocking(true)
                     .map_err(|e| format!("Failed to configure control listener: {e}"))?;
 
-                thread::spawn(move || loop {
+                let stop = Arc::new(AtomicBool::new(false));
+                let stop_thread = stop.clone();
+                let active_stream = Arc::new(Mutex::new(None::<TcpStream>));
+                let active_stream_thread = active_stream.clone();
+
+                let handle = thread::spawn(move || loop {
+                    if stop_thread.load(Ordering::Relaxed) {
+                        break;
+                    }
+
                     match listener.accept() {
                         Ok((mut stream, _peer)) => {
+                            match stream.try_clone() {
+                                Ok(cloned) => {
+                                    *active_stream_thread.lock().unwrap() = Some(cloned);
+                                }
+                                Err(err) => {
+                                    eprintln!("Failed to track control stream: {err}");
+                                    continue;
+                                }
+                            }
+                            if stop_thread.load(Ordering::Relaxed) {
+                                active_stream_thread.lock().unwrap().take();
+                                let _ = stream.shutdown(Shutdown::Both);
+                                break;
+                            }
                             if let Ok(paths) = read_request(&mut stream) {
                                 let _ = tx.send(paths);
                             }
+                            active_stream_thread.lock().unwrap().take();
                         }
                         Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(50));
@@ -94,6 +156,9 @@ pub fn start_control_listener(tx: NotifierSender<Vec<PathBuf>>) -> Result<Contro
                     instance_id: format!("{}-{}", std::process::id(), now_millis()?),
                     pid: std::process::id(),
                     control_addr: addr,
+                    stop,
+                    active_stream,
+                    handle: Some(handle),
                 };
                 instance.touch_active()?;
                 return Ok(instance);
