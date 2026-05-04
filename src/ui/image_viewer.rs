@@ -104,6 +104,8 @@ impl ImageViewer {
         frame: &mut eframe::Frame,
         app_state: &mut AppState,
         show_statistics: bool,
+        show_statistics_min_overlay: bool,
+        show_statistics_max_overlay: bool,
     ) {
         self.refresh_shader_error();
         let Some(asset) = app_state.asset.clone() else {
@@ -573,6 +575,8 @@ impl ImageViewer {
                 };
                 let primary_min_max_overlay = self.min_max_overlay_for_image(
                     show_statistics,
+                    show_statistics_min_overlay,
+                    show_statistics_max_overlay,
                     app_state,
                     render_primary_image,
                     render_primary_asset_hash.as_str(),
@@ -582,6 +586,8 @@ impl ImageViewer {
                     .map(|secondary_asset| {
                         self.min_max_overlay_for_image(
                             show_statistics,
+                            show_statistics_min_overlay,
+                            show_statistics_max_overlay,
                             app_state,
                             secondary_asset.image(),
                             secondary_asset.hash(),
@@ -1436,11 +1442,13 @@ impl ImageViewer {
     fn min_max_overlay_for_image(
         &self,
         show_statistics: bool,
+        show_min: bool,
+        show_max: bool,
         app_state: &AppState,
         image: &impl Image,
         asset_hash: &str,
     ) -> MinMaxOverlay {
-        if !show_statistics {
+        if !show_statistics || (!show_min && !show_max) {
             return MinMaxOverlay::default();
         }
 
@@ -1474,6 +1482,8 @@ impl ImageViewer {
 
         MinMaxOverlay {
             enabled: true,
+            show_min,
+            show_max,
             scope_rect: [x, y, width, height],
             channel_count: channel_count as i32,
             value_scale,

@@ -33,6 +33,8 @@ uniform int u_scale_mode2;
 uniform int u_scale_mode3;
 
 uniform int u_min_max_overlay_enabled;
+uniform int u_min_max_show_min;
+uniform int u_min_max_show_max;
 uniform ivec4 u_min_max_scope; // x, y, width, height; zero size means full image
 uniform int u_min_max_channel_count;
 uniform float u_min_max_value_scale;
@@ -243,10 +245,10 @@ void main()
                 }
 
                 float texel_value = component_at(scaled_texel, i);
-                if (abs(texel_value - component_at(u_min_max_min_values, i)) <= u_min_max_compare_epsilon) {
+                if (u_min_max_show_min != 0 && abs(texel_value - component_at(u_min_max_min_values, i)) <= u_min_max_compare_epsilon) {
                     is_min = true;
                 }
-                if (abs(texel_value - component_at(u_min_max_max_values, i)) <= u_min_max_compare_epsilon) {
+                if (u_min_max_show_max != 0 && abs(texel_value - component_at(u_min_max_max_values, i)) <= u_min_max_compare_epsilon) {
                     is_max = true;
                 }
             }

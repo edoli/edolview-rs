@@ -83,6 +83,26 @@ enum MarqueeAngleDisplay {
     Radians(f32),
 }
 
+fn statistics_overlay_toggle(
+    ui: &mut egui::Ui,
+    selected: &mut bool,
+    text: &str,
+    active_color: Color32,
+    hover_text: &str,
+) -> egui::Response {
+    let text = if *selected {
+        egui::RichText::new(text).color(active_color)
+    } else {
+        egui::RichText::new(text)
+    };
+
+    let response = ui.selectable_label(*selected, text).on_hover_text(hover_text);
+    if response.clicked() {
+        *selected = !*selected;
+    }
+    response
+}
+
 pub struct ViewerApp {
     state: AppState,
     viewer: ImageViewer,
@@ -106,6 +126,8 @@ pub struct ViewerApp {
     show_histogram_channels: [bool; 4],
 
     show_statistics: bool,
+    show_statistics_min_overlay: bool,
+    show_statistics_max_overlay: bool,
 
     plot_dim: PlotDim,
 
@@ -276,6 +298,8 @@ impl ViewerApp {
             show_histogram_channels: [true, true, true, false],
 
             show_statistics: false,
+            show_statistics_min_overlay: false,
+            show_statistics_max_overlay: false,
 
             plot_dim: PlotDim::Auto,
 
@@ -1968,20 +1992,44 @@ impl eframe::App for ViewerApp {
                             let num_channels = self.state.statistics.min_max.value.min.len();
 
                             if num_channels == 1 {
-                                ui.colored_label(min_label_color, "Min:");
+                                statistics_overlay_toggle(
+                                    ui,
+                                    &mut self.show_statistics_min_overlay,
+                                    "Min:",
+                                    min_label_color,
+                                    "Highlight pixels matching the current minimum.",
+                                );
                                 ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[0]));
 
-                                ui.colored_label(max_label_color, "Max:");
+                                statistics_overlay_toggle(
+                                    ui,
+                                    &mut self.show_statistics_max_overlay,
+                                    "Max:",
+                                    max_label_color,
+                                    "Highlight pixels matching the current maximum.",
+                                );
                                 ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[0]));
                                 ui.end_row();
                             } else {
-                                ui.colored_label(min_label_color, "Min:");
+                                statistics_overlay_toggle(
+                                    ui,
+                                    &mut self.show_statistics_min_overlay,
+                                    "Min:",
+                                    min_label_color,
+                                    "Highlight pixels matching the current minimum.",
+                                );
                                 for i in 0..self.state.statistics.min_max.value.min.len() {
                                     ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[i]));
                                 }
                                 ui.end_row();
 
-                                ui.colored_label(max_label_color, "Max:");
+                                statistics_overlay_toggle(
+                                    ui,
+                                    &mut self.show_statistics_max_overlay,
+                                    "Max:",
+                                    max_label_color,
+                                    "Highlight pixels matching the current maximum.",
+                                );
                                 for i in 0..self.state.statistics.min_max.value.max.len() {
                                     ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[i]));
                                 }
@@ -2333,7 +2381,14 @@ impl eframe::App for ViewerApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
             .show(ctx, |ui| {
-                self.viewer.show_image(ui, frame, &mut self.state, self.show_statistics);
+                self.viewer.show_image(
+                    ui,
+                    frame,
+                    &mut self.state,
+                    self.show_statistics,
+                    self.show_statistics_min_overlay,
+                    self.show_statistics_max_overlay,
+                );
 
                 if self.viewer.take_save_dialog_request() {
                     self.request_viewer_image_save(ctx);
