@@ -2197,6 +2197,27 @@ impl eframe::App for ViewerApp {
                                             ui.close();
                                         }
                                         ui.visuals_mut().override_text_color = None;
+                                        
+                                        ui.separator();
+                                        let is_secondary = self
+                                            .state
+                                            .asset_secondary
+                                            .as_ref()
+                                            .is_some_and(|a| Arc::ptr_eq(a, &asset));
+                                        let secondary_label = if is_secondary {
+                                            "Clear Secondary Asset"
+                                        } else {
+                                            "Set as Secondary Asset (Ctrl + Click)"
+                                        };
+                                        if ui.button(secondary_label).clicked() {
+                                            if is_secondary {
+                                                deselect_secondary = true;
+                                            } else {
+                                                to_set_secondary = Some(asset.clone());
+                                            }
+                                            ui.close();
+                                        }
+                                        ui.separator();
 
                                         match asset.asset_type() {
                                             crate::model::AssetType::File => {
