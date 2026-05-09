@@ -29,10 +29,7 @@ use crate::{
         fonts::{apply_fallback_fonts, spawn_fallback_font_loader, LoadedFallbackFonts},
         ImageViewer,
     },
-    util::{
-        concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef,
-        ui_color::statistics_label_colors,
-    },
+    util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef},
 };
 
 #[derive(PartialEq, Clone)]
@@ -86,9 +83,9 @@ enum MarqueeAngleDisplay {
 fn statistics_overlay_toggle(
     ui: &mut egui::Ui,
     selected: &mut bool,
-    text: &str,
+    text: String,
     active_color: Color32,
-    hover_text: &str,
+    hover_text: String,
 ) -> egui::Response {
     let text = if *selected {
         egui::RichText::new(text).color(active_color)
@@ -126,8 +123,8 @@ pub struct ViewerApp {
     show_histogram_channels: [bool; 4],
 
     show_statistics: bool,
-    show_statistics_min_overlay: bool,
-    show_statistics_max_overlay: bool,
+    show_statistics_min_overlay_channels: [bool; 4],
+    show_statistics_max_overlay_channels: [bool; 4],
 
     plot_dim: PlotDim,
 
@@ -298,8 +295,8 @@ impl ViewerApp {
             show_histogram_channels: [true, true, true, false],
 
             show_statistics: false,
-            show_statistics_min_overlay: false,
-            show_statistics_max_overlay: false,
+            show_statistics_min_overlay_channels: [false; 4],
+            show_statistics_max_overlay_channels: [false; 4],
 
             plot_dim: PlotDim::Auto,
 
@@ -1987,58 +1984,46 @@ impl eframe::App for ViewerApp {
                     };
 
                     if self.show_statistics {
-                        egui::Grid::new("statistics_grid").num_columns(2).striped(true).show(ui, |ui| {
-                            let (min_label_color, max_label_color) = statistics_label_colors(ui.visuals());
-                            let num_channels = self.state.statistics.min_max.value.min.len();
+                        let min_values = &self.state.statistics.min_max.value.min;
+                        let max_values = &self.state.statistics.min_max.value.max;
+                        let num_channels = min_values.len().min(max_values.len()).min(4);
 
-                            if num_channels == 1 {
-                                statistics_overlay_toggle(
-                                    ui,
-                                    &mut self.show_statistics_min_overlay,
-                                    "Min:",
-                                    min_label_color,
-                                    "Highlight pixels matching the current minimum.",
-                                );
-                                ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[0]));
+                        if num_channels > 0 {
+                            egui::Grid::new("statistics_min_max_grid")
+                                .num_columns(num_channels + 1)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.label("Min:").on_hover_text("Minimum value per channel.");
+                                    for i in 0..num_channels {
+                                        statistics_overlay_toggle(
+                                            ui,
+                                            &mut self.show_statistics_min_overlay_channels[i],
+                                            format!("{:.4}", min_values[i]),
+                                            ui.visuals().text_color(),
+                                            "Highlight pixels matching this minimum value.".to_owned(),
+                                        );
+                                    }
+                                    ui.end_row();
 
-                                statistics_overlay_toggle(
-                                    ui,
-                                    &mut self.show_statistics_max_overlay,
-                                    "Max:",
-                                    max_label_color,
-                                    "Highlight pixels matching the current maximum.",
-                                );
-                                ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[0]));
-                                ui.end_row();
-                            } else {
-                                statistics_overlay_toggle(
-                                    ui,
-                                    &mut self.show_statistics_min_overlay,
-                                    "Min:",
-                                    min_label_color,
-                                    "Highlight pixels matching the current minimum.",
-                                );
-                                for i in 0..self.state.statistics.min_max.value.min.len() {
-                                    ui.label(format!("{:.4}", self.state.statistics.min_max.value.min[i]));
-                                }
-                                ui.end_row();
+                                    ui.label("Max:").on_hover_text("Maximum value per channel.");
+                                    for i in 0..num_channels {
+                                        statistics_overlay_toggle(
+                                            ui,
+                                            &mut self.show_statistics_max_overlay_channels[i],
+                                            format!("{:.4}", max_values[i]),
+                                            ui.visuals().text_color(),
+                                            "Highlight pixels matching this maximum value.".to_owned(),
+                                        );
+                                    }
+                                    ui.end_row();
+                                });
+                        }
 
-                                statistics_overlay_toggle(
-                                    ui,
-                                    &mut self.show_statistics_max_overlay,
-                                    "Max:",
-                                    max_label_color,
-                                    "Highlight pixels matching the current maximum.",
-                                );
-                                for i in 0..self.state.statistics.min_max.value.max.len() {
-                                    ui.label(format!("{:.4}", self.state.statistics.min_max.value.max[i]));
-                                }
-                                ui.end_row();
-                            }
-
-                            if self.state.is_comparison() {
+                        if self.state.is_comparison() {
+                            egui::Grid::new("statistics_metrics_grid").num_columns(2).striped(true).show(ui, |ui| {
                                 ui.label("RMSE:");
                                 ui.label(format!("{:.4}", self.state.statistics.psnr_rmse.value.rmse));
+                                ui.end_row();
 
                                 ui.label("PSNR:");
                                 ui.label(format!("{:.4}", self.state.statistics.psnr_rmse.value.psnr));
@@ -2047,8 +2032,8 @@ impl eframe::App for ViewerApp {
                                 // ui.label("SSIM:");
                                 // ui.label(format!("{:.4}", self.state.statistics.ssim));
                                 // ui.end_row();
-                            }
-                        });
+                            });
+                        }
                     }
 
                     ui.separator();
@@ -2197,7 +2182,7 @@ impl eframe::App for ViewerApp {
                                             ui.close();
                                         }
                                         ui.visuals_mut().override_text_color = None;
-                                        
+
                                         ui.separator();
                                         let is_secondary = self
                                             .state
@@ -2407,8 +2392,8 @@ impl eframe::App for ViewerApp {
                     frame,
                     &mut self.state,
                     self.show_statistics,
-                    self.show_statistics_min_overlay,
-                    self.show_statistics_max_overlay,
+                    self.show_statistics_min_overlay_channels,
+                    self.show_statistics_max_overlay_channels,
                 );
 
                 if self.viewer.take_save_dialog_request() {

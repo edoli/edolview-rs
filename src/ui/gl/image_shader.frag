@@ -33,8 +33,8 @@ uniform int u_scale_mode2;
 uniform int u_scale_mode3;
 
 uniform int u_min_max_overlay_enabled;
-uniform int u_min_max_show_min;
-uniform int u_min_max_show_max;
+uniform ivec4 u_min_max_show_min_channels;
+uniform ivec4 u_min_max_show_max_channels;
 uniform ivec4 u_min_max_scope; // x, y, width, height; zero size means full image
 uniform int u_min_max_channel_count;
 uniform float u_min_max_value_scale;
@@ -169,6 +169,19 @@ float component_at(vec4 value, int index)
     }
 }
 
+int component_at(ivec4 value, int index)
+{
+    if (index == 0) {
+        return value.r;
+    } else if (index == 1) {
+        return value.g;
+    } else if (index == 2) {
+        return value.b;
+    } else {
+        return value.a;
+    }
+}
+
 bool min_max_scope_contains(ivec2 pixel)
 {
     if (u_min_max_scope.z <= 0 || u_min_max_scope.w <= 0) {
@@ -245,10 +258,12 @@ void main()
                 }
 
                 float texel_value = component_at(scaled_texel, i);
-                if (u_min_max_show_min != 0 && abs(texel_value - component_at(u_min_max_min_values, i)) <= u_min_max_compare_epsilon) {
+                bool show_min_for_channel = component_at(u_min_max_show_min_channels, i) != 0;
+                bool show_max_for_channel = component_at(u_min_max_show_max_channels, i) != 0;
+                if (show_min_for_channel && abs(texel_value - component_at(u_min_max_min_values, i)) <= u_min_max_compare_epsilon) {
                     is_min = true;
                 }
-                if (u_min_max_show_max != 0 && abs(texel_value - component_at(u_min_max_max_values, i)) <= u_min_max_compare_epsilon) {
+                if (show_max_for_channel && abs(texel_value - component_at(u_min_max_max_values, i)) <= u_min_max_compare_epsilon) {
                     is_max = true;
                 }
             }

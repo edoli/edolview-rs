@@ -104,8 +104,8 @@ impl ImageViewer {
         frame: &mut eframe::Frame,
         app_state: &mut AppState,
         show_statistics: bool,
-        show_statistics_min_overlay: bool,
-        show_statistics_max_overlay: bool,
+        show_statistics_min_overlay_channels: [bool; 4],
+        show_statistics_max_overlay_channels: [bool; 4],
     ) {
         self.refresh_shader_error();
         let Some(asset) = app_state.asset.clone() else {
@@ -575,8 +575,8 @@ impl ImageViewer {
                 };
                 let primary_min_max_overlay = self.min_max_overlay_for_image(
                     show_statistics,
-                    show_statistics_min_overlay,
-                    show_statistics_max_overlay,
+                    show_statistics_min_overlay_channels,
+                    show_statistics_max_overlay_channels,
                     app_state,
                     render_primary_image,
                     render_primary_asset_hash.as_str(),
@@ -586,8 +586,8 @@ impl ImageViewer {
                     .map(|secondary_asset| {
                         self.min_max_overlay_for_image(
                             show_statistics,
-                            show_statistics_min_overlay,
-                            show_statistics_max_overlay,
+                            show_statistics_min_overlay_channels,
+                            show_statistics_max_overlay_channels,
                             app_state,
                             secondary_asset.image(),
                             secondary_asset.hash(),
@@ -1442,13 +1442,13 @@ impl ImageViewer {
     fn min_max_overlay_for_image(
         &self,
         show_statistics: bool,
-        show_min: bool,
-        show_max: bool,
+        show_min_channels: [bool; 4],
+        show_max_channels: [bool; 4],
         app_state: &AppState,
         image: &impl Image,
         asset_hash: &str,
     ) -> MinMaxOverlay {
-        if !show_statistics || (!show_min && !show_max) {
+        if !show_statistics {
             return MinMaxOverlay::default();
         }
 
@@ -1469,6 +1469,19 @@ impl ImageViewer {
             return MinMaxOverlay::default();
         }
 
+        let mut enabled_min_channels = [false; 4];
+        let mut enabled_max_channels = [false; 4];
+        for i in 0..channel_count {
+            enabled_min_channels[i] = show_min_channels[i];
+            enabled_max_channels[i] = show_max_channels[i];
+        }
+
+        if !enabled_min_channels[..channel_count].iter().copied().any(|selected| selected)
+            && !enabled_max_channels[..channel_count].iter().copied().any(|selected| selected)
+        {
+            return MinMaxOverlay::default();
+        }
+
         let mut min_values = [0.0; 4];
         let mut max_values = [0.0; 4];
         for i in 0..channel_count {
@@ -1482,8 +1495,8 @@ impl ImageViewer {
 
         MinMaxOverlay {
             enabled: true,
-            show_min,
-            show_max,
+            show_min_channels: enabled_min_channels,
+            show_max_channels: enabled_max_channels,
             scope_rect: [x, y, width, height],
             channel_count: channel_count as i32,
             value_scale,

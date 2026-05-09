@@ -44,8 +44,8 @@ pub struct ImageProgram {
     u_scale_mode_chs: [glow::UniformLocation; 4],
 
     u_min_max_overlay_enabled: glow::UniformLocation,
-    u_min_max_show_min: glow::UniformLocation,
-    u_min_max_show_max: glow::UniformLocation,
+    u_min_max_show_min_channels: glow::UniformLocation,
+    u_min_max_show_max_channels: glow::UniformLocation,
     u_min_max_scope: glow::UniformLocation,
     u_min_max_channel_count: glow::UniformLocation,
     u_min_max_value_scale: glow::UniformLocation,
@@ -96,8 +96,8 @@ pub struct ShaderParams {
 #[derive(Clone, Debug)]
 pub struct MinMaxOverlay {
     pub enabled: bool,
-    pub show_min: bool,
-    pub show_max: bool,
+    pub show_min_channels: [bool; 4],
+    pub show_max_channels: [bool; 4],
     pub scope_rect: [i32; 4],
     pub channel_count: i32,
     pub value_scale: f32,
@@ -110,8 +110,8 @@ impl Default for MinMaxOverlay {
     fn default() -> Self {
         Self {
             enabled: false,
-            show_min: false,
-            show_max: false,
+            show_min_channels: [false; 4],
+            show_max_channels: [false; 4],
             scope_rect: [0; 4],
             channel_count: 0,
             value_scale: 1.0,
@@ -263,8 +263,8 @@ impl ImageProgram {
             let u_scale_mode_chs =
                 std::array::from_fn(|i| gl.check_and_get_uniform_location(program, &format!("u_scale_mode{i}")));
             let u_min_max_overlay_enabled = gl.check_and_get_uniform_location(program, "u_min_max_overlay_enabled");
-            let u_min_max_show_min = gl.check_and_get_uniform_location(program, "u_min_max_show_min");
-            let u_min_max_show_max = gl.check_and_get_uniform_location(program, "u_min_max_show_max");
+            let u_min_max_show_min_channels = gl.check_and_get_uniform_location(program, "u_min_max_show_min_channels");
+            let u_min_max_show_max_channels = gl.check_and_get_uniform_location(program, "u_min_max_show_max_channels");
             let u_min_max_scope = gl.check_and_get_uniform_location(program, "u_min_max_scope");
             let u_min_max_channel_count = gl.check_and_get_uniform_location(program, "u_min_max_channel_count");
             let u_min_max_value_scale = gl.check_and_get_uniform_location(program, "u_min_max_value_scale");
@@ -298,8 +298,8 @@ impl ImageProgram {
                 u_max_v_chs,
                 u_scale_mode_chs,
                 u_min_max_overlay_enabled,
-                u_min_max_show_min,
-                u_min_max_show_max,
+                u_min_max_show_min_channels,
+                u_min_max_show_max_channels,
                 u_min_max_scope,
                 u_min_max_channel_count,
                 u_min_max_value_scale,
@@ -337,8 +337,8 @@ impl ImageProgram {
         self.u_scale_mode_chs =
             std::array::from_fn(|i| gl.check_and_get_uniform_location(program, &format!("u_scale_mode{i}")));
         self.u_min_max_overlay_enabled = gl.check_and_get_uniform_location(program, "u_min_max_overlay_enabled");
-        self.u_min_max_show_min = gl.check_and_get_uniform_location(program, "u_min_max_show_min");
-        self.u_min_max_show_max = gl.check_and_get_uniform_location(program, "u_min_max_show_max");
+        self.u_min_max_show_min_channels = gl.check_and_get_uniform_location(program, "u_min_max_show_min_channels");
+        self.u_min_max_show_max_channels = gl.check_and_get_uniform_location(program, "u_min_max_show_max_channels");
         self.u_min_max_scope = gl.check_and_get_uniform_location(program, "u_min_max_scope");
         self.u_min_max_channel_count = gl.check_and_get_uniform_location(program, "u_min_max_channel_count");
         self.u_min_max_value_scale = gl.check_and_get_uniform_location(program, "u_min_max_value_scale");
@@ -446,8 +446,20 @@ impl ImageProgram {
             Some(&self.u_min_max_overlay_enabled),
             if min_max_overlay.enabled { 1 } else { 0 },
         );
-        gl.uniform_1_i32(Some(&self.u_min_max_show_min), if min_max_overlay.show_min { 1 } else { 0 });
-        gl.uniform_1_i32(Some(&self.u_min_max_show_max), if min_max_overlay.show_max { 1 } else { 0 });
+        gl.uniform_4_i32(
+            Some(&self.u_min_max_show_min_channels),
+            if min_max_overlay.show_min_channels[0] { 1 } else { 0 },
+            if min_max_overlay.show_min_channels[1] { 1 } else { 0 },
+            if min_max_overlay.show_min_channels[2] { 1 } else { 0 },
+            if min_max_overlay.show_min_channels[3] { 1 } else { 0 },
+        );
+        gl.uniform_4_i32(
+            Some(&self.u_min_max_show_max_channels),
+            if min_max_overlay.show_max_channels[0] { 1 } else { 0 },
+            if min_max_overlay.show_max_channels[1] { 1 } else { 0 },
+            if min_max_overlay.show_max_channels[2] { 1 } else { 0 },
+            if min_max_overlay.show_max_channels[3] { 1 } else { 0 },
+        );
         gl.uniform_4_i32(
             Some(&self.u_min_max_scope),
             min_max_overlay.scope_rect[0],
