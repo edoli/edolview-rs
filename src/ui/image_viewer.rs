@@ -1458,9 +1458,6 @@ impl ImageViewer {
         if scope.asset_hash.as_deref() != Some(asset_hash) {
             return MinMaxOverlay::default();
         }
-        if scope.rect.validate() != app_state.marquee_rect.validate() {
-            return MinMaxOverlay::default();
-        }
 
         let mins = &app_state.statistics.min_max.value.min;
         let maxs = &app_state.statistics.min_max.value.max;
@@ -1489,7 +1486,15 @@ impl ImageViewer {
             max_values[i] = maxs[i] as f32;
         }
 
-        let (x, y, width, height) = scope.rect.validate().xywh();
+        let overlay_rect = {
+            let current_rect = app_state.marquee_rect.validate();
+            if current_rect.empty() {
+                scope.rect.validate()
+            } else {
+                current_rect
+            }
+        };
+        let (x, y, width, height) = overlay_rect.xywh();
         let value_scale = image.spec().dtype.alpha() as f32;
         let compare_epsilon = min_max_compare_epsilon(image.spec().dtype);
 

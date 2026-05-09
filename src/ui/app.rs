@@ -1024,15 +1024,14 @@ impl ViewerApp {
         }
 
         let statistics_scope = self.state.statistics.min_max.scope.as_ref()?;
-        let statistics_rect = statistics_scope.rect.validate();
-        let current_rect = self.state.marquee_rect.validate();
-        if statistics_rect == current_rect {
+        let current_asset_hash = self.state.asset.as_ref().map(|asset| asset.hash().to_string());
+        if statistics_scope.asset_hash == current_asset_hash {
             return None;
         }
 
         Some(format!(
-            "Statistics rect {} differs from current marquee rect {}.",
-            statistics_rect, current_rect
+            "Statistics asset {:?} differs from current asset {:?}.",
+            statistics_scope.asset_hash, current_asset_hash
         ))
     }
 
