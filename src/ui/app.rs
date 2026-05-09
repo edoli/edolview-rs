@@ -19,7 +19,11 @@ use crate::{
         start_server_with_retry, AppState, AssetType, ComparisonMode, FileAsset, Image, MatImage, MeanDim, Recti,
         SocketAsset, StatisticsScope, StatisticsType, StatisticsUpdate, StatisticsWorker,
     },
-    res::{icons::Icons, KeyboardShortcutExt, STATISTICS_MAX_TOGGLE_FILL, STATISTICS_MIN_TOGGLE_FILL},
+    res::{
+        icons::Icons, KeyboardShortcutExt, ASSET_SECONDARY_SELECTION_FILL, CONTROL_LISTENER_UNAVAILABLE_TEXT,
+        DANGER_TEXT, NOTICE_ERROR_TEXT, NOTICE_WARNING_TEXT, STATISTICS_MAX_TOGGLE_FILL, STATISTICS_MIN_TOGGLE_FILL,
+        UPDATE_ACCENT_FILL, UPDATE_ACCENT_TEXT,
+    },
     ui::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
@@ -785,9 +789,9 @@ impl ViewerApp {
                             let update_clicked = ui
                                 .add(
                                     egui::Button::new(
-                                        egui::RichText::new("Update").color(Color32::from_rgb(120, 220, 120)),
+                                        egui::RichText::new("Update").color(UPDATE_ACCENT_TEXT),
                                     )
-                                    .fill(Color32::from_rgb(42, 84, 42)),
+                                    .fill(UPDATE_ACCENT_FILL),
                                 )
                                 .clicked();
                             let cancel_clicked = ui.button("Cancel").clicked();
@@ -844,7 +848,7 @@ impl ViewerApp {
                 } else if let UpdateStatus::Available(update) = &self.update_status {
                     let update = update.clone();
                     let update_button = ui
-                        .button(egui::RichText::new("Update Available").color(Color32::from_rgb(120, 220, 120)))
+                        .button(egui::RichText::new("Update Available").color(UPDATE_ACCENT_TEXT))
                         .on_hover_text(format!(
                             "Download {} and apply it automatically using {}. The app will close to finish the update. (current: v{})",
                             update.version,
@@ -898,7 +902,7 @@ impl ViewerApp {
                     ui.label(format!("Local control address: {}", control_instance.address()));
                 } else {
                     ui.colored_label(
-                        Color32::from_rgb(255, 140, 140),
+                        CONTROL_LISTENER_UNAVAILABLE_TEXT,
                         "Local control listener is unavailable, so send-to-existing-window mode cannot work in this session.",
                     );
                 }
@@ -1558,8 +1562,7 @@ impl eframe::App for ViewerApp {
                     }
                     if matches!(self.update_status, UpdateStatus::Available(_)) {
                         let indicator_center = settings_button.rect.right_bottom() + egui::vec2(-4.0, -4.0);
-                        ui.painter()
-                            .circle_filled(indicator_center, 2.0, Color32::from_rgb(120, 220, 120));
+                        ui.painter().circle_filled(indicator_center, 2.0, UPDATE_ACCENT_TEXT);
                     }
 
                     ui.toggle_value(&mut self.state.is_show_statusbar, "Status Bar");
@@ -2164,7 +2167,7 @@ impl eframe::App for ViewerApp {
                                                 .sense(egui::Sense::click_and_drag()),
                                         )
                                     } else if Some(hash.as_str()) == asset_secondary_hash.as_deref() {
-                                        ui.style_mut().visuals.selection.bg_fill = Color32::from_rgb(140, 70, 30);
+                                        ui.style_mut().visuals.selection.bg_fill = ASSET_SECONDARY_SELECTION_FILL;
                                         ui.add(
                                             egui::Button::selectable(true, &display_name)
                                                 .sense(egui::Sense::click_and_drag()),
@@ -2176,7 +2179,7 @@ impl eframe::App for ViewerApp {
                                         )
                                     };
                                     btn.context_menu(|ui| {
-                                        ui.visuals_mut().override_text_color = Some(Color32::from_rgb(255, 100, 100));
+                                        ui.visuals_mut().override_text_color = Some(DANGER_TEXT);
                                         if ui.button("Delete").clicked() {
                                             to_remove.insert(hash.clone());
                                             ui.close();
@@ -2420,9 +2423,9 @@ impl eframe::App for ViewerApp {
                         .interactable(false)
                         .show(ctx, |ui| {
                             let notice_color = if message.starts_with("Error:") {
-                                Color32::from_rgb(255, 60, 60)
+                                NOTICE_ERROR_TEXT
                             } else {
-                                Color32::from_rgb(255, 210, 120)
+                                NOTICE_WARNING_TEXT
                             };
                             ui.add(
                                 egui::Label::new(egui::RichText::new(message).color(notice_color))
@@ -2439,7 +2442,7 @@ impl eframe::App for ViewerApp {
                         .interactable(false)
                         .show(ctx, |ui| {
                             ui.add(
-                                egui::Label::new(egui::RichText::new(message).color(Color32::from_rgb(255, 210, 120)))
+                                egui::Label::new(egui::RichText::new(message).color(NOTICE_WARNING_TEXT))
                                     .wrap_mode(egui::TextWrapMode::Extend),
                             );
                         });

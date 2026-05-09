@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, ComboBox, Image, InnerResponse, Label, Rangef, Response, Ui, Widget, WidgetText};
 
+use crate::res::TEXT_EDIT_PARSE_FAILED_FLASH;
 use crate::util::{color::ColorDisplay, cv_ext::CvIntExt};
 
 #[derive(Clone, Debug, Copy)]
@@ -193,8 +194,7 @@ impl UiExt for Ui {
 
         // TODO: animate the color flash instead of just showing it for one frame
         if parse_failed {
-            let color = Color32::from_rgba_premultiplied(255, 64, 64, 64);
-            self.painter().rect_filled(resp.rect, 4.0, color);
+            self.painter().rect_filled(resp.rect, 4.0, TEXT_EDIT_PARSE_FAILED_FLASH);
             self.ctx().request_repaint();
         }
 

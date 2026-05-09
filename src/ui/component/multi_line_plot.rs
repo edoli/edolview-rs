@@ -5,6 +5,7 @@ use eframe::egui::Galley;
 use eframe::egui::{Color32, CornerRadius, Layout, Pos2, Rect, Sense, Stroke, TextStyle, Ui, Vec2};
 
 use super::{CopyExport, ExportAction, SaveExport};
+use crate::res::{MULTI_LINE_PLOT_COLORS, MULTI_LINE_PLOT_GRID_STROKE};
 use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
 #[cfg(debug_assertions)]
 use crate::util::timer::ScopedTimer;
@@ -138,20 +139,11 @@ pub fn draw_multi_line_plot(
         }
     };
 
-    let colors = [
-        Color32::RED,
-        Color32::GREEN,
-        Color32::BLUE,
-        Color32::YELLOW,
-        Color32::LIGHT_BLUE,
-        Color32::LIGHT_GREEN,
-        Color32::LIGHT_RED,
-        Color32::from_rgb(200, 100, 255),
-    ];
+    let colors = MULTI_LINE_PLOT_COLORS;
 
     // Draw background grid
     {
-        let stroke = Stroke::new(1.0, Color32::from_gray(36));
+        let stroke = Stroke::new(1.0, MULTI_LINE_PLOT_GRID_STROKE);
 
         let num_row = (rect.height() / 32.0).ceil() as usize;
         let num_col = (rect.width() / 32.0).ceil() as usize;

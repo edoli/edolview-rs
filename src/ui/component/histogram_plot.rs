@@ -5,6 +5,7 @@ use eframe::egui::Galley;
 use eframe::egui::{self, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, TextStyle, Vec2};
 
 use super::{CopyExport, ExportAction, SaveExport};
+use crate::res::{histogram_bar_colors, HISTOGRAM_LABEL_COLORS};
 use crate::util::series::{build_indexed_csv, channel_label, SeriesRef};
 #[cfg(debug_assertions)]
 use crate::util::timer::ScopedTimer;
@@ -57,13 +58,8 @@ pub fn draw_histogram(
     let bin_width = full_w / bins as f32;
     let inner_w = bin_width.max(0.0);
 
-    let bar_colors = [
-        Color32::from_rgba_unmultiplied(255, 0, 0, 150),
-        Color32::from_rgba_unmultiplied(0, 255, 0, 150),
-        Color32::from_rgba_unmultiplied(0, 0, 255, 150),
-        Color32::from_rgba_unmultiplied(255, 255, 0, 150),
-    ];
-    let label_colors = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::YELLOW];
+    let bar_colors = histogram_bar_colors();
+    let label_colors = HISTOGRAM_LABEL_COLORS;
 
     let format_hist_value = |value: f32| {
         if (value - value.round()).abs() < 0.0001 {

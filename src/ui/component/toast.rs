@@ -4,9 +4,11 @@ use std::{
 };
 
 use eframe::{
-    egui::{self, Color32, Frame, Response, Shape, Stroke, StrokeKind, Ui, Widget, WidgetText},
+    egui::{self, Frame, Response, Shape, Stroke, StrokeKind, Ui, Widget, WidgetText},
     epaint::RectShape,
 };
+
+use crate::res::{TOAST_ERROR_ICON_COLOR, TOAST_INFO_ICON_COLOR, TOAST_SUCCESS_ICON_COLOR, TOAST_WARNING_ICON_COLOR};
 
 pub struct ToastStyle {
     pub info_icon: WidgetText,
@@ -19,10 +21,10 @@ pub struct ToastStyle {
 impl ToastStyle {
     fn new() -> Self {
         Self {
-            info_icon: WidgetText::from("ℹ").color(Color32::from_rgb(0, 155, 255)),
-            warning_icon: WidgetText::from("⚠").color(Color32::from_rgb(255, 212, 0)),
-            error_icon: WidgetText::from("❗").color(Color32::from_rgb(255, 32, 0)),
-            success_icon: WidgetText::from("✔").color(Color32::from_rgb(0, 255, 32)),
+            info_icon: WidgetText::from("ℹ").color(TOAST_INFO_ICON_COLOR),
+            warning_icon: WidgetText::from("⚠").color(TOAST_WARNING_ICON_COLOR),
+            error_icon: WidgetText::from("❗").color(TOAST_ERROR_ICON_COLOR),
+            success_icon: WidgetText::from("✔").color(TOAST_SUCCESS_ICON_COLOR),
             close_button_text: WidgetText::from("🗙"),
         }
     }

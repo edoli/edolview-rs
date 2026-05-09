@@ -8,7 +8,9 @@ use std::{
 };
 
 use crate::model::{AppState, Image, MeanDim, Recti, EMPTY_MINMAX};
-use crate::res::KeyboardShortcutExt;
+use crate::res::{
+    selection_handle_clipped_fill, KeyboardShortcutExt, PIXEL_VALUE_CHANNEL_COLORS, SELECTION_HANDLE_CLIPPED_STROKE,
+};
 use crate::ui::gl::{BackgroundProgram, ImageProgram, MinMaxOverlay};
 use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
@@ -870,12 +872,12 @@ impl ImageViewer {
                         let is_clipped = actual_corner != c;
                         let r = egui::Rect::from_center_size(c, egui::vec2(handle_size, handle_size));
                         let fill = if is_clipped {
-                            egui::Color32::from_rgba_unmultiplied(255, 174, 174, 240)
+                            selection_handle_clipped_fill()
                         } else {
                             egui::Color32::from_white_alpha(230)
                         };
                         let stroke = if is_clipped {
-                            egui::Color32::from_rgb(120, 72, 0)
+                            SELECTION_HANDLE_CLIPPED_STROKE
                         } else {
                             egui::Color32::BLACK
                         };
@@ -961,12 +963,7 @@ impl ImageViewer {
                                         let y_offset = -total_h * 0.5 + (font_size + spacing) * (c_idx as f32 + 0.5);
                                         let pos = egui::pos2(center_pt.x, center_pt.y + y_offset);
 
-                                        let color = match c_idx {
-                                            0 => egui::Color32::RED,
-                                            1 => egui::Color32::GREEN,
-                                            2 => egui::Color32::BLUE,
-                                            _ => egui::Color32::GRAY,
-                                        };
+                                        let color = PIXEL_VALUE_CHANNEL_COLORS[c_idx.min(3)];
 
                                         let text = if pane_image.spec().dtype.cv_type_is_floating() {
                                             format!("{:.4}", (*v as f64) * pane_image.spec().dtype.alpha())
