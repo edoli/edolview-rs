@@ -19,7 +19,7 @@ use crate::{
         start_server_with_retry, AppState, AssetType, ComparisonMode, FileAsset, Image, MatImage, MeanDim, Recti,
         SocketAsset, StatisticsScope, StatisticsType, StatisticsUpdate, StatisticsWorker,
     },
-    res::{icons::Icons, KeyboardShortcutExt},
+    res::{icons::Icons, KeyboardShortcutExt, STATISTICS_MAX_TOGGLE_FILL, STATISTICS_MIN_TOGGLE_FILL},
     ui::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
@@ -84,16 +84,21 @@ fn statistics_overlay_toggle(
     ui: &mut egui::Ui,
     selected: &mut bool,
     text: String,
-    active_color: Color32,
+    active_fill: Color32,
     hover_text: String,
 ) -> egui::Response {
-    let text = if *selected {
-        egui::RichText::new(text).color(active_color)
-    } else {
-        egui::RichText::new(text)
-    };
+    let response = ui
+        .scope(|ui| {
+            if *selected {
+                let visuals = ui.visuals_mut();
+                visuals.selection.bg_fill = active_fill;
+                visuals.selection.stroke.color = active_fill;
+                visuals.override_text_color = Some(Color32::WHITE);
+            }
 
-    let response = ui.selectable_label(*selected, text).on_hover_text(hover_text);
+            ui.selectable_label(*selected, text).on_hover_text(hover_text)
+        })
+        .inner;
     if response.clicked() {
         *selected = !*selected;
     }
@@ -1999,7 +2004,7 @@ impl eframe::App for ViewerApp {
                                             ui,
                                             &mut self.show_statistics_min_overlay_channels[i],
                                             format!("{:.4}", min_values[i]),
-                                            ui.visuals().text_color(),
+                                            STATISTICS_MIN_TOGGLE_FILL,
                                             "Highlight pixels matching this minimum value.".to_owned(),
                                         );
                                     }
@@ -2011,7 +2016,7 @@ impl eframe::App for ViewerApp {
                                             ui,
                                             &mut self.show_statistics_max_overlay_channels[i],
                                             format!("{:.4}", max_values[i]),
-                                            ui.visuals().text_color(),
+                                            STATISTICS_MAX_TOGGLE_FILL,
                                             "Highlight pixels matching this maximum value.".to_owned(),
                                         );
                                     }
