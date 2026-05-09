@@ -87,7 +87,7 @@ enum MarqueeAngleDisplay {
 fn statistics_overlay_toggle(
     ui: &mut egui::Ui,
     selected: &mut bool,
-    text: String,
+    value: f64,
     active_fill: Color32,
     hover_text: String,
 ) -> egui::Response {
@@ -100,9 +100,15 @@ fn statistics_overlay_toggle(
                 visuals.override_text_color = Some(Color32::WHITE);
             }
 
-            ui.selectable_label(*selected, text).on_hover_text(hover_text)
+            ui.selectable_label(*selected, format!("{:.4}", value)).on_hover_text(hover_text)
         })
         .inner;
+    response.context_menu(|ui| {
+        if ui.button("Copy Value").clicked() {
+            ui.ctx().copy_text(value.to_string());
+            ui.close();
+        }
+    });
     if response.clicked() {
         *selected = !*selected;
     }
@@ -219,7 +225,7 @@ fn marquee_angle_tooltip(unit: crate::settings::AngleDisplayUnit) -> &'static st
 
 fn format_marquee_angle(angle: Option<MarqueeAngleDisplay>) -> String {
     match angle {
-        Some(MarqueeAngleDisplay::Degrees(value)) => format!("{value:.1}°"),
+        Some(MarqueeAngleDisplay::Degrees(value)) => format!("{value:.2}°"),
         Some(MarqueeAngleDisplay::Radians(value)) => format!("{value:.3}"),
         None => "-".to_string(),
     }
@@ -2005,7 +2011,7 @@ impl eframe::App for ViewerApp {
                                         statistics_overlay_toggle(
                                             ui,
                                             &mut self.show_statistics_min_overlay_channels[i],
-                                            format!("{:.4}", min_values[i]),
+                                            min_values[i],
                                             STATISTICS_MIN_TOGGLE_FILL,
                                             "Highlight pixels matching this minimum value.".to_owned(),
                                         );
@@ -2017,7 +2023,7 @@ impl eframe::App for ViewerApp {
                                         statistics_overlay_toggle(
                                             ui,
                                             &mut self.show_statistics_max_overlay_channels[i],
-                                            format!("{:.4}", max_values[i]),
+                                            max_values[i],
                                             STATISTICS_MAX_TOGGLE_FILL,
                                             "Highlight pixels matching this maximum value.".to_owned(),
                                         );
