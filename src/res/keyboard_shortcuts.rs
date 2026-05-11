@@ -5,6 +5,8 @@ pub const IS_MAC: bool = cfg!(target_os = "macos");
 pub const SELECT_ALL_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
 pub const SELECT_NONE_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Escape);
 pub const COPY_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::C);
+pub const OPEN_FROM_CLIPBOARD_SC: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::CTRL.plus(Modifiers::SHIFT), Key::V);
 pub const SAVE_IMAGE_SC: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
 pub const BOOKMARK_PANEL_TOGGLE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::B);
 pub const BOOKMARK_ADD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::B);

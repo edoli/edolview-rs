@@ -100,7 +100,8 @@ fn statistics_overlay_toggle(
                 visuals.override_text_color = Some(Color32::WHITE);
             }
 
-            ui.selectable_label(*selected, format!("{:.4}", value)).on_hover_text(hover_text)
+            ui.selectable_label(*selected, format!("{:.4}", value))
+                .on_hover_text(hover_text)
         })
         .inner;
     response.context_menu(|ui| {
@@ -398,6 +399,28 @@ impl ViewerApp {
         eprintln!("{message}: {e}");
         let path_str = path.map_or("<invalid>", |p| p.to_str().unwrap_or("<invalid>"));
         toasts.add_error(format!("{message}: {path_str}"));
+    }
+
+    fn open_from_clipboard(&mut self) {
+        self.state.load_from_clipboard().unwrap_or_else(|e| {
+            Self::load_fail(&mut self.toasts, "Failed to load image from clipboard", None, &e);
+        });
+    }
+
+    // egui-winit turns Ctrl+V key-down into Paste before app shortcuts see it.
+    // The key-up still arrives, so use it as a fallback for the more specific Ctrl+Shift+V command.
+    fn open_from_clipboard_shortcut_released(input: &egui::InputState) -> bool {
+        input.events.iter().any(|event| {
+            matches!(
+                event,
+                egui::Event::Key {
+                    key: egui::Key::V,
+                    pressed: false,
+                    modifiers,
+                    ..
+                } if modifiers.matches_logically(crate::res::OPEN_FROM_CLIPBOARD_SC.modifiers)
+            )
+        })
     }
 
     fn handle_export_action(&mut self, export: ExportAction) {
@@ -1340,6 +1363,7 @@ impl eframe::App for ViewerApp {
             let mut add_bookmark = false;
             let mut navigate_prev_bookmark = false;
             let mut navigate_next_bookmark = false;
+            let mut open_from_clipboard = false;
             ctx.input_mut(|i| {
                 for slot in 0..crate::settings::VIEW_PRESET_COUNT {
                     if i.consume_shortcut(&crate::res::PRESET_SAVE_SHORTCUTS[slot]) {
@@ -1368,6 +1392,8 @@ impl eframe::App for ViewerApp {
                 add_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_ADD);
                 navigate_prev_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_PREV);
                 navigate_next_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_NEXT);
+                open_from_clipboard |= i.consume_shortcut(&crate::res::OPEN_FROM_CLIPBOARD_SC)
+                    || Self::open_from_clipboard_shortcut_released(i);
                 if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
                     if let Err(e) = self.state.navigate_prev() {
                         let path = self.state.file_nav.navigate_prev();
@@ -1415,6 +1441,9 @@ impl eframe::App for ViewerApp {
                 self.navigate_bookmark(-1, ctx);
             } else if navigate_next_bookmark {
                 self.navigate_bookmark(1, ctx);
+            }
+            if open_from_clipboard {
+                self.open_from_clipboard();
             }
         }
 
@@ -1472,13 +1501,14 @@ impl eframe::App for ViewerApp {
                     }
 
                     if ui
-                        .button("Open from clipboard")
+                        .button(format!(
+                            "Open from clipboard ({})",
+                            crate::res::OPEN_FROM_CLIPBOARD_SC.format_sys()
+                        ))
                         .on_hover_text("Load image from clipboard")
                         .clicked()
                     {
-                        self.state.load_from_clipboard().unwrap_or_else(|e| {
-                            Self::load_fail(&mut self.toasts, "Failed to load image from clipboard", None, &e);
-                        });
+                        self.open_from_clipboard();
                     }
 
                     if ui.button("Exit").clicked() {
