@@ -13,6 +13,13 @@
 - Treat files under `packaging\` as generated outputs unless you have confirmed otherwise.
 - After changing packaging generation logic, regenerate assets with `cargo run -p xtask -- icons` so committed packaging outputs stay in sync with the source definitions.
 
+## Resources
+
+- Keep shared color definitions in `src\res\colors.rs`.
+- Keep all keyboard shortcut definitions in `src\res\keyboard_shortcuts.rs`.
+- When a keyboard shortcut has a corresponding button, always display the shortcut next to that button.
+- Keep icon metadata and icon-related constants in `src\res\icons.rs`.
+
 ## Release and versioning
 
 - Treat `Cargo.toml` as the single source of truth for the app version.
