@@ -69,13 +69,15 @@ https://github.com/user-attachments/assets/4a219f8b-39f3-48a8-a5ea-b9d610bb3f40
 ## How to Build
 
 The project is Rust-based and uses **OpenCV 4.12.0** for image decoding and processing.
-Release builds in CI enable the optional `heif` feature; local builds can omit it, or enable it with `--features heif` when `libheif` is available.
+Optional HEIF/HEIC support can be enabled with `--features heif` after preparing `libheif`.
 
 ### 0) Prerequisites (all platforms)
 * Rust
 * CMake, LLVM/Clang
-* curl, unzip, pkg-config (Linux/macOS)
+* curl, unzip
+* pkg-config (Linux/macOS)
 * Git
+* Ninja (Windows)
 
 
 ### 1) Install Rust
@@ -112,14 +114,14 @@ rustc -V; cargo -V
 ```bash
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  build-essential cmake git pkg-config \
+  build-essential cmake git curl unzip pkg-config \
   clang libclang-dev llvm-dev nasm
 
 git clone -b release https://github.com/edoli/opencv-edolview.git opencv
 cd opencv
 sh cmake_script.sh
 
-export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
 ```
 
@@ -129,18 +131,29 @@ export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
 brew update
 brew install cmake llvm git pkg-config nasm
 
+LLVM_PREFIX="$(brew --prefix llvm)"
+export LIBCLANG_PATH="$LLVM_PREFIX/lib"
+export DYLD_LIBRARY_PATH="$LLVM_PREFIX/lib:${DYLD_LIBRARY_PATH:-}"
+export PATH="$LLVM_PREFIX/bin:$PATH"
+
 git clone -b release https://github.com/edoli/opencv-edolview.git opencv
 cd opencv
 sh cmake_script.sh
 
-export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-choco install -y --no-progress llvm cmake ninja git nasm
+choco install -y --no-progress llvm cmake ninja git curl unzip nasm
+
+$llvmBin = "C:\Program Files\LLVM\bin"
+if (Test-Path $llvmBin) {
+  $env:PATH = "$llvmBin;$env:PATH"
+  $env:LIBCLANG_PATH = $llvmBin
+}
 
 git clone -b release https://github.com/edoli/opencv-edolview.git opencv
 Push-Location opencv
@@ -156,9 +169,31 @@ $env:OPENCV_LINK_LIBS=$libsJoined
 $env:OPENCV_LINK_PATHS = $libPath
 $env:OPENCV_INCLUDE_PATHS = "$installDir\include"
 $env:OPENCV_LINK_STATIC = "1"
+Pop-Location
 ```
 
-### 3) Build the viewer
+### 3) Optional HEIF/HEIC support
+
+Install and build the vcpkg dependencies before using `--features heif`:
+
+```bash
+cargo install cargo-vcpkg
+cargo vcpkg -v build
+```
+
+On Linux and macOS, add the vcpkg pkg-config directory before building with `--features heif`:
+
+```bash
+# Linux x86_64
+export PKG_CONFIG_PATH="$(pwd)/target/vcpkg/installed/x64-linux-release/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+
+# macOS arm64
+export PKG_CONFIG_PATH="$(pwd)/target/vcpkg/installed/arm64-osx-release/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+```
+
+Windows uses the vcpkg triplet from `Cargo.toml` and does not need an extra `PKG_CONFIG_PATH` setting.
+
+### 4) Build the viewer
 
 ```bash
 # generate resources for the app
@@ -166,6 +201,7 @@ cargo run -p xtask -- icons
 # from project root
 cargo build --release
 # enable optional HEIF/HEIC support when libheif is available
+# cargo run -p xtask --features heif -- icons
 # cargo build --release --features heif
 # or run directly
 cargo run
