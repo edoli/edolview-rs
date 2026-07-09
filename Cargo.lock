@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "edolview"
-version = "0.5.15"
+version = "0.6.0"
 dependencies = [
  "arboard",
  "bytemuck",
