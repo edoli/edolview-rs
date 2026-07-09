@@ -120,8 +120,7 @@ pub fn show_bookmark_window(
                                                 enabled,
                                                 egui::Button::image(
                                                     icon_fn(icons, ctx).fit_to_exact_size(egui::vec2(14.0, 14.0)),
-                                                )
-                                                .frame(false),
+                                                ),
                                             )
                                             .on_hover_text(hover_text)
                                             .clicked()

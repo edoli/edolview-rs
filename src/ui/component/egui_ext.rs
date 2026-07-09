@@ -236,7 +236,7 @@ impl UiExt for Ui {
         } else {
             self.style().visuals.text_color()
         };
-        let image_button = egui::Button::image(icon.into().tint(tint_color)).frame(false);
+        let image_button = egui::Button::image(icon.into().tint(tint_color));
 
         let resp = self.add(image_button).on_hover_text(name);
         if resp.clicked() {
@@ -270,7 +270,7 @@ impl UiExt for Ui {
         } else {
             self.style().visuals.text_color()
         };
-        let image_button = egui::Button::image(icon.into().tint(tint_color)).frame(false);
+        let image_button = egui::Button::image(icon.into().tint(tint_color));
 
         let resp = self.add(image_button).on_hover_text(name);
         if resp.clicked() {
