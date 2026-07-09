@@ -1296,6 +1296,170 @@ impl ViewerApp {
         }
     }
 
+    fn handle_window_commands(&mut self, ctx: &egui::Context) {
+        if self.close_for_update {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+
+        if self.state.path != self.last_path {
+            self.last_path = self.state.path.clone();
+            if let Some(p) = &self.state.path {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} - edolview", p.display()).to_owned()));
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title("edolview".to_owned()));
+            }
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&crate::res::FULLSCREEN_TOGGLE)) {
+            let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
+        }
+    }
+
+    fn handle_global_shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+
+        let mut request_save = false;
+        let mut apply_view_preset = None;
+        let mut save_view_preset = None;
+        let mut toggle_bookmark_panel = false;
+        let mut add_bookmark = false;
+        let mut navigate_prev_bookmark = false;
+        let mut navigate_next_bookmark = false;
+        let mut open_from_clipboard = false;
+        ctx.input_mut(|i| {
+            for slot in 0..crate::settings::VIEW_PRESET_COUNT {
+                if i.consume_shortcut(&crate::res::PRESET_SAVE_SHORTCUTS[slot]) {
+                    save_view_preset = Some(slot);
+                    break;
+                }
+                if i.consume_shortcut(&crate::res::PRESET_APPLY_SHORTCUTS[slot]) {
+                    apply_view_preset = Some(slot);
+                    break;
+                }
+            }
+            if i.consume_shortcut(&crate::res::SELECT_ALL_SC) {
+                if let Some(asset) = &self.state.asset {
+                    let spec = asset.image().spec();
+                    let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
+                    self.state.marquee_rect = img_rect;
+                    self.tmp_marquee_rect = img_rect;
+                    self.marquee_rect_text = img_rect.to_string().into();
+                }
+            }
+            if i.consume_shortcut(&crate::res::SELECT_NONE_SC) {
+                self.state.reset_marquee_rect();
+            }
+            request_save |= i.consume_shortcut(&crate::res::SAVE_IMAGE_SC);
+            toggle_bookmark_panel |= i.consume_shortcut(&crate::res::BOOKMARK_PANEL_TOGGLE);
+            add_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_ADD);
+            navigate_prev_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_PREV);
+            navigate_next_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_NEXT);
+            open_from_clipboard |= i.consume_shortcut(&crate::res::OPEN_FROM_CLIPBOARD_SC)
+                || Self::open_from_clipboard_shortcut_released(i);
+            if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
+                if let Err(e) = self.state.navigate_prev() {
+                    let path = self.state.file_nav.navigate_prev();
+                    Self::load_fail(&mut self.toasts, "Failed to load navigated file", path.as_ref(), &e);
+                }
+            }
+            if i.consume_shortcut(&crate::res::NAVIGATE_NEXT) {
+                if let Err(e) = self.state.navigate_next() {
+                    let path = self.state.file_nav.navigate_next();
+                    Self::load_fail(&mut self.toasts, "Failed to load navigated file", path.as_ref(), &e);
+                }
+            }
+            if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_PREV) {
+                self.state.navigate_asset_prev();
+            }
+            if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_NEXT) {
+                self.state.navigate_asset_next();
+            }
+            if i.consume_shortcut(&crate::res::RESET_VIEW) {
+                self.viewer.reset_view();
+            }
+            if i.consume_shortcut(&crate::res::ZOOM_IN) {
+                self.viewer.zoom_in(1.0, None);
+            }
+            if i.consume_shortcut(&crate::res::ZOOM_OUT) {
+                self.viewer.zoom_in(-1.0, None);
+            }
+        });
+        if request_save && self.state.asset.is_some() {
+            self.request_viewer_image_save(ctx);
+        }
+        if let Some(slot) = save_view_preset {
+            self.save_view_preset(slot);
+            ctx.request_repaint();
+        } else if let Some(slot) = apply_view_preset {
+            self.apply_view_preset(slot, ctx);
+        }
+        if toggle_bookmark_panel {
+            self.show_bookmarks_modal = !self.show_bookmarks_modal;
+            ctx.request_repaint();
+        } else if add_bookmark {
+            self.toggle_bookmark();
+            ctx.request_repaint();
+        } else if navigate_prev_bookmark {
+            self.navigate_bookmark(-1, ctx);
+        } else if navigate_next_bookmark {
+            self.navigate_bookmark(1, ctx);
+        }
+        if open_from_clipboard {
+            self.open_from_clipboard();
+        }
+    }
+
+    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        if dropped_files.is_empty() {
+            return;
+        }
+
+        for f in dropped_files {
+            if let Some(path) = f.path {
+                match self.state.load_from_path(path.clone()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        Self::load_fail(&mut self.toasts, "Failed to load dropped file", Some(&path), &e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn run_logic(&mut self, ctx: &egui::Context) {
+        #[cfg(debug_assertions)]
+        let _timer = ScopedTimer::new("ui.app.logic");
+
+        self.poll_pending_image_save_dialog(ctx);
+
+        ctx.set_visuals(Visuals::dark());
+
+        if !self.is_start_background_event_handlers_called {
+            self.start_background_event_handlers(ctx);
+            self.is_start_background_event_handlers_called = true;
+        }
+
+        self.start_startup_path_loading(ctx);
+        self.handle_event(ctx);
+        self.refresh_control_registration(ctx);
+        self.handle_window_commands(ctx);
+
+        if self.close_for_update {
+            return;
+        }
+
+        self.handle_global_shortcuts(ctx);
+        self.handle_dropped_files(ctx);
+
+        self.state.validate_marquee_rect();
+        self.state.process_watcher_events();
+    }
+
     fn paint_asset_drag_preview(&self, ctx: &egui::Context) {
         let Some(pointer_pos) = ctx.pointer_interact_pos() else {
             return;
@@ -1320,135 +1484,18 @@ impl ViewerApp {
 }
 
 impl eframe::App for ViewerApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.run_logic(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         #[cfg(debug_assertions)]
-        let _timer = ScopedTimer::new("ui.app.update");
+        let _timer = ScopedTimer::new("ui.app.ui");
 
         let ctx = ui.ctx().clone();
 
-        self.poll_pending_image_save_dialog(&ctx);
-
-        ctx.set_visuals(Visuals::dark());
-
-        if !self.is_start_background_event_handlers_called {
-            self.start_background_event_handlers(&ctx);
-            self.is_start_background_event_handlers_called = true;
-        }
-
-        self.start_startup_path_loading(&ctx);
-
-        self.handle_event(&ctx);
-        self.refresh_control_registration(&ctx);
-
         if self.close_for_update {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
-        }
-
-        if self.state.path != self.last_path {
-            self.last_path = self.state.path.clone();
-            if let Some(p) = &self.state.path {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} - edolview", p.display()).to_owned()));
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Title("edolview".to_owned()));
-            }
-        }
-
-        if ctx.input_mut(|i| i.consume_shortcut(&crate::res::FULLSCREEN_TOGGLE)) {
-            let cur_full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
-        }
-
-        if !ctx.egui_wants_keyboard_input() {
-            let mut request_save = false;
-            let mut apply_view_preset = None;
-            let mut save_view_preset = None;
-            let mut toggle_bookmark_panel = false;
-            let mut add_bookmark = false;
-            let mut navigate_prev_bookmark = false;
-            let mut navigate_next_bookmark = false;
-            let mut open_from_clipboard = false;
-            ctx.input_mut(|i| {
-                for slot in 0..crate::settings::VIEW_PRESET_COUNT {
-                    if i.consume_shortcut(&crate::res::PRESET_SAVE_SHORTCUTS[slot]) {
-                        save_view_preset = Some(slot);
-                        break;
-                    }
-                    if i.consume_shortcut(&crate::res::PRESET_APPLY_SHORTCUTS[slot]) {
-                        apply_view_preset = Some(slot);
-                        break;
-                    }
-                }
-                if i.consume_shortcut(&crate::res::SELECT_ALL_SC) {
-                    if let Some(asset) = &self.state.asset {
-                        let spec = asset.image().spec();
-                        let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
-                        self.state.marquee_rect = img_rect;
-                        self.tmp_marquee_rect = img_rect;
-                        self.marquee_rect_text = img_rect.to_string().into();
-                    }
-                }
-                if i.consume_shortcut(&crate::res::SELECT_NONE_SC) {
-                    self.state.reset_marquee_rect();
-                }
-                request_save |= i.consume_shortcut(&crate::res::SAVE_IMAGE_SC);
-                toggle_bookmark_panel |= i.consume_shortcut(&crate::res::BOOKMARK_PANEL_TOGGLE);
-                add_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_ADD);
-                navigate_prev_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_PREV);
-                navigate_next_bookmark |= i.consume_shortcut(&crate::res::BOOKMARK_NEXT);
-                open_from_clipboard |= i.consume_shortcut(&crate::res::OPEN_FROM_CLIPBOARD_SC)
-                    || Self::open_from_clipboard_shortcut_released(i);
-                if i.consume_shortcut(&crate::res::NAVIGATE_PREV) {
-                    if let Err(e) = self.state.navigate_prev() {
-                        let path = self.state.file_nav.navigate_prev();
-                        Self::load_fail(&mut self.toasts, "Failed to load navigated file", path.as_ref(), &e);
-                    }
-                }
-                if i.consume_shortcut(&crate::res::NAVIGATE_NEXT) {
-                    if let Err(e) = self.state.navigate_next() {
-                        let path = self.state.file_nav.navigate_next();
-                        Self::load_fail(&mut self.toasts, "Failed to load navigated file", path.as_ref(), &e);
-                    }
-                }
-                if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_PREV) {
-                    self.state.navigate_asset_prev();
-                }
-                if i.consume_shortcut(&crate::res::NAVIGATE_ASSET_NEXT) {
-                    self.state.navigate_asset_next();
-                }
-                if i.consume_shortcut(&crate::res::RESET_VIEW) {
-                    self.viewer.reset_view();
-                }
-                if i.consume_shortcut(&crate::res::ZOOM_IN) {
-                    self.viewer.zoom_in(1.0, None);
-                }
-                if i.consume_shortcut(&crate::res::ZOOM_OUT) {
-                    self.viewer.zoom_in(-1.0, None);
-                }
-            });
-            if request_save && self.state.asset.is_some() {
-                self.request_viewer_image_save(&ctx);
-            }
-            if let Some(slot) = save_view_preset {
-                self.save_view_preset(slot);
-                ctx.request_repaint();
-            } else if let Some(slot) = apply_view_preset {
-                self.apply_view_preset(slot, &ctx);
-            }
-            if toggle_bookmark_panel {
-                self.show_bookmarks_modal = !self.show_bookmarks_modal;
-                ctx.request_repaint();
-            } else if add_bookmark {
-                self.toggle_bookmark();
-                ctx.request_repaint();
-            } else if navigate_prev_bookmark {
-                self.navigate_bookmark(-1, &ctx);
-            } else if navigate_next_bookmark {
-                self.navigate_bookmark(1, &ctx);
-            }
-            if open_from_clipboard {
-                self.open_from_clipboard();
-            }
         }
 
         // Handle drag & drop events (files) at the start of frame
@@ -1469,23 +1516,6 @@ impl eframe::App for ViewerApp {
                     });
                 });
         }
-        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
-        if !dropped_files.is_empty() {
-            // Load first valid file
-            for f in dropped_files {
-                if let Some(path) = f.path {
-                    match self.state.load_from_path(path.clone()) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            Self::load_fail(&mut self.toasts, "Failed to load dropped file", Some(&path), &e);
-                        }
-                    }
-                }
-            }
-        }
-
-        self.state.validate_marquee_rect();
-        self.state.process_watcher_events();
 
         egui::Panel::top("top").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
