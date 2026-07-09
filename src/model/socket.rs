@@ -113,6 +113,7 @@ pub fn start_socket_listener(
                 match listener.accept() {
                     Ok((mut stream, peer)) => {
                         eprintln!("[socket_comm] connected: {peer}");
+                        stream.set_nonblocking(false)?;
 
                         socket_state.is_socket_receiving.store(true, Ordering::Relaxed);
                         match stream.try_clone() {
@@ -252,14 +253,10 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
 
     let payload = read_exact_len(stream, buf_len as usize)?;
 
-    if extra.nbytes == 0 || extra.shape.is_empty() || extra.dtype > 7 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid extra metadata").into());
-    }
-
-    let dtype = extra.dtype as i32;
-
     let mat = match extra.compression.as_str() {
         "zlib" => {
+            validate_raw_extra(&extra)?;
+            let dtype = extra.dtype as i32;
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Zlib decode");
 
@@ -281,6 +278,8 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
         "exr" => MatImage::from_bytes(&payload)?,
         "cv" => MatImage::from_bytes(&payload)?,
         "raw" => {
+            validate_raw_extra(&extra)?;
+            let dtype = extra.dtype as i32;
             let channel = if extra.shape.len() == 3 {
                 extra.shape[2] as i32
             } else {
@@ -300,4 +299,17 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
     };
 
     Ok(SocketAsset::new(name, mat))
+}
+
+fn validate_raw_extra(extra: &Extra) -> io::Result<()> {
+    if extra.nbytes == 0 || extra.dtype > 7 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid extra metadata"));
+    }
+
+    let [height, width, channels] = extra.shape;
+    if height == 0 || width == 0 || channels == 0 || channels > 4 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid extra metadata"));
+    }
+
+    Ok(())
 }
