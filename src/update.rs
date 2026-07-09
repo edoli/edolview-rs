@@ -1,5 +1,5 @@
 use std::{
-    env, fs,
+    env, fs, io,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -120,15 +120,16 @@ fn fetch_latest_release() -> Result<ReleaseResponse, String> {
 }
 
 fn download_asset(url: &str, destination: &Path) -> Result<(), String> {
-    let bytes = ureq::get(url)
+    let mut response = ureq::get(url)
         .header("User-Agent", "edolview-rs")
         .call()
-        .map_err(|e| format!("Failed to download update asset: {e}"))?
-        .body_mut()
-        .read_to_vec()
-        .map_err(|e| format!("Failed to read update asset: {e}"))?;
+        .map_err(|e| format!("Failed to download update asset: {e}"))?;
+    let mut asset = fs::File::create(destination).map_err(|e| format!("Failed to create update asset: {e}"))?;
+    let mut reader = response.body_mut().as_reader();
 
-    fs::write(destination, bytes).map_err(|e| format!("Failed to save update asset: {e}"))
+    io::copy(&mut reader, &mut asset)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to save update asset: {e}"))
 }
 
 fn detect_update_target() -> Result<UpdateTarget, String> {
