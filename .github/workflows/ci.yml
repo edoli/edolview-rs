@@ -241,8 +241,16 @@ jobs:
           $workdir = Join-Path $env:GITHUB_WORKSPACE '.opencv'
           $installDir = Join-Path $workdir 'install'
           $srcDir = Join-Path $workdir "opencv-$env:OPENCV_VERSION"
+          $staticLibCandidates = @(
+            (Join-Path $installDir 'staticlib'),
+            (Join-Path $installDir 'x64/vc17/staticlib')
+          )
           New-Item -ItemType Directory -Force -Path $workdir | Out-Null
-          if (Test-Path (Join-Path $installDir 'x64/vc17/staticlib/OpenCVConfig.cmake')) {
+          $opencvConfigPath = $staticLibCandidates |
+            ForEach-Object { Join-Path $_ 'OpenCVConfig.cmake' } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
+          if ($opencvConfigPath) {
             Write-Host "OpenCV already installed at $installDir"
           } else {
             if (-not (Test-Path $srcDir)) {
@@ -256,7 +264,14 @@ jobs:
             pwsh .\cmake_script.ps1
           }
 
-          $libPath = "$installDir\x64\vc17\staticlib"
+          $libPath = $staticLibCandidates |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
+          if (-not $libPath) {
+            Write-Host "OpenCV static library directory not found. Install directory contents:"
+            Get-ChildItem -Path $installDir -Recurse -Depth 3
+            exit 1
+          }
           $libs = Get-ChildItem -Path $libPath -Filter *.lib | ForEach-Object { $_.BaseName }
           $libsJoined = $libs -join ","
 
