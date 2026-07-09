@@ -8,31 +8,31 @@ license = "MIT"
 
 [dependencies]
 # Adjust version if build complains; this is a recent version as of 2025, change if needed.
-opencv = { version = "0.98.2", features = ["imgcodecs", "imgproc"] }
-clap = { version = "4", features = ["derive"] }
-color-eyre = "0.6"
+opencv = { version = "0.99.0", features = ["imgcodecs", "imgproc"] }
+clap = { version = "4.6.1", features = ["derive"] }
+color-eyre = "0.6.5"
 # Use only the glow backend so we can run custom OpenGL shaders via egui callbacks.
-eframe = { version = "0.32", default-features = true, features = ["glow"] }
-egui_glow = "0.32"
-bytemuck = { version = "1.15", features = ["derive"] }
-lru = "=0.16.1"
-rfd = "0.15"
-half = "2.6.0"
-resvg = "0.45.1"
+eframe = { version = "0.35.0", default-features = true, features = ["glow"] }
+egui_glow = "0.35.0"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+lru = "0.18.0"
+rfd = "0.17.2"
+half = "2.7.1"
+resvg = "0.47.0"
 arboard = "3.6.1"
 notify = "8.2.0"
-ureq = "3.1.2"
-indexmap = "2.11.4"
-opener = "0.8.3"
-flate2 = { version = "1.1.2", features = ["zlib-rs"], default-features = false }
-clipboard-rs = "0.3.0"
+ureq = "3.3.0"
+indexmap = "2.14.0"
+opener = "0.8.5"
+flate2 = { version = "1.1.9", features = ["zlib-rs"], default-features = false }
+clipboard-rs = "0.3.5"
 dunce = "1.0.5"
-libheif-sys = { version = "4.1", features = ["v1_19"], optional = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+libheif-sys = { version = "5.3.0", features = ["v1_23"], optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 
 # Only for debug
-egui_extras = "0.32"
+egui_extras = "0.35.0"
 
 [features]
 default = []
@@ -45,7 +45,7 @@ members = ["xtask"]
 winres = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
+windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
 
 [package.metadata.bundle]
 name = "Edolview"

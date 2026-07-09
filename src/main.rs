@@ -88,6 +88,7 @@ fn main() -> Result<()> {
             .with_inner_size(egui::vec2(1280.0, 720.0))
             .with_min_inner_size(egui::vec2(720.0, 480.0))
             .with_icon(icon),
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 

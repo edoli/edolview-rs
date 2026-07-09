@@ -159,7 +159,7 @@ pub fn draw_histogram(
         let font_id = TextStyle::Monospace.resolve(ui.style());
         let padding = Vec2::new(8.0, 6.0);
         let mut galleys: Vec<(Arc<Galley>, Color32)> = Vec::with_capacity(lines.len());
-        let (max_w, total_h) = ui.fonts(|fonts| {
+        let (max_w, total_h) = ui.fonts_mut(|fonts| {
             let mut max_w = 0.0f32;
             let mut total_h = 0.0f32;
             for (text, color) in lines {

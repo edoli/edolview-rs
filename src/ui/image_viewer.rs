@@ -11,6 +11,7 @@ use crate::model::{AppState, Image, MeanDim, Recti, EMPTY_MINMAX};
 use crate::res::{
     selection_handle_clipped_fill, KeyboardShortcutExt, PIXEL_VALUE_CHANNEL_COLORS, SELECTION_HANDLE_CLIPPED_STROKE,
 };
+use crate::ui::component::egui_ext::UiExt;
 use crate::ui::gl::{BackgroundProgram, ImageProgram, MinMaxOverlay};
 use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
@@ -210,7 +211,7 @@ impl ImageViewer {
             let context_menu_open = resp.context_menu_opened();
 
             if resp.hovered() && !context_menu_open {
-                let scroll = ui.input(|i| i.raw_scroll_delta.y);
+                let scroll = ui.raw_scroll_delta_y();
                 if scroll.abs() > 0.0 {
                     // Compute old scale before applying zoom change
                     let scroll_sign = scroll.signum();

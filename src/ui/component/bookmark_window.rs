@@ -89,7 +89,7 @@ pub fn show_bookmark_window(
                     let selected = active_bookmark_index == Some(index);
 
                     ui.scope(|ui| {
-                        let mut style = (*ui.ctx().style()).clone();
+                        let mut style = (**ui.style()).clone();
                         style.spacing.button_padding = egui::vec2(2.0, 2.0);
                         ui.set_style(style);
 
@@ -118,9 +118,10 @@ pub fn show_bookmark_window(
                                         if columns[col]
                                             .add_enabled(
                                                 enabled,
-                                                egui::ImageButton::new(
+                                                egui::Button::image(
                                                     icon_fn(icons, ctx).fit_to_exact_size(egui::vec2(14.0, 14.0)),
-                                                ),
+                                                )
+                                                .frame(false),
                                             )
                                             .on_hover_text(hover_text)
                                             .clicked()

@@ -10,6 +10,7 @@ use crate::egui::{
     vec2, Color32, DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect, Response, Sense, TextStyle,
     TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText,
 };
+use crate::ui::component::egui_ext::UiExt;
 
 /// The minus character: <https://www.compart.com/en/unicode/U+2212>
 pub(crate) const MINUS_CHAR_STR: &str = "−";
@@ -686,7 +687,7 @@ impl CustomSlider<'_> {
 
         // Scroll wheel support (hover + wheel to adjust). Invert scroll so wheel up increases value.
         if response.hovered() {
-            let scroll_delta_y = ui.input(|i| i.raw_scroll_delta.y);
+            let scroll_delta_y = ui.raw_scroll_delta_y();
             if scroll_delta_y.abs() > 0.0 {
                 let step = self.step.unwrap_or_else(|| self.current_gradient(position_range));
                 let new_value = self.get_value() + (scroll_delta_y as f64) * step;

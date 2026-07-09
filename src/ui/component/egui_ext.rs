@@ -77,6 +77,7 @@ impl Size {
 }
 
 pub trait UiExt {
+    fn raw_scroll_delta_y(&self) -> f32;
     fn colored_label(&mut self, color: impl Into<Color32>, text: impl ToString) -> Response;
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
     fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
@@ -117,6 +118,20 @@ pub trait UiExt {
 }
 
 impl UiExt for Ui {
+    #[inline]
+    fn raw_scroll_delta_y(&self) -> f32 {
+        self.input(|input| {
+            input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::MouseWheel { delta, .. } => Some(delta.y),
+                    _ => None,
+                })
+                .sum()
+        })
+    }
+
     #[inline]
     fn colored_label(&mut self, color: impl Into<Color32>, text: impl ToString) -> Response {
         Label::new(egui::RichText::new(text.to_string()).color(color.into())).ui(self)
@@ -221,7 +236,7 @@ impl UiExt for Ui {
         } else {
             self.style().visuals.text_color()
         };
-        let image_button = egui::ImageButton::new(icon.into().tint(tint_color));
+        let image_button = egui::Button::image(icon.into().tint(tint_color)).frame(false);
 
         let resp = self.add(image_button).on_hover_text(name);
         if resp.clicked() {
@@ -255,7 +270,7 @@ impl UiExt for Ui {
         } else {
             self.style().visuals.text_color()
         };
-        let image_button = egui::ImageButton::new(icon.into().tint(tint_color));
+        let image_button = egui::Button::image(icon.into().tint(tint_color)).frame(false);
 
         let resp = self.add(image_button).on_hover_text(name);
         if resp.clicked() {
@@ -393,7 +408,7 @@ pub trait InnerRespExt {
 impl<R> InnerRespExt for InnerResponse<R> {
     fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self {
         if self.response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta.y);
+            let scroll = ui.raw_scroll_delta_y();
 
             if scroll.abs() > 0.0 {
                 if let Some(cur_idx) = values.iter().position(|n| n == current) {

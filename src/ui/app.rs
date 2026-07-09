@@ -238,7 +238,9 @@ impl ViewerApp {
     }
 
     fn egui_has_label_text_selection(ctx: &egui::Context) -> bool {
-        egui::text_selection::LabelSelectionState::load(ctx).has_selection()
+        ctx.plugin_or_default::<egui::text_selection::LabelSelectionState>()
+            .lock()
+            .has_selection()
     }
 
     pub fn new() -> Self {
@@ -782,7 +784,7 @@ impl ViewerApp {
             return;
         };
 
-        let screen_rect = ctx.input(|i| i.screen_rect());
+        let screen_rect = ctx.input(|i| i.viewport_rect());
         let overlay_layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("confirm_update_overlay"));
         ctx.layer_painter(overlay_layer)
             .rect_filled(screen_rect, 0.0, Color32::from_black_alpha(180));
@@ -1318,23 +1320,25 @@ impl ViewerApp {
 }
 
 impl eframe::App for ViewerApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         #[cfg(debug_assertions)]
         let _timer = ScopedTimer::new("ui.app.update");
 
-        self.poll_pending_image_save_dialog(ctx);
+        let ctx = ui.ctx().clone();
+
+        self.poll_pending_image_save_dialog(&ctx);
 
         ctx.set_visuals(Visuals::dark());
 
         if !self.is_start_background_event_handlers_called {
-            self.start_background_event_handlers(ctx);
+            self.start_background_event_handlers(&ctx);
             self.is_start_background_event_handlers_called = true;
         }
 
-        self.start_startup_path_loading(ctx);
+        self.start_startup_path_loading(&ctx);
 
-        self.handle_event(ctx);
-        self.refresh_control_registration(ctx);
+        self.handle_event(&ctx);
+        self.refresh_control_registration(&ctx);
 
         if self.close_for_update {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1355,7 +1359,7 @@ impl eframe::App for ViewerApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur_full));
         }
 
-        if !ctx.wants_keyboard_input() {
+        if !ctx.egui_wants_keyboard_input() {
             let mut request_save = false;
             let mut apply_view_preset = None;
             let mut save_view_preset = None;
@@ -1423,13 +1427,13 @@ impl eframe::App for ViewerApp {
                 }
             });
             if request_save && self.state.asset.is_some() {
-                self.request_viewer_image_save(ctx);
+                self.request_viewer_image_save(&ctx);
             }
             if let Some(slot) = save_view_preset {
                 self.save_view_preset(slot);
                 ctx.request_repaint();
             } else if let Some(slot) = apply_view_preset {
-                self.apply_view_preset(slot, ctx);
+                self.apply_view_preset(slot, &ctx);
             }
             if toggle_bookmark_panel {
                 self.show_bookmarks_modal = !self.show_bookmarks_modal;
@@ -1438,9 +1442,9 @@ impl eframe::App for ViewerApp {
                 self.toggle_bookmark();
                 ctx.request_repaint();
             } else if navigate_prev_bookmark {
-                self.navigate_bookmark(-1, ctx);
+                self.navigate_bookmark(-1, &ctx);
             } else if navigate_next_bookmark {
-                self.navigate_bookmark(1, ctx);
+                self.navigate_bookmark(1, &ctx);
             }
             if open_from_clipboard {
                 self.open_from_clipboard();
@@ -1452,7 +1456,7 @@ impl eframe::App for ViewerApp {
         if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
             egui::Area::new(egui::Id::new("file_hover_overlay"))
                 .fixed_pos(egui::pos2(16.0, 16.0))
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
                         ui.add(egui::Label::new("Release to open image...").wrap_mode(egui::TextWrapMode::Extend));
                         for f in ctx.input(|i| i.raw.hovered_files.clone()) {
@@ -1483,7 +1487,7 @@ impl eframe::App for ViewerApp {
         self.state.validate_marquee_rect();
         self.state.process_watcher_events();
 
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+        egui::Panel::top("top").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
@@ -1555,17 +1559,17 @@ impl eframe::App for ViewerApp {
                     ));
                 ui.toggle_icon(
                     &mut self.state.is_show_background,
-                    self.icons.get_show_background(ctx),
+                    self.icons.get_show_background(&ctx),
                     "Show Background",
                 );
                 ui.toggle_icon(
                     &mut self.state.is_show_pixel_value,
-                    self.icons.get_show_pixel_value(ctx),
+                    self.icons.get_show_pixel_value(&ctx),
                     "Show Pixel Value (Zoom in to see values)",
                 );
                 ui.toggle_icon(
                     &mut self.state.is_show_crosshair,
-                    self.icons.get_show_crosshair(ctx),
+                    self.icons.get_show_crosshair(&ctx),
                     "Show Crosshair",
                 );
 
@@ -1586,7 +1590,7 @@ impl eframe::App for ViewerApp {
                 ui.visuals_mut().override_text_color = None;
                 ui.indicator_icon(
                     self.state.socket_state.is_socket_receiving.load(Ordering::Relaxed),
-                    self.icons.get_downloading(ctx),
+                    self.icons.get_downloading(&ctx),
                     "Image Receiving",
                 );
 
@@ -1612,13 +1616,13 @@ impl eframe::App for ViewerApp {
             });
         });
 
-        self.show_update_confirmation_dialog(ctx);
-        self.show_update_progress_dialog(ctx);
-        self.show_settings_dialog(ctx);
-        self.show_bookmarks_dialog(ctx);
+        self.show_update_confirmation_dialog(&ctx);
+        self.show_update_progress_dialog(&ctx);
+        self.show_settings_dialog(&ctx);
+        self.show_bookmarks_dialog(&ctx);
 
         if self.state.is_show_statusbar {
-            egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
+            egui::Panel::bottom("bottom").show(ui, |ui| {
                 ui.columns_sized(
                     [
                         Size::exact(400.0),
@@ -1738,10 +1742,10 @@ impl eframe::App for ViewerApp {
         }
 
         if self.state.is_show_sidebar {
-            egui::SidePanel::right("right")
+            egui::Panel::right("right")
                 .resizable(true)
-                .width_range(Rangef::new(240.0, f32::INFINITY))
-                .show(ctx, |ui| {
+                .size_range(Rangef::new(240.0, f32::INFINITY))
+                .show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.heading("View Settings");
                     });
@@ -2161,7 +2165,7 @@ impl eframe::App for ViewerApp {
                             let target_width = (available_width - padding - 5.0).max(0.0);
 
                             // Truncate name with ellipsis if too long. Example: "very_long_filename.png" -> "...lename.png"
-                            let display_name = ui.fonts(|fonts| {
+                            let display_name = ui.fonts_mut(|fonts| {
                                 let name_width = fonts
                                     .layout_no_wrap(name.to_string(), font_id.clone(), Color32::WHITE)
                                     .rect
@@ -2425,11 +2429,11 @@ impl eframe::App for ViewerApp {
                 });
         }
 
-        self.paint_asset_drag_preview(ctx);
+        self.paint_asset_drag_preview(&ctx);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(0))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 self.viewer.show_image(
                     ui,
                     frame,
@@ -2440,7 +2444,7 @@ impl eframe::App for ViewerApp {
                 );
 
                 if self.viewer.take_save_dialog_request() {
-                    self.request_viewer_image_save(ctx);
+                    self.request_viewer_image_save(&ctx);
                 }
 
                 for (is_success, message) in self.viewer.take_export_toasts() {
@@ -2457,7 +2461,7 @@ impl eframe::App for ViewerApp {
                         .order(egui::Order::Foreground)
                         .anchor(egui::Align2::LEFT_TOP, egui::vec2(6.0, 30.0))
                         .interactable(false)
-                        .show(ctx, |ui| {
+                        .show(&ctx, |ui| {
                             let notice_color = if message.starts_with("Error:") {
                                 NOTICE_ERROR_TEXT
                             } else {
@@ -2476,7 +2480,7 @@ impl eframe::App for ViewerApp {
                         .order(egui::Order::Foreground)
                         .anchor(egui::Align2::LEFT_TOP, egui::vec2(6.0, 54.0))
                         .interactable(false)
-                        .show(ctx, |ui| {
+                        .show(&ctx, |ui| {
                             ui.add(
                                 egui::Label::new(egui::RichText::new(message).color(NOTICE_WARNING_TEXT))
                                     .wrap_mode(egui::TextWrapMode::Extend),
@@ -2492,8 +2496,8 @@ impl eframe::App for ViewerApp {
                 ui.add(ToastUi::new(&mut self.toasts));
             });
 
-        let request_copy = !ctx.wants_keyboard_input()
-            && !Self::egui_has_label_text_selection(ctx)
+        let request_copy = !ctx.egui_wants_keyboard_input()
+            && !Self::egui_has_label_text_selection(&ctx)
             && (ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Copy)))
                 || ctx.input_mut(|i| i.consume_shortcut(&crate::res::COPY_SC)));
         if request_copy {
@@ -2522,7 +2526,7 @@ impl eframe::App for ViewerApp {
         // Debug window
         #[cfg(debug_assertions)]
         {
-            crate::debug::debug_window(ctx);
+            crate::debug::debug_window(&ctx);
         }
     }
 }
