@@ -9,7 +9,7 @@ use crate::{
             egui_ext::{Size, UiExt},
             CustomSlider,
         },
-        gl::ScaleMode,
+        gpu::ScaleMode,
     },
 };
 

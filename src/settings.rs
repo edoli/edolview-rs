@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::ui::gl::ShaderParams;
+use crate::ui::gpu::ShaderParams;
 
 pub const VIEW_PRESET_COUNT: usize = 9;
 

@@ -62,13 +62,7 @@ fn main() -> Result<()> {
     let icon_raw = core::Mat::new_rows_cols_with_data(1, ICON_DATA.len() as i32, &ICON_DATA)?;
     let icon_mat_bgra = imgcodecs::imdecode(&icon_raw, imgcodecs::IMREAD_UNCHANGED)?;
     let mut icon_mat_rgba = core::Mat::default();
-    imgproc::cvt_color(
-        &icon_mat_bgra,
-        &mut icon_mat_rgba,
-        imgproc::COLOR_BGRA2RGBA,
-        0,
-        core::AlgorithmHint::ALGO_HINT_DEFAULT,
-    )?;
+    imgproc::cvt_color_def(&icon_mat_bgra, &mut icon_mat_rgba, imgproc::COLOR_BGRA2RGBA)?;
     let icon_bytes = icon_mat_rgba.data_bytes();
 
     let icon = if let Ok(icon_bytes) = icon_bytes {
@@ -88,7 +82,7 @@ fn main() -> Result<()> {
             .with_inner_size(egui::vec2(1280.0, 720.0))
             .with_min_inner_size(egui::vec2(720.0, 480.0))
             .with_icon(icon),
-        renderer: eframe::Renderer::Glow,
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 

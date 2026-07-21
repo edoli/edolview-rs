@@ -505,7 +505,7 @@ impl MatImage {
             };
 
             if color_convert != -1 {
-                imgproc::cvt_color(&mat, &mut tmp, color_convert, 0, core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
+                imgproc::cvt_color_def(&mat, &mut tmp, color_convert)?;
                 tmp
             } else {
                 mat

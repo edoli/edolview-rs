@@ -1,6 +1,5 @@
 use color_eyre::eyre::{eyre, Result};
 use eframe::egui::{self, vec2};
-use eframe::glow::{self as GL, HasContext};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
 use std::{
     path::{Path, PathBuf},
@@ -12,7 +11,7 @@ use crate::res::{
     selection_handle_clipped_fill, KeyboardShortcutExt, PIXEL_VALUE_CHANNEL_COLORS, SELECTION_HANDLE_CLIPPED_STROKE,
 };
 use crate::ui::component::egui_ext::UiExt;
-use crate::ui::gl::{BackgroundProgram, ImageProgram, MinMaxOverlay};
+use crate::ui::gpu::{ExportRequest, GpuRenderer, ImagePaintCallback, ImageSlot, MinMaxOverlay, PaneDraw};
 use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
@@ -56,10 +55,6 @@ fn min_max_compare_epsilon(dtype: i32) -> f32 {
 }
 
 pub struct ImageViewer {
-    background_prog: Option<Arc<BackgroundProgram>>,
-    image_prog: Option<Arc<Mutex<ImageProgram>>>,
-    gl_primary_tex: Option<GL::NativeTexture>,
-    gl_secondary_tex: Option<GL::NativeTexture>,
     zoom_level: f32,
     zoom_base: f32,
     pan: egui::Vec2,
@@ -69,8 +64,6 @@ pub struct ImageViewer {
     save_dialog_requested: bool,
     save_requested: Option<(PathBuf, String)>,
     export_toasts: Arc<Mutex<Vec<ExportToast>>>,
-    last_primary_image_id: Option<u64>, // cache key to know when to re-upload texture
-    last_secondary_image_id: Option<u64>,
     last_viewport_size_px: Option<egui::Vec2>,
 
     last_shader_error: Option<String>,
@@ -80,10 +73,6 @@ pub struct ImageViewer {
 impl ImageViewer {
     pub fn new() -> Self {
         Self {
-            background_prog: None,
-            image_prog: None,
-            gl_primary_tex: None,
-            gl_secondary_tex: None,
             zoom_level: 0.0,
             zoom_base: 2.0_f32.powf(1.0 / 4.0),
             pan: egui::Vec2::ZERO,
@@ -93,8 +82,6 @@ impl ImageViewer {
             save_dialog_requested: false,
             save_requested: None,
             export_toasts: Arc::new(Mutex::new(Vec::new())),
-            last_primary_image_id: None,
-            last_secondary_image_id: None,
             last_viewport_size_px: None,
             last_shader_error: None,
             last_reported_shader_error: None,
@@ -110,7 +97,6 @@ impl ImageViewer {
         show_statistics_min_overlay_channels: [bool; 4],
         show_statistics_max_overlay_channels: [bool; 4],
     ) {
-        self.refresh_shader_error();
         let Some(asset) = app_state.asset.clone() else {
             ui.centered_and_justified(|ui| {
                 ui.label("Drag & Drop an image file here.");
@@ -146,47 +132,42 @@ impl ImageViewer {
             EMPTY_MINMAX
         };
 
-        if let Some(gl) = frame.gl() {
-            sync_mat_texture(
-                gl,
-                &mut self.gl_primary_tex,
-                &mut self.last_primary_image_id,
-                render_primary_image,
-            );
-            if let Some(secondary_image) = secondary_image {
-                sync_mat_texture(
-                    gl,
-                    &mut self.gl_secondary_tex,
-                    &mut self.last_secondary_image_id,
-                    secondary_image,
-                );
-            } else {
-                release_texture(gl, &mut self.gl_secondary_tex, &mut self.last_secondary_image_id);
-            }
-        }
-
-        if self.gl_primary_tex.is_some() && (!split_view || self.gl_secondary_tex.is_some()) {
-            if self.background_prog.is_none() {
-                if let Some(gl) = frame.gl() {
-                    if let Ok(p) = BackgroundProgram::new(gl) {
-                        self.background_prog = Some(Arc::new(p));
+        let gpu_ready = frame.wgpu_render_state().is_some_and(|render_state| {
+            let mut egui_renderer = render_state.renderer.write();
+            let resources = &mut egui_renderer.callback_resources;
+            if resources.get::<GpuRenderer>().is_none() {
+                match GpuRenderer::new(&render_state.device, render_state.target_format) {
+                    Ok(renderer) => {
+                        resources.insert(renderer);
+                    }
+                    Err(error) => {
+                        self.last_shader_error = Some(error.to_string());
+                        return false;
                     }
                 }
             }
-
-            if self.image_prog.is_none() {
-                if let Some(gl) = frame.gl() {
-                    match ImageProgram::new(gl) {
-                        Ok(p) => {
-                            self.image_prog = Some(Arc::new(Mutex::new(p)));
-                        }
-                        Err(e) => {
-                            self.last_shader_error = Some(e.to_string());
-                        }
-                    }
-                }
+            let Some(renderer) = resources.get_mut::<GpuRenderer>() else {
+                return false;
+            };
+            if let Err(error) = renderer.sync_image(
+                &render_state.device,
+                &render_state.queue,
+                ImageSlot::Primary,
+                Some(render_primary_image),
+            ) {
+                self.last_shader_error = Some(error.to_string());
+                return false;
             }
+            if let Err(error) =
+                renderer.sync_image(&render_state.device, &render_state.queue, ImageSlot::Secondary, secondary_image)
+            {
+                self.last_shader_error = Some(error.to_string());
+                return false;
+            }
+            true
+        });
 
+        if gpu_ready {
             let available_points = ui.available_size();
             // Enable both drag (for panning / marquee) and click (for context menu)
             let (rect, resp) = ui.allocate_exact_size(available_points, egui::Sense::click_and_drag());
@@ -521,7 +502,7 @@ impl ImageViewer {
             let selection_rect_secondary_clipped =
                 secondary_selection_rect_view.map(|selection_rect_view| selection_rect_view.intersect(right_pane_rect));
 
-            // Queue clipboard/save export operations to perform inside the GL callback.
+            // Queue clipboard/save export operations for the wgpu callback.
             let mut export_request: Option<(Option<String>, Option<(PathBuf, String)>, i32, i32, egui::Vec2, f32)> =
                 None;
             let copy_requested = self.copy_requested.take();
@@ -544,17 +525,13 @@ impl ImageViewer {
                 }
             }
 
-            if let (Some(background_prog), Some(image_prog), Some(_gl)) =
-                (self.background_prog.clone(), self.image_prog.clone(), frame.gl())
-            {
+            if let Some(render_state) = frame.wgpu_render_state() {
                 let viewport_size = vec2(rect_pixels.width() as f32, rect_pixels.height() as f32);
                 let left_pane_pixels = left_pane_rect * pixel_per_point;
                 let right_pane_pixels = right_pane_rect * pixel_per_point;
                 let pane_viewport_size = vec2(left_pane_pixels.width() as f32, left_pane_pixels.height() as f32);
                 let image_size = vec2(spec.width as f32, spec.height as f32);
 
-                let primary_tex_handle = self.gl_primary_tex;
-                let secondary_tex_handle = self.gl_secondary_tex;
                 let scale = self.zoom() as f32;
                 let position = self.pan;
 
@@ -598,219 +575,147 @@ impl ImageViewer {
                     })
                     .unwrap_or_default();
                 let disabled_min_max_overlay = MinMaxOverlay::default();
-
-                ui.painter().add(egui::PaintCallback {
-                    rect,
-                    callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |info, painter| unsafe {
-                        let gl = painter.gl();
-                        let screen_h = info.screen_size_px[1] as i32;
-                        let screen_w = info.screen_size_px[0] as i32;
-
-                        let draw_pane = |pane_pixels: egui::Rect,
-                                         pane_size: egui::Vec2,
-                                         tex: Option<GL::NativeTexture>,
-                                         min_max: &crate::model::MinMaxTotal,
-                                         min_max_overlay: &MinMaxOverlay| {
-                            let x = pane_pixels.min.x.round() as i32;
-                            let y_top = pane_pixels.max.y.round() as i32;
-                            let height = pane_pixels.height().round() as i32;
-                            let y = screen_h - y_top;
-                            let width = pane_pixels.width().round() as i32;
-                            gl.viewport(x, y, width, height);
-
-                            if is_show_background {
-                                background_prog.draw(
-                                    gl,
-                                    pane_size,
-                                    position,
-                                    16.0,
-                                    visuals.extreme_bg_color,
-                                    visuals.faint_bg_color,
-                                );
-                            }
-
-                            if let (Some(draw_tex), Ok(mut image_prog)) = (tex, image_prog.lock()) {
-                                image_prog.draw(
-                                    gl,
-                                    draw_tex,
-                                    colormap.as_str(),
-                                    pane_size,
-                                    image_size,
-                                    channel_index,
-                                    min_max,
-                                    is_mono,
-                                    scale,
-                                    position,
-                                    &shader_params,
-                                    min_max_overlay,
-                                );
-                            }
-                        };
-
-                        draw_pane(
-                            if split_view { left_pane_pixels } else { rect_pixels },
-                            if split_view { pane_viewport_size } else { viewport_size },
-                            primary_tex_handle,
-                            &min_max_primary,
-                            &primary_min_max_overlay,
+                let mut egui_renderer = render_state.renderer.write();
+                if let Some(renderer) = egui_renderer.callback_resources.get_mut::<GpuRenderer>() {
+                    renderer.update_colormap(&render_state.device, colormap.as_str(), is_mono);
+                    renderer.write_params(
+                        &render_state.queue,
+                        0,
+                        if split_view { pane_viewport_size } else { viewport_size },
+                        image_size,
+                        channel_index,
+                        &min_max_primary,
+                        scale,
+                        position,
+                        &shader_params,
+                        &primary_min_max_overlay,
+                        visuals.extreme_bg_color,
+                        visuals.faint_bg_color,
+                    );
+                    if split_view {
+                        renderer.write_params(
+                            &render_state.queue,
+                            1,
+                            pane_viewport_size,
+                            image_size,
+                            channel_index,
+                            &min_max_secondary,
+                            scale,
+                            position,
+                            &shader_params,
+                            &secondary_min_max_overlay,
+                            visuals.extreme_bg_color,
+                            visuals.faint_bg_color,
                         );
-                        if split_view {
-                            draw_pane(
-                                right_pane_pixels,
-                                pane_viewport_size,
-                                secondary_tex_handle,
-                                &min_max_secondary,
-                                &secondary_min_max_overlay,
+                    }
+
+                    let export =
+                        export_request.map(|(copy_requested, save_requested, out_w, out_h, crop_pos, export_scale)| {
+                            let export_secondary = save_requested
+                                .as_ref()
+                                .map(|(_, source)| source == "secondary")
+                                .or_else(|| copy_requested.as_ref().map(|source| source == "secondary"))
+                                .unwrap_or(false);
+                            let slot = if export_secondary {
+                                ImageSlot::Secondary
+                            } else {
+                                ImageSlot::Primary
+                            };
+                            renderer.write_params(
+                                &render_state.queue,
+                                2,
+                                egui::vec2(out_w as f32, out_h as f32),
+                                image_size,
+                                channel_index,
+                                if export_secondary {
+                                    &min_max_secondary
+                                } else {
+                                    &min_max_primary
+                                },
+                                export_scale,
+                                crop_pos,
+                                &shader_params,
+                                &disabled_min_max_overlay,
+                                visuals.extreme_bg_color,
+                                visuals.faint_bg_color,
                             );
-                        }
 
-                        // If an export was requested, render to an offscreen FBO once and reuse the RGBA readback.
-                        if let Some((copy_requested, save_requested, out_w, out_h, crop_pos, export_scale)) =
-                            export_request.clone()
-                        {
-                            // Create offscreen target
-                            let fbo = gl.create_framebuffer().unwrap();
-                            gl.bind_framebuffer(GL::FRAMEBUFFER, Some(fbo));
-                            let tex = gl.create_texture().unwrap();
-                            gl.bind_texture(GL::TEXTURE_2D, Some(tex));
-                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as _);
-                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::LINEAR as _);
-                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as _);
-                            gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as _);
-                            gl.tex_image_2d(
-                                GL::TEXTURE_2D,
-                                0,
-                                GL::RGBA8 as i32,
-                                out_w,
-                                out_h,
-                                0,
-                                GL::RGBA,
-                                GL::UNSIGNED_BYTE,
-                                GL::PixelUnpackData::Slice(None),
-                            );
-                            gl.framebuffer_texture_2d(
-                                GL::FRAMEBUFFER,
-                                GL::COLOR_ATTACHMENT0,
-                                GL::TEXTURE_2D,
-                                Some(tex),
-                                0,
-                            );
-                            if gl.check_framebuffer_status(GL::FRAMEBUFFER) == GL::FRAMEBUFFER_COMPLETE {
-                                gl.viewport(0, 0, out_w, out_h);
-                                gl.disable(GL::SCISSOR_TEST);
-
-                                gl.clear_color(0.0, 0.0, 0.0, 0.0);
-                                gl.clear(GL::COLOR_BUFFER_BIT);
-                                if let Ok(mut image_prog) = image_prog.lock() {
-                                    let export_secondary = save_requested
-                                        .as_ref()
-                                        .map(|(_, source)| source == "secondary")
-                                        .or_else(|| copy_requested.as_ref().map(|source| source == "secondary"))
-                                        .unwrap_or(false);
-                                    let export_tex = if export_secondary {
-                                        secondary_tex_handle
-                                    } else {
-                                        primary_tex_handle
-                                    };
-                                    let export_min_max = if export_secondary {
-                                        &min_max_secondary
-                                    } else {
-                                        &min_max_primary
-                                    };
-                                    if let Some(draw_tex) = export_tex {
-                                        image_prog.draw(
-                                            gl,
-                                            draw_tex,
-                                            colormap.as_str(),
-                                            egui::vec2(out_w as f32, out_h as f32),
-                                            image_size,
-                                            channel_index,
-                                            export_min_max,
-                                            is_mono,
-                                            export_scale,
-                                            crop_pos,
-                                            &shader_params,
-                                            &disabled_min_max_overlay,
-                                        );
-                                    }
-                                }
-
-                                // Read back
-                                let mut buf = vec![0u8; (out_w as usize) * (out_h as usize) * 4];
-                                gl.read_pixels(
-                                    0,
-                                    0,
-                                    out_w,
-                                    out_h,
-                                    GL::RGBA,
-                                    GL::UNSIGNED_BYTE,
-                                    GL::PixelPackData::Slice(Some(buf.as_mut_slice())),
-                                );
-
-                                // Flip vertically
-                                let row_stride = (out_w as usize) * 4;
-                                let mut flipped = vec![0u8; buf.len()];
-                                for y in 0..(out_h as usize) {
-                                    let src_y = (out_h as usize - 1) - y;
-                                    let src_off = src_y * row_stride;
-                                    let dst_off = y * row_stride;
-                                    flipped[dst_off..dst_off + row_stride]
-                                        .copy_from_slice(&buf[src_off..src_off + row_stride]);
-                                }
-
-                                match (copy_requested, save_requested) {
-                                    (Some(copy_source), Some((path, save_source))) => {
-                                        copy_image_to_clipboard(
+                            let completion_toasts = export_toasts.clone();
+                            let completion_repaint = repaint_ctx.clone();
+                            ExportRequest {
+                                width: out_w as u32,
+                                height: out_h as u32,
+                                slot,
+                                completion: Arc::new(move |result| match result {
+                                    Ok(rgba) => match (&copy_requested, &save_requested) {
+                                        (Some(copy_source), Some((path, save_source))) => {
+                                            copy_image_to_clipboard(
+                                                out_w,
+                                                out_h,
+                                                rgba.clone(),
+                                                &completion_toasts,
+                                                copy_source,
+                                            );
+                                            save_image_async(
+                                                path.clone(),
+                                                out_w,
+                                                out_h,
+                                                rgba,
+                                                completion_toasts.clone(),
+                                                completion_repaint.clone(),
+                                                save_source.clone(),
+                                            );
+                                        }
+                                        (Some(copy_source), None) => {
+                                            copy_image_to_clipboard(out_w, out_h, rgba, &completion_toasts, copy_source)
+                                        }
+                                        (None, Some((path, save_source))) => save_image_async(
+                                            path.clone(),
                                             out_w,
                                             out_h,
-                                            flipped.clone(),
-                                            &export_toasts,
-                                            copy_source.as_str(),
-                                        );
-                                        save_image_async(
-                                            path,
-                                            out_w,
-                                            out_h,
-                                            flipped,
-                                            export_toasts.clone(),
-                                            repaint_ctx.clone(),
-                                            save_source,
-                                        );
+                                            rgba,
+                                            completion_toasts.clone(),
+                                            completion_repaint.clone(),
+                                            save_source.clone(),
+                                        ),
+                                        (None, None) => {}
+                                    },
+                                    Err(error) => {
+                                        if let Ok(mut toasts) = completion_toasts.lock() {
+                                            toasts.push(ExportToast::Error(error));
+                                        }
+                                        completion_repaint.request_repaint();
                                     }
-                                    (Some(copy_source), None) => {
-                                        copy_image_to_clipboard(
-                                            out_w,
-                                            out_h,
-                                            flipped,
-                                            &export_toasts,
-                                            copy_source.as_str(),
-                                        );
-                                    }
-                                    (None, Some((path, save_source))) => {
-                                        save_image_async(
-                                            path,
-                                            out_w,
-                                            out_h,
-                                            flipped,
-                                            export_toasts.clone(),
-                                            repaint_ctx.clone(),
-                                            save_source,
-                                        );
-                                    }
-                                    (None, None) => {}
-                                }
+                                }),
                             }
-                            gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-                            gl.delete_framebuffer(fbo);
-                            gl.delete_texture(tex);
+                        });
+                    self.last_shader_error = renderer.last_error().map(str::to_owned);
+                    if self.last_shader_error.is_none() {
+                        self.last_reported_shader_error = None;
+                    }
 
-                            // Restore viewport to screen
-                            gl.viewport(0, 0, screen_w, screen_h);
-                            gl.enable(GL::SCISSOR_TEST);
-                        }
-                        gl.viewport(0, 0, screen_w, screen_h);
-                    })),
-                });
+                    let mut panes = vec![PaneDraw {
+                        viewport_px: if split_view { left_pane_pixels } else { rect_pixels },
+                        slot: ImageSlot::Primary,
+                        uniform_slot: 0,
+                    }];
+                    if split_view {
+                        panes.push(PaneDraw {
+                            viewport_px: right_pane_pixels,
+                            slot: ImageSlot::Secondary,
+                            uniform_slot: 1,
+                        });
+                    }
+                    drop(egui_renderer);
+                    ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
+                        rect,
+                        ImagePaintCallback {
+                            panes,
+                            show_background: is_show_background,
+                            export,
+                        },
+                    ));
+                }
 
                 // Draw marquee rectangle
                 let selection_rects =
@@ -1416,18 +1321,6 @@ impl ImageViewer {
         None
     }
 
-    fn refresh_shader_error(&mut self) {
-        if let Some(image_prog) = &self.image_prog {
-            if let Ok(program) = image_prog.lock() {
-                self.last_shader_error = program.last_error().cloned();
-            }
-        }
-
-        if self.last_shader_error.is_none() {
-            self.last_reported_shader_error = None;
-        }
-    }
-
     fn copy_rect(&self, app_state: &AppState, image_width: i32, image_height: i32) -> Recti {
         let selection = app_state.marquee_rect.validate();
         if !selection.empty() {
@@ -1616,22 +1509,10 @@ fn save_rendered_image(path: &Path, width: i32, height: i32, rgba_bytes: Vec<u8>
 
     match extension.as_str() {
         "png" => {
-            imgproc::cvt_color(
-                &rgba,
-                &mut encoded,
-                imgproc::COLOR_RGBA2BGRA,
-                0,
-                core::AlgorithmHint::ALGO_HINT_DEFAULT,
-            )?;
+            imgproc::cvt_color_def(&rgba, &mut encoded, imgproc::COLOR_RGBA2BGRA)?;
         }
         "jpg" | "jpeg" => {
-            imgproc::cvt_color(
-                &rgba,
-                &mut encoded,
-                imgproc::COLOR_RGBA2BGR,
-                0,
-                core::AlgorithmHint::ALGO_HINT_DEFAULT,
-            )?;
+            imgproc::cvt_color_def(&rgba, &mut encoded, imgproc::COLOR_RGBA2BGR)?;
             params.push(imgcodecs::IMWRITE_JPEG_QUALITY);
             params.push(95);
         }
@@ -1644,92 +1525,6 @@ fn save_rendered_image(path: &Path, width: i32, height: i32, rgba_bytes: Vec<u8>
     }
     std::fs::write(path, encoded_bytes.as_slice())?;
     Ok(())
-}
-
-/// Keep a GL texture synchronized with the current image id so unchanged images do not trigger re-upload work.
-fn sync_mat_texture(
-    gl: &GL::Context,
-    texture_slot: &mut Option<GL::NativeTexture>,
-    last_image_id: &mut Option<u64>,
-    image: &impl Image,
-) {
-    let image_id = image.id();
-    if texture_slot.is_some() && Some(image_id) == *last_image_id {
-        return;
-    }
-
-    if let Some(old_tex) = texture_slot.take() {
-        unsafe {
-            gl.delete_texture(old_tex);
-        }
-    }
-
-    if let Ok(tex) = upload_mat_texture(gl, image) {
-        *texture_slot = Some(tex);
-        *last_image_id = Some(image_id);
-    }
-}
-
-fn release_texture(gl: &GL::Context, texture_slot: &mut Option<GL::NativeTexture>, last_image_id: &mut Option<u64>) {
-    if let Some(old_tex) = texture_slot.take() {
-        unsafe {
-            gl.delete_texture(old_tex);
-        }
-    }
-    *last_image_id = None;
-}
-
-// Upload an CPU data directly as an OpenGL texture.
-// Supports 1 (GRAY), 3 (BGR), 4 (BGRA) channel 8-bit mats.
-fn upload_mat_texture(gl: &GL::Context, image: &impl Image) -> Result<GL::NativeTexture> {
-    #[cfg(debug_assertions)]
-    let _timer = crate::util::timer::ScopedTimer::new("Upload texture");
-
-    let spec = image.spec();
-    let (w, h) = (spec.width, spec.height);
-    let channels = spec.channels;
-
-    let total_elems = (w * h * channels) as usize;
-
-    let bytes = image.data_ptr()?;
-    let (head, f32s, tail) = unsafe { bytes.align_to::<f32>() };
-    if !(head.is_empty() && tail.is_empty()) {
-        return Err(eyre!("Data not properly aligned for f32"));
-    }
-
-    if f32s.len() != total_elems {
-        return Err(eyre!("Unexpected data length: {} != {}", f32s.len(), total_elems));
-    }
-
-    let (internal, format) = match channels {
-        1 => (GL::R32F, GL::RED),
-        2 => (GL::RG32F, GL::RG),
-        3 => (GL::RGB32F, GL::RGB),
-        4 => (GL::RGBA32F, GL::RGBA),
-        _ => return Err(eyre!("Unsupported channels: {channels}")),
-    };
-
-    unsafe {
-        let tex = gl.create_texture().unwrap();
-        gl.bind_texture(GL::TEXTURE_2D, Some(tex));
-        gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as _);
-        gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as _);
-        gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as _);
-        gl.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as _);
-        gl.pixel_store_i32(GL::UNPACK_ALIGNMENT, 1);
-        gl.tex_image_2d(
-            GL::TEXTURE_2D,
-            0,
-            internal as i32,
-            w,
-            h,
-            0,
-            format,
-            GL::FLOAT,
-            GL::PixelUnpackData::Slice(Some(bytemuck::cast_slice(f32s))),
-        );
-        Ok(tex)
-    }
 }
 
 fn hit_test_handles(selection_rect: egui::Rect, pointer: egui::Pos2) -> Option<ResizeHandle> {

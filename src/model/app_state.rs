@@ -12,7 +12,7 @@ use crate::{
         AssetType, ClipboardAsset, ComparisonAsset, ComparisonMode, FileAsset, Image, MatImage, Recti, SharedAsset,
         SocketInfo, SocketState, Statistics,
     },
-    ui::gl::ShaderParams,
+    ui::gpu::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
 };
 

@@ -11,9 +11,11 @@ license = "MIT"
 opencv = { version = "0.99.0", default-features = false, features = ["imgcodecs", "imgproc"] }
 clap = { version = "4.6.1", features = ["derive"] }
 color-eyre = "0.6.5"
-# Use only the glow backend so we can run custom OpenGL shaders via egui callbacks.
-eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "glow"] }
-egui_glow = "0.35.0"
+# Use wgpu for both egui and the image pipeline so rendering and compute share one GPU API.
+eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "wgpu"] }
+egui-wgpu = "0.35.0"
+wgpu = { version = "29.0.0", features = ["naga-ir"] }
+naga = { version = "29.0.0", features = ["glsl-in"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 lru = "0.18.0"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
