@@ -136,7 +136,11 @@ impl ImageViewer {
             let mut egui_renderer = render_state.renderer.write();
             let resources = &mut egui_renderer.callback_resources;
             if resources.get::<GpuRenderer>().is_none() {
-                match GpuRenderer::new(&render_state.device, render_state.target_format) {
+                match GpuRenderer::new(
+                    &render_state.device,
+                    render_state.target_format,
+                    render_state.adapter.get_info().backend == wgpu::Backend::Dx12,
+                ) {
                     Ok(renderer) => {
                         resources.insert(renderer);
                     }

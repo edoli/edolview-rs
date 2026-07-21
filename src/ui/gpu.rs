@@ -16,6 +16,7 @@ use crate::{
 
 const IMAGE_SHADER_CODE: &str = include_str!("gpu_image.frag");
 const PARAM_SLOT_COUNT: u64 = 3;
+const DX12_RGBA_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScaleMode {
@@ -238,14 +239,21 @@ impl egui_wgpu::CallbackTrait for ImagePaintCallback {
     fn prepare(
         &self,
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        queue: &wgpu::Queue,
         _screen_descriptor: &egui_wgpu::ScreenDescriptor,
-        encoder: &mut wgpu::CommandEncoder,
+        _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         if let (Some(export), Some(renderer)) = (self.export.as_ref(), resources.get_mut::<GpuRenderer>()) {
-            if let Err(error) = renderer.encode_export(device, encoder, export) {
-                (export.completion)(Err(error.to_string()));
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("edolview export encoder"),
+            });
+            match renderer.encode_export(device, &mut encoder, export) {
+                Ok(readback) => {
+                    queue.submit([encoder.finish()]);
+                    readback.map();
+                }
+                Err(error) => (export.completion)(Err(error.to_string())),
             }
         }
         Vec::new()
@@ -269,6 +277,39 @@ struct GpuImage {
     image_id: u64,
 }
 
+struct ExportReadback {
+    buffer: Arc<wgpu::Buffer>,
+    row_bytes: u32,
+    padded_row_bytes: u32,
+    width: u32,
+    height: u32,
+    completion: ExportCompletion,
+}
+
+impl ExportReadback {
+    fn map(self) {
+        let callback_buffer = Arc::clone(&self.buffer);
+        self.buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| match result {
+                Ok(()) => {
+                    std::thread::spawn(move || {
+                        let mapped = callback_buffer.slice(..).get_mapped_range();
+                        let mut pixels = Vec::with_capacity(self.row_bytes as usize * self.height as usize);
+                        for row in mapped.chunks(self.padded_row_bytes as usize).take(self.height as usize) {
+                            pixels.extend_from_slice(&row[..self.row_bytes as usize]);
+                        }
+                        drop(mapped);
+                        callback_buffer.unmap();
+                        debug_assert_eq!(pixels.len(), self.width as usize * self.height as usize * 4);
+                        (self.completion)(Ok(pixels));
+                    });
+                }
+                Err(error) => (self.completion)(Err(format!("GPU export readback failed: {error}"))),
+            });
+    }
+}
+
 pub struct GpuRenderer {
     target_format: wgpu::TextureFormat,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -280,6 +321,7 @@ pub struct GpuRenderer {
     export_pipeline: wgpu::RenderPipeline,
     rgb_upload_bind_group_layout: wgpu::BindGroupLayout,
     rgb_upload_pipeline: wgpu::ComputePipeline,
+    stream_rgba_uploads: bool,
     primary: Option<GpuImage>,
     secondary: Option<GpuImage>,
     last_colormap: String,
@@ -288,7 +330,7 @@ pub struct GpuRenderer {
 }
 
 impl GpuRenderer {
-    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self> {
+    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat, stream_rgba_uploads: bool) -> Result<Self> {
         let uniform_stride = align_to(
             std::mem::size_of::<GpuParams>() as u64,
             device.limits().min_uniform_buffer_offset_alignment as u64,
@@ -346,6 +388,7 @@ impl GpuRenderer {
             export_pipeline,
             rgb_upload_bind_group_layout,
             rgb_upload_pipeline,
+            stream_rgba_uploads,
             primary: None,
             secondary: None,
             last_colormap: "rgb".to_owned(),
@@ -379,6 +422,7 @@ impl GpuRenderer {
             &self.uniform_buffer,
             &self.rgb_upload_bind_group_layout,
             &self.rgb_upload_pipeline,
+            self.stream_rgba_uploads,
             image,
         )?);
         Ok(())
@@ -486,7 +530,7 @@ impl GpuRenderer {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         request: &ExportRequest,
-    ) -> Result<()> {
+    ) -> Result<ExportReadback> {
         let image = self
             .image(request.slot)
             .ok_or_else(|| eyre!("The requested image is not on the GPU"))?;
@@ -549,25 +593,14 @@ impl GpuRenderer {
             target.size(),
         );
 
-        let callback_buffer = Arc::clone(&buffer);
-        let completion = Arc::clone(&request.completion);
-        let width = request.width;
-        let height = request.height;
-        buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| match result {
-            Ok(()) => {
-                let mapped = callback_buffer.slice(..).get_mapped_range();
-                let mut pixels = Vec::with_capacity(row_bytes as usize * height as usize);
-                for row in mapped.chunks(padded_row_bytes as usize).take(height as usize) {
-                    pixels.extend_from_slice(&row[..row_bytes as usize]);
-                }
-                drop(mapped);
-                callback_buffer.unmap();
-                debug_assert_eq!(pixels.len(), width as usize * height as usize * 4);
-                completion(Ok(pixels));
-            }
-            Err(error) => completion(Err(format!("GPU export readback failed: {error}"))),
-        });
-        Ok(())
+        Ok(ExportReadback {
+            buffer,
+            row_bytes,
+            padded_row_bytes,
+            width: request.width,
+            height: request.height,
+            completion: Arc::clone(&request.completion),
+        })
     }
 }
 
@@ -582,6 +615,7 @@ fn upload_image(
     uniform_buffer: &wgpu::Buffer,
     rgb_upload_layout: &wgpu::BindGroupLayout,
     rgb_upload_pipeline: &wgpu::ComputePipeline,
+    stream_rgba_uploads: bool,
     image: &impl Image,
 ) -> Result<GpuImage> {
     #[cfg(debug_assertions)]
@@ -628,16 +662,16 @@ fn upload_image(
     if channels == 3 {
         upload_rgb_with_compute(device, queue, rgb_upload_layout, rgb_upload_pipeline, &texture, floats);
     } else {
-        queue.write_texture(
-            texture.as_image_copy(),
+        upload_texture(
+            device,
+            queue,
+            &texture,
             bytemuck::cast_slice(floats),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(spec.width as u32 * channels as u32 * 4),
-                rows_per_image: Some(spec.height as u32),
-            },
-            texture.size(),
-        );
+            spec.width as u32,
+            spec.height as u32,
+            channels as u32,
+            stream_rgba_uploads,
+        )?;
     }
     let view = texture.create_view(&Default::default());
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -646,7 +680,11 @@ fn upload_image(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: uniform_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(std::mem::size_of::<GpuParams>() as u64),
+                }),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -659,6 +697,58 @@ fn upload_image(
         bind_group,
         image_id: image.id(),
     })
+}
+
+fn upload_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    channels: u32,
+    stream_rgba_uploads: bool,
+) -> Result<()> {
+    let bytes_per_row = width * channels * std::mem::size_of::<f32>() as u32;
+    let should_stream = stream_rgba_uploads && channels == 4 && bytes.len() as u64 > DX12_RGBA_UPLOAD_CHUNK_BYTES;
+    let rows_per_chunk = if should_stream {
+        (DX12_RGBA_UPLOAD_CHUNK_BYTES / u64::from(bytes_per_row)).max(1) as u32
+    } else {
+        height
+    };
+
+    for base_y in (0..height).step_by(rows_per_chunk as usize) {
+        let row_count = rows_per_chunk.min(height - base_y);
+        let start = base_y as usize * bytes_per_row as usize;
+        let end = (base_y + row_count) as usize * bytes_per_row as usize;
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: base_y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &bytes[start..end],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(row_count),
+            },
+            wgpu::Extent3d {
+                width,
+                height: row_count,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        if should_stream {
+            queue.submit([]);
+            device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .map_err(|error| eyre!("Failed to flush an image upload chunk: {error}"))?;
+        }
+    }
+    Ok(())
 }
 
 fn create_rgb_upload_pipeline(device: &wgpu::Device) -> (wgpu::BindGroupLayout, wgpu::ComputePipeline) {
@@ -682,6 +772,16 @@ fn create_rgb_upload_pipeline(device: &wgpu::Device) -> (wgpu::BindGroupLayout, 
                     access: wgpu::StorageTextureAccess::WriteOnly,
                     format: wgpu::TextureFormat::Rgba32Float,
                     view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
                 count: None,
             },
@@ -715,26 +815,44 @@ fn upload_rgb_with_compute(
     texture: &wgpu::Texture,
     rgb: &[f32],
 ) {
-    let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("edolview RGB upload buffer"),
-        contents: bytemuck::cast_slice(rgb),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
+    let size = texture.size();
+    let rows_per_chunk = rgb_rows_per_chunk(size.width, device.limits().max_storage_buffer_binding_size as u64);
     let view = texture.create_view(&Default::default());
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("edolview RGB upload bind group"),
-        layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: input.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-        ],
-    });
+    let mut chunks = Vec::new();
+    for base_y in (0..size.height).step_by(rows_per_chunk as usize) {
+        let row_count = rows_per_chunk.min(size.height - base_y);
+        let start = base_y as usize * size.width as usize * 3;
+        let end = (base_y + row_count) as usize * size.width as usize * 3;
+        let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("edolview RGB upload buffer"),
+            contents: bytemuck::cast_slice(&rgb[start..end]),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let params = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("edolview RGB upload parameters"),
+            contents: bytemuck::cast_slice(&[base_y, size.width, row_count, 0]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("edolview RGB upload bind group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: input.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: params.as_entire_binding(),
+                },
+            ],
+        });
+        chunks.push((input, params, bind_group, row_count));
+    }
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("edolview RGB upload encoder"),
     });
@@ -744,11 +862,17 @@ fn upload_rgb_with_compute(
             timestamp_writes: None,
         });
         pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        let size = texture.size();
-        pass.dispatch_workgroups(size.width.div_ceil(16), size.height.div_ceil(16), 1);
+        for (_, _, bind_group, row_count) in &chunks {
+            pass.set_bind_group(0, bind_group, &[]);
+            pass.dispatch_workgroups(size.width.div_ceil(16), row_count.div_ceil(16), 1);
+        }
     }
     queue.submit([encoder.finish()]);
+}
+
+fn rgb_rows_per_chunk(width: u32, max_binding_size: u64) -> u32 {
+    let bytes_per_row = u64::from(width) * 3 * std::mem::size_of::<f32>() as u64;
+    (max_binding_size / bytes_per_row).max(1).min(u64::from(u32::MAX)) as u32
 }
 
 fn compile_fragment_module(device: &wgpu::Device, colormap: &str, is_mono: bool) -> Result<wgpu::ShaderModule> {
@@ -985,15 +1109,20 @@ struct Params {
 const RGB_UPLOAD_SHADER: &str = r#"
 @group(0) @binding(0) var<storage, read> rgb: array<f32>;
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba32float, write>;
+struct UploadParams { base_y: u32, width: u32, row_count: u32, _padding: u32 };
+@group(0) @binding(2) var<uniform> params: UploadParams;
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let size = textureDimensions(output_texture);
-    if (id.x >= size.x || id.y >= size.y) {
+    if (id.x >= params.width || id.y >= params.row_count) {
         return;
     }
-    let index = (id.y * size.x + id.x) * 3u;
-    textureStore(output_texture, id.xy, vec4(rgb[index], rgb[index + 1u], rgb[index + 2u], 1.0));
+    let index = (id.y * params.width + id.x) * 3u;
+    textureStore(
+        output_texture,
+        vec2(id.x, id.y + params.base_y),
+        vec4(rgb[index], rgb[index + 1u], rgb[index + 2u], 1.0),
+    );
 }
 "#;
 
@@ -1049,5 +1178,12 @@ mod tests {
                     .unwrap_or_else(|errors| panic!("{}: {}", path.display(), errors.emit_to_string(&source)));
             }
         }
+    }
+
+    #[test]
+    fn large_rgb_uploads_are_split_to_fit_storage_binding_limits() {
+        let rows = rgb_rows_per_chunk(4096, 128 * 1024 * 1024);
+        assert_eq!(rows, 2730);
+        assert_eq!(4096_u32.div_ceil(rows), 2);
     }
 }

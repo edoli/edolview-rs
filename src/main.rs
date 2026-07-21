@@ -5,7 +5,7 @@ use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use eframe::egui::{self, ViewportBuilder};
 use opencv::{core, imgcodecs, imgproc, prelude::*};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::ui::ViewerApp;
 
@@ -76,7 +76,7 @@ fn main() -> Result<()> {
         egui::IconData::default()
     };
 
-    let native_options = eframe::NativeOptions {
+    let mut native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_title("edolview-rs")
             .with_inner_size(egui::vec2(1280.0, 720.0))
@@ -85,6 +85,26 @@ fn main() -> Result<()> {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
+    if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut native_options.wgpu_options.wgpu_setup {
+        let default_device_descriptor = Arc::clone(&setup.device_descriptor);
+        setup.device_descriptor = Arc::new(move |adapter| {
+            let mut descriptor = default_device_descriptor(adapter);
+            let adapter_limits = adapter.limits();
+            descriptor.required_limits.max_texture_dimension_2d = adapter_limits.max_texture_dimension_2d;
+            descriptor.required_limits.max_storage_buffer_binding_size = adapter_limits.max_storage_buffer_binding_size;
+            descriptor.required_limits.max_buffer_size = adapter_limits.max_buffer_size;
+            if adapter.get_info().backend == wgpu::Backend::Dx12 {
+                // Keep the initial DX12 heaps small enough for low VRAM usage while
+                // allowing the allocator to grow for workloads with many resources.
+                // wgpu-hal derives the host range as half of this device range.
+                const MIB: u64 = 1024 * 1024;
+                descriptor.memory_hints = wgpu::MemoryHints::Manual {
+                    suballocated_device_memory_block_size: 40 * MIB..256 * MIB,
+                };
+            }
+            descriptor
+        });
+    }
 
     if let Err(e) = eframe::run_native(
         "edolview-rs",
