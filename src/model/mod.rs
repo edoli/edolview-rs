@@ -1,6 +1,7 @@
 mod app_state;
 mod asset;
 mod file_nav;
+mod gpu_compute;
 mod image;
 mod image_io;
 mod image_processor;
@@ -11,6 +12,7 @@ mod statistics_worker;
 pub use app_state::*;
 pub use asset::*;
 pub use file_nav::*;
+pub use gpu_compute::*;
 pub use image::*;
 pub use image_processor::*;
 pub use recti::*;

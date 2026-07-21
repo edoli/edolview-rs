@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32};
 
 use crate::{
-    model::MatImage,
+    model::ImageData,
     res::icons::Icons,
     switch,
     ui::{
@@ -34,7 +34,7 @@ fn scale_mode_icon<'a>(icons: &'a Icons, ctx: &'a egui::Context, scale_mode: Sca
 pub fn display_controls_ui(
     ui: &mut egui::Ui,
     icons: &Icons,
-    mat_image: &MatImage,
+    image: &ImageData,
     channel: i32,
     scale_mode: &mut ScaleMode,
     auto_minmax: &mut bool,
@@ -77,19 +77,19 @@ pub fn display_controls_ui(
     if locked {
         if channel == -1 {
             if scale_mode == &ScaleMode::Absolute {
-                tmp_min = mat_image.minmax().total_min_abs();
-                tmp_max = mat_image.minmax().total_max_abs();
+                tmp_min = image.minmax().total_min_abs();
+                tmp_max = image.minmax().total_max_abs();
             } else {
-                tmp_min = mat_image.minmax().total_min();
-                tmp_max = mat_image.minmax().total_max();
+                tmp_min = image.minmax().total_min();
+                tmp_max = image.minmax().total_max();
             }
         } else {
             if scale_mode == &ScaleMode::Absolute {
-                tmp_min = mat_image.minmax().min_abs(channel as usize);
-                tmp_max = mat_image.minmax().max_abs(channel as usize);
+                tmp_min = image.minmax().min_abs(channel as usize);
+                tmp_max = image.minmax().max_abs(channel as usize);
             } else {
-                tmp_min = mat_image.minmax().min(channel as usize);
-                tmp_max = mat_image.minmax().max(channel as usize);
+                tmp_min = image.minmax().min(channel as usize);
+                tmp_max = image.minmax().max(channel as usize);
             }
         }
     }

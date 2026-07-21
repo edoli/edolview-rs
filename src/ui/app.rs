@@ -16,7 +16,7 @@ use std::{
 use crate::util::timer::ScopedTimer;
 use crate::{
     model::{
-        start_server_with_retry, AppState, AssetType, ComparisonMode, FileAsset, Image, MatImage, MeanDim, Recti,
+        start_server_with_retry, AppState, AssetType, ComparisonMode, FileAsset, Image, ImageData, MeanDim, Recti,
         SocketAsset, StatisticsScope, StatisticsType, StatisticsUpdate, StatisticsWorker,
     },
     res::{
@@ -66,7 +66,7 @@ enum StartupPathLoadResult {
     Loaded {
         path: PathBuf,
         hash: String,
-        image: MatImage,
+        image: ImageData,
     },
     Reused {
         path: PathBuf,
@@ -377,7 +377,7 @@ impl ViewerApp {
                 let result = match FileAsset::hash_from_path(&path) {
                     Ok(hash) => {
                         if seen_hashes.insert(hash.clone()) {
-                            match MatImage::load_from_path(&path) {
+                            match ImageData::load_from_path(&path) {
                                 Ok(image) => StartupPathLoadResult::Loaded { path, hash, image },
                                 Err(err) => StartupPathLoadResult::Failed { path, error: err },
                             }
@@ -1009,11 +1009,10 @@ impl ViewerApp {
             let img = asset.image();
 
             // single image statistics
-            self.statistics_worker.lock().unwrap().run_minmax(
-                img.mat_shared(),
-                img.spec().dtype.alpha(),
-                scope.clone(),
-            );
+            self.statistics_worker
+                .lock()
+                .unwrap()
+                .run_minmax(img.clone(), img.spec().dtype.alpha(), scope.clone());
         }
 
         if let Some(a1) = &self.state.asset_primary {
@@ -1024,15 +1023,15 @@ impl ViewerApp {
 
                 // two image statistics
                 self.statistics_worker.lock().unwrap().run_psnr(
-                    img1.mat_shared(),
-                    img2.mat_shared(),
+                    img1.clone(),
+                    img2.clone(),
                     1.0,
                     img1.spec().dtype.alpha(),
                     scope.clone(),
                 );
 
                 // Temporarily disable SSIM due to performance issue
-                // self.statistics_worker.run_ssim(img1.mat_shared(), img2.mat_shared(), scope.clone());
+                // self.statistics_worker.run_ssim(img1.clone(), img2.clone(), scope.clone());
             }
         }
     }
@@ -1494,6 +1493,14 @@ impl eframe::App for ViewerApp {
 
         let ctx = ui.ctx().clone();
 
+        if let Some(render_state) = frame.wgpu_render_state() {
+            crate::model::install_gpu_compute(
+                &render_state.device,
+                &render_state.queue,
+                render_state.adapter.get_info().backend == wgpu::Backend::Dx12,
+            );
+        }
+
         if self.close_for_update {
             return;
         }
@@ -1680,12 +1687,11 @@ impl eframe::App for ViewerApp {
 
                                 let rect = self.state.marquee_rect;
                                 let rect_image = asset.image();
-                                let mean_color =
-                                    if let Ok(mean) = rect_image.mean_value_in_rect(rect.to_cv_rect(), MeanDim::All) {
-                                        mean.iter().map(|&v| v as f32).collect()
-                                    } else {
-                                        vec![0.0; rect_image.spec().channels as usize]
-                                    };
+                                let mean_color = if let Ok(mean) = rect_image.mean_value_in_rect(rect, MeanDim::All) {
+                                    mean.iter().map(|&v| v as f32).collect()
+                                } else {
+                                    vec![0.0; rect_image.spec().channels as usize]
+                                };
                                 ui.label_with_colored_rect(mean_color, dtype);
                             }
                         });
@@ -1916,7 +1922,7 @@ impl eframe::App for ViewerApp {
                         };
                         let reduced_value = asset
                             .image()
-                            .mean_value_in_rect(rect.to_cv_rect(), mean_dim.clone())
+                            .mean_value_in_rect(rect, mean_dim.clone())
                             .expect("Failed to compute mean in rect");
                         let (position_label, position_offset) = match mean_dim {
                             MeanDim::Column => ("x", rect.min.x),

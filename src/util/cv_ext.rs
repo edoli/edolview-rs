@@ -1,5 +1,3 @@
-use opencv::{boxed_ref::BoxedRef, prelude::MatTraitConst};
-
 /// Bit shift for the channel part inside OpenCV Mat type flags.
 const CV_CN_SHIFT: i32 = 3; // from OpenCV core.hpp
 /// Maximum number of channels representable (OpenCV uses up to 512, but mask below limits calc).
@@ -132,46 +130,4 @@ pub fn parse_cv_depth(s: &str) -> i32 {
 
 pub fn parse_cv_type(s: &str, channels: i32) -> i32 {
     parse_cv_depth(s).cv_type_with_channels(channels)
-}
-
-pub trait CvMatExt {
-    fn duplicate_mono_to_channels(&self, channels: i32) -> opencv::core::Mat;
-    fn take_first_channels(&self, channels: i32) -> opencv::core::Mat;
-    fn drop_alpha_channel(&self) -> opencv::core::Mat;
-    fn roi_or_all(&self, rect: Option<core::Rect>) -> opencv::Result<BoxedRef<'_, core::Mat>>;
-}
-
-impl CvMatExt for opencv::core::Mat {
-    fn duplicate_mono_to_channels(&self, channels: i32) -> opencv::core::Mat {
-        let mut src = opencv::core::Vector::<opencv::core::Mat>::new();
-        for _ in 0..channels {
-            src.push(self.clone());
-        }
-        let mut dst = opencv::core::Mat::default();
-        opencv::core::merge(&src, &mut dst).expect("merge failed");
-        dst
-    }
-
-    fn take_first_channels(&self, channels: i32) -> opencv::core::Mat {
-        let mut extracted = opencv::core::Vector::<opencv::core::Mat>::new();
-        for idx in 0..channels {
-            let mut channel = opencv::core::Mat::default();
-            opencv::core::extract_channel(self, &mut channel, idx).expect("extract_channel failed");
-            extracted.push(channel);
-        }
-        let mut dst = opencv::core::Mat::default();
-        opencv::core::merge(&extracted, &mut dst).expect("merge failed");
-        dst
-    }
-
-    fn drop_alpha_channel(&self) -> opencv::core::Mat {
-        self.take_first_channels(3)
-    }
-
-    fn roi_or_all(&self, rect: Option<core::Rect>) -> opencv::Result<BoxedRef<'_, core::Mat>> {
-        match rect {
-            Some(rect) => core::Mat::roi(self, rect),
-            None => core::Mat::roi(self, core::Rect::new(0, 0, self.cols(), self.rows())),
-        }
-    }
 }

@@ -1,16 +1,10 @@
-use opencv::core::{self as cv, Mat, MatTraitConst, ModifyInplace, Scalar, Size};
 use std::{
     collections::HashSet,
-    sync::{
-        mpsc::{Receiver, Sender, TryRecvError},
-        Arc,
-    },
+    sync::mpsc::{Receiver, Sender, TryRecvError},
     thread,
 };
 
-use crate::util::cv_ext::CvMatExt;
-
-use super::recti::Recti;
+use super::{gpu_compute, Image, ImageData, Recti};
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum StatisticsType {
@@ -75,48 +69,6 @@ pub struct StatisticsScope {
     pub asset_hash: Option<String>,
 }
 
-struct SSIMMatData {
-    img: Mat,
-    img2: Mat,
-    mu: Mat,
-    mu2: Mat,
-    sigma2: Mat,
-}
-
-fn ssim_blur(mat: &Mat) -> opencv::Result<Mat> {
-    let mut blurred = Mat::default();
-    let ksize = Size { width: 11, height: 11 };
-    let sigma = 1.5;
-    opencv::imgproc::gaussian_blur_def(mat, &mut blurred, ksize, sigma)?;
-    Ok(blurred)
-}
-
-impl SSIMMatData {
-    fn new(mat: Mat) -> opencv::Result<Self> {
-        let img = mat;
-
-        let mut img2 = Mat::default();
-        cv::multiply_def(&img, &img, &mut img2)?;
-
-        let mu = ssim_blur(&img)?;
-        let mut mu2 = Mat::default();
-        cv::multiply_def(&mu, &mu, &mut mu2)?;
-
-        let mut sigma2 = ssim_blur(&img2)?;
-        unsafe {
-            sigma2.modify_inplace(|i, o| cv::subtract_def(i, &mu2, o))?;
-        }
-
-        Ok(Self {
-            img,
-            img2,
-            mu,
-            mu2,
-            sigma2,
-        })
-    }
-}
-
 #[derive(Default)]
 pub struct ValueWithScope<T> {
     pub value: T,
@@ -162,11 +114,11 @@ impl StatisticsWorker {
         }
     }
 
-    pub fn run_minmax(&mut self, mat: Arc<Mat>, scale: f64, scope: StatisticsScope) {
+    pub fn run_minmax(&mut self, image: ImageData, scale: f64, scope: StatisticsScope) {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMaxWrapper");
 
-        if mat.empty() {
+        if image.spec().width <= 0 || image.spec().height <= 0 {
             return;
         }
 
@@ -174,51 +126,29 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::MinMax");
 
-            let rect = scope.rect.validate();
-            let rect = (!rect.empty()).then(|| rect.to_cv_rect());
-            let mat_roi = mat.as_ref().roi_or_all(rect)?;
-
-            let mut result = Vec::new();
-
-            // For single channel image
-            if mat.channels() == 1 {
-                let mut min_val = 0.0;
-                let mut max_val = 0.0;
-
-                cv::min_max_loc(&mat_roi, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
-
-                result.push(min_val * scale);
-                result.push(max_val * scale);
-
-                return Ok::<Vec<f64>, opencv::Error>(result);
-            }
-
-            // For multi-channel image
-            let mut channels = cv::Vector::<cv::Mat>::new();
-            // TODO: split copy data. split should be avoided for performance
-            cv::split(&mat_roi, &mut channels)?;
-
-            for i in 0..channels.len() {
-                let ch = channels.get(i)?;
-
-                let mut min_val = 0.0;
-                let mut max_val = 0.0;
-
-                cv::min_max_loc(&ch, Some(&mut min_val), Some(&mut max_val), None, None, &cv::no_array())?;
-
-                result.push(min_val * scale);
-                result.push(max_val * scale);
-            }
-
-            Ok::<Vec<f64>, opencv::Error>(result)
+            let texture = image.gpu_texture()?;
+            let (mins, maxs) = gpu_compute()?.minmax(&texture, scope.rect)?;
+            Ok::<Vec<f64>, color_eyre::Report>(
+                mins.into_iter()
+                    .zip(maxs)
+                    .flat_map(|(min, max)| [min as f64 * scale, max as f64 * scale])
+                    .collect(),
+            )
         });
     }
 
-    pub fn run_psnr(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, data_range: f64, scale: f64, scope: StatisticsScope) {
+    pub fn run_psnr(
+        &mut self,
+        image1: ImageData,
+        image2: ImageData,
+        data_range: f64,
+        scale: f64,
+        scope: StatisticsScope,
+    ) {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNRWrapper");
 
-        if mat1.empty() || mat2.empty() {
+        if image1.spec().width <= 0 || image2.spec().width <= 0 {
             return;
         }
 
@@ -226,87 +156,35 @@ impl StatisticsWorker {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::PSNR");
 
-            let rect = scope.rect.validate();
-            let rect = (!rect.empty()).then(|| rect.to_cv_rect());
-            let mat1_roi = mat1.as_ref().roi_or_all(rect)?;
-            let mat2_roi = mat2.as_ref().roi_or_all(rect)?;
-            let psnr = cv::psnr(&mat1_roi, &mat2_roi, data_range)?;
-
-            let rmse = scale / 10.0_f64.powf(psnr / 20.0);
-
-            Ok::<Vec<f64>, opencv::Error>(vec![psnr, rmse])
+            let texture1 = image1.gpu_texture()?;
+            let texture2 = image2.gpu_texture()?;
+            let (psnr, rmse) = gpu_compute()?.psnr(&texture1, &texture2, scope.rect, data_range, scale)?;
+            Ok::<Vec<f64>, color_eyre::Report>(vec![psnr, rmse])
         });
     }
 
-    pub fn run_ssim(&mut self, mat1: Arc<Mat>, mat2: Arc<Mat>, scope: StatisticsScope) {
+    pub fn run_ssim(&mut self, image1: ImageData, image2: ImageData, scope: StatisticsScope) {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIMWrapper");
 
-        if mat1.empty() || mat2.empty() {
+        if image1.spec().width <= 0 || image2.spec().width <= 0 {
             return;
         }
 
-        self.run(StatisticsType::SSIM, scope, move |scope| unsafe {
+        self.run(StatisticsType::SSIM, scope, move |scope| {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Statistics::SSIM");
 
-            let rect = scope.rect.validate();
-            let rect = (!rect.empty()).then(|| rect.to_cv_rect());
-            let mat1_roi = mat1.as_ref().roi_or_all(rect)?;
-            let mat2_roi = mat2.as_ref().roi_or_all(rect)?;
-
-            let lhs = SSIMMatData::new(mat1_roi.clone_pointee())?;
-            let rhs = SSIMMatData::new(mat2_roi.clone_pointee())?;
-
-            let c1: f64 = 0.0001; // c1 = 0.01^2 = 0.0001
-            let c2: f64 = 0.0009; // c2 = 0.03^2 = 0.0009
-
-            let mut img1_img2 = Mat::default();
-            let mut mu1_mu2 = Mat::default();
-            let mut t1 = Mat::default();
-            let mut t2 = Mat::default();
-            let mut t3 = Mat::default();
-            let mut sigma12 = Mat::default();
-
-            cv::multiply_def(&lhs.img, &rhs.img, &mut img1_img2)?;
-            cv::multiply_def(&lhs.mu, &rhs.mu, &mut mu1_mu2)?;
-            cv::subtract_def(&ssim_blur(&img1_img2)?, &mu1_mu2, &mut sigma12)?;
-
-            // t3 = ((2*mu1_mu2 + C1).*(2*sigma12 + C2))
-            cv::multiply_def(&mu1_mu2, &Scalar::all(2.0), &mut t1)?;
-            t1.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c1), o))?;
-
-            cv::multiply_def(&sigma12, &Scalar::all(2.0), &mut t2)?;
-            t2.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c2), o))?;
-
-            // t3 = t1 * t2
-            cv::multiply_def(&t1, &t2, &mut t3)?;
-
-            // t1 =((mu1_2 + mu2_2 + C1).*(sigma1_2 + sigma2_2 + C2))
-            cv::add_def(&lhs.mu2, &rhs.mu2, &mut t1)?;
-            t1.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c1), o))?;
-
-            cv::add_def(&lhs.sigma2, &rhs.sigma2, &mut t2)?;
-            t2.modify_inplace(|i, o| cv::add_def(i, &Scalar::all(c2), o))?;
-
-            // t1 *= t2
-            t1.modify_inplace(|i, o| cv::multiply_def(i, &t2, o))?;
-
-            // quality map: t3 /= t1
-            t3.modify_inplace(|i, o| cv::divide2_def(i, &t1, o))?;
-
-            let ssim_c = cv::mean_def(&t3)?;
-
-            Ok::<Vec<f64>, opencv::Error>(vec![
-                (ssim_c[0] + ssim_c[1] + ssim_c[2] + ssim_c[3]) / img1_img2.channels() as f64,
-            ])
+            let texture1 = image1.gpu_texture()?;
+            let texture2 = image2.gpu_texture()?;
+            Ok::<Vec<f64>, color_eyre::Report>(vec![gpu_compute()?.ssim(&texture1, &texture2, scope.rect)?])
         });
     }
 
     pub fn run<F, E>(&mut self, stat_type: StatisticsType, scope: StatisticsScope, func: F)
     where
         F: FnOnce(&StatisticsScope) -> Result<Vec<f64>, E> + Send + 'static,
-        E: std::error::Error,
+        E: std::fmt::Debug,
     {
         if self.processing.contains(&stat_type) {
             self.pending.insert(stat_type);

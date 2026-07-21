@@ -811,6 +811,7 @@ dependencies = [
  "notify",
  "opencv",
  "opener",
+ "pollster",
  "resvg",
  "rfd",
  "serde",

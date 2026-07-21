@@ -7,16 +7,14 @@ use eframe::{
     egui_wgpu::{self, wgpu},
 };
 use serde::{Deserialize, Serialize};
-use wgpu::util::DeviceExt as _;
 
 use crate::{
-    model::{Image, MinMaxTotal},
+    model::{GpuImageTexture, Image, MinMaxTotal},
     util::path_ext::exe_dir_or_cwd,
 };
 
 const IMAGE_SHADER_CODE: &str = include_str!("gpu_image.frag");
 const PARAM_SLOT_COUNT: u64 = 3;
-const DX12_RGBA_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScaleMode {
@@ -272,7 +270,7 @@ impl egui_wgpu::CallbackTrait for ImagePaintCallback {
 }
 
 struct GpuImage {
-    _texture: wgpu::Texture,
+    _texture: Arc<GpuImageTexture>,
     bind_group: wgpu::BindGroup,
     image_id: u64,
 }
@@ -319,9 +317,6 @@ pub struct GpuRenderer {
     background_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
     export_pipeline: wgpu::RenderPipeline,
-    rgb_upload_bind_group_layout: wgpu::BindGroupLayout,
-    rgb_upload_pipeline: wgpu::ComputePipeline,
-    stream_rgba_uploads: bool,
     primary: Option<GpuImage>,
     secondary: Option<GpuImage>,
     last_colormap: String,
@@ -330,7 +325,7 @@ pub struct GpuRenderer {
 }
 
 impl GpuRenderer {
-    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat, stream_rgba_uploads: bool) -> Result<Self> {
+    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat, _stream_rgba_uploads: bool) -> Result<Self> {
         let uniform_stride = align_to(
             std::mem::size_of::<GpuParams>() as u64,
             device.limits().min_uniform_buffer_offset_alignment as u64,
@@ -376,7 +371,6 @@ impl GpuRenderer {
         let image_pipeline = create_image_pipeline(device, &pipeline_layout, target_format, &fragment_module);
         let export_pipeline =
             create_image_pipeline(device, &pipeline_layout, wgpu::TextureFormat::Rgba8Unorm, &fragment_module);
-        let (rgb_upload_bind_group_layout, rgb_upload_pipeline) = create_rgb_upload_pipeline(device);
         Ok(Self {
             target_format,
             bind_group_layout,
@@ -386,9 +380,6 @@ impl GpuRenderer {
             background_pipeline,
             image_pipeline,
             export_pipeline,
-            rgb_upload_bind_group_layout,
-            rgb_upload_pipeline,
-            stream_rgba_uploads,
             primary: None,
             secondary: None,
             last_colormap: "rgb".to_owned(),
@@ -400,7 +391,7 @@ impl GpuRenderer {
     pub fn sync_image(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        _queue: &wgpu::Queue,
         slot: ImageSlot,
         image: Option<&impl Image>,
     ) -> Result<()> {
@@ -415,16 +406,7 @@ impl GpuRenderer {
         if current.as_ref().is_some_and(|gpu_image| gpu_image.image_id == image.id()) {
             return Ok(());
         }
-        *current = Some(upload_image(
-            device,
-            queue,
-            &self.bind_group_layout,
-            &self.uniform_buffer,
-            &self.rgb_upload_bind_group_layout,
-            &self.rgb_upload_pipeline,
-            self.stream_rgba_uploads,
-            image,
-        )?);
+        *current = Some(upload_image(device, &self.bind_group_layout, &self.uniform_buffer, image)?);
         Ok(())
     }
 
@@ -610,70 +592,14 @@ fn align_to(value: u64, alignment: u64) -> u64 {
 
 fn upload_image(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
     uniform_buffer: &wgpu::Buffer,
-    rgb_upload_layout: &wgpu::BindGroupLayout,
-    rgb_upload_pipeline: &wgpu::ComputePipeline,
-    stream_rgba_uploads: bool,
     image: &impl Image,
 ) -> Result<GpuImage> {
     #[cfg(debug_assertions)]
     let _timer = crate::util::timer::ScopedTimer::new("Upload texture");
 
-    let spec = image.spec();
-    let channels = spec.channels as usize;
-    let data = image.data_ptr()?;
-    let (head, floats, tail) = unsafe { data.align_to::<f32>() };
-    if !head.is_empty() || !tail.is_empty() {
-        return Err(eyre!("Image data is not aligned for f32"));
-    }
-    let expected = spec.width as usize * spec.height as usize * channels;
-    if floats.len() != expected {
-        return Err(eyre!("Unexpected image data length: {} != {expected}", floats.len()));
-    }
-
-    let format = match channels {
-        1 => wgpu::TextureFormat::R32Float,
-        2 => wgpu::TextureFormat::Rg32Float,
-        3 | 4 => wgpu::TextureFormat::Rgba32Float,
-        _ => return Err(eyre!("Unsupported channel count: {channels}")),
-    };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("edolview image"),
-        size: wgpu::Extent3d {
-            width: spec.width as u32,
-            height: spec.height as u32,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_DST
-            | if channels == 3 {
-                wgpu::TextureUsages::STORAGE_BINDING
-            } else {
-                wgpu::TextureUsages::empty()
-            },
-        view_formats: &[],
-    });
-    if channels == 3 {
-        upload_rgb_with_compute(device, queue, rgb_upload_layout, rgb_upload_pipeline, &texture, floats);
-    } else {
-        upload_texture(
-            device,
-            queue,
-            &texture,
-            bytemuck::cast_slice(floats),
-            spec.width as u32,
-            spec.height as u32,
-            channels as u32,
-            stream_rgba_uploads,
-        )?;
-    }
-    let view = texture.create_view(&Default::default());
+    let texture = image.gpu_texture()?;
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("edolview image bind group"),
         layout,
@@ -688,7 +614,7 @@ fn upload_image(
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(&view),
+                resource: wgpu::BindingResource::TextureView(&texture.view),
             },
         ],
     });
@@ -697,182 +623,6 @@ fn upload_image(
         bind_group,
         image_id: image.id(),
     })
-}
-
-fn upload_texture(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    texture: &wgpu::Texture,
-    bytes: &[u8],
-    width: u32,
-    height: u32,
-    channels: u32,
-    stream_rgba_uploads: bool,
-) -> Result<()> {
-    let bytes_per_row = width * channels * std::mem::size_of::<f32>() as u32;
-    let should_stream = stream_rgba_uploads && channels == 4 && bytes.len() as u64 > DX12_RGBA_UPLOAD_CHUNK_BYTES;
-    let rows_per_chunk = if should_stream {
-        (DX12_RGBA_UPLOAD_CHUNK_BYTES / u64::from(bytes_per_row)).max(1) as u32
-    } else {
-        height
-    };
-
-    for base_y in (0..height).step_by(rows_per_chunk as usize) {
-        let row_count = rows_per_chunk.min(height - base_y);
-        let start = base_y as usize * bytes_per_row as usize;
-        let end = (base_y + row_count) as usize * bytes_per_row as usize;
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: base_y, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            &bytes[start..end],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(bytes_per_row),
-                rows_per_image: Some(row_count),
-            },
-            wgpu::Extent3d {
-                width,
-                height: row_count,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        if should_stream {
-            queue.submit([]);
-            device
-                .poll(wgpu::PollType::wait_indefinitely())
-                .map_err(|error| eyre!("Failed to flush an image upload chunk: {error}"))?;
-        }
-    }
-    Ok(())
-}
-
-fn create_rgb_upload_pipeline(device: &wgpu::Device) -> (wgpu::BindGroupLayout, wgpu::ComputePipeline) {
-    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("edolview RGB upload layout"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
-    });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("edolview RGB upload pipeline layout"),
-        bind_group_layouts: &[Some(&layout)],
-        immediate_size: 0,
-    });
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("edolview RGB upload shader"),
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(RGB_UPLOAD_SHADER)),
-    });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("edolview RGB upload pipeline"),
-        layout: Some(&pipeline_layout),
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: Default::default(),
-        cache: None,
-    });
-    (layout, pipeline)
-}
-
-fn upload_rgb_with_compute(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    layout: &wgpu::BindGroupLayout,
-    pipeline: &wgpu::ComputePipeline,
-    texture: &wgpu::Texture,
-    rgb: &[f32],
-) {
-    let size = texture.size();
-    let rows_per_chunk = rgb_rows_per_chunk(size.width, device.limits().max_storage_buffer_binding_size as u64);
-    let view = texture.create_view(&Default::default());
-    let mut chunks = Vec::new();
-    for base_y in (0..size.height).step_by(rows_per_chunk as usize) {
-        let row_count = rows_per_chunk.min(size.height - base_y);
-        let start = base_y as usize * size.width as usize * 3;
-        let end = (base_y + row_count) as usize * size.width as usize * 3;
-        let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("edolview RGB upload buffer"),
-            contents: bytemuck::cast_slice(&rgb[start..end]),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
-        let params = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("edolview RGB upload parameters"),
-            contents: bytemuck::cast_slice(&[base_y, size.width, row_count, 0]),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("edolview RGB upload bind group"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: input.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: params.as_entire_binding(),
-                },
-            ],
-        });
-        chunks.push((input, params, bind_group, row_count));
-    }
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("edolview RGB upload encoder"),
-    });
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("edolview RGB upload pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        for (_, _, bind_group, row_count) in &chunks {
-            pass.set_bind_group(0, bind_group, &[]);
-            pass.dispatch_workgroups(size.width.div_ceil(16), row_count.div_ceil(16), 1);
-        }
-    }
-    queue.submit([encoder.finish()]);
-}
-
-fn rgb_rows_per_chunk(width: u32, max_binding_size: u64) -> u32 {
-    let bytes_per_row = u64::from(width) * 3 * std::mem::size_of::<f32>() as u64;
-    (max_binding_size / bytes_per_row).max(1).min(u64::from(u32::MAX)) as u32
 }
 
 fn compile_fragment_module(device: &wgpu::Device, colormap: &str, is_mono: bool) -> Result<wgpu::ShaderModule> {
@@ -1182,7 +932,7 @@ mod tests {
 
     #[test]
     fn large_rgb_uploads_are_split_to_fit_storage_binding_limits() {
-        let rows = rgb_rows_per_chunk(4096, 128 * 1024 * 1024);
+        let rows = crate::model::rgb_rows_per_chunk(4096, 128 * 1024 * 1024);
         assert_eq!(rows, 2730);
         assert_eq!(4096_u32.div_ceil(rows), 2);
     }

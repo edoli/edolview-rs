@@ -1,12 +1,10 @@
-use crate::model::{MeanDim, MeanProcessor};
+use crate::model::{gpu_compute, GpuImageTexture, MeanDim, MeanProcessor, Recti};
 use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::{eyre, Result};
-use eframe::emath::Numeric;
 use half::f16;
 use opencv::core::Size;
 use opencv::prelude::*;
-use opencv::traits::OpenCVIntoExternContainer;
-use opencv::{core, imgcodecs, imgproc};
+use opencv::{core, imgcodecs};
 use std::f64;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::{
@@ -51,11 +49,11 @@ pub struct ImageSpec {
 
 // data of ImageSpec should be always f32
 impl ImageSpec {
-    pub fn new(mat: &opencv::core::Mat, dtype: i32) -> Self {
+    pub fn new(width: i32, height: i32, channels: i32, dtype: i32) -> Self {
         Self {
-            width: mat.cols(),
-            height: mat.rows(),
-            channels: mat.channels(),
+            width,
+            height,
+            channels,
             dtype,
         }
     }
@@ -87,8 +85,9 @@ impl ImageSpec {
 pub trait Image {
     fn id(&self) -> u64;
     fn spec(&self) -> ImageSpec;
-    fn data_ptr(&self) -> Result<&[u8]>;
-    fn get_pixel_at(&self, x: i32, y: i32) -> Result<&[f32]> {
+    fn data(&self) -> Option<&[f32]>;
+    fn gpu_texture(&self) -> Result<Arc<GpuImageTexture>>;
+    fn get_pixel_at(&self, x: i32, y: i32) -> Result<PixelValues<'_>> {
         let spec = self.spec();
         if x < 0 || x >= spec.width || y < 0 || y >= spec.height {
             return Err(color_eyre::eyre::eyre!("Coordinates out of bounds"));
@@ -97,13 +96,29 @@ pub trait Image {
         let row_bytes = (spec.width as usize) * bytes_per_pixel;
         let start = (y as usize) * row_bytes + (x as usize) * bytes_per_pixel;
         let end = start + bytes_per_pixel;
-        let data = self.data_ptr()?;
-        let (_, f32s, _) = unsafe { data[start..end].align_to::<f32>() };
-        Ok(&f32s)
+        self.data()
+            .map(|data| PixelValues::Borrowed(&data[start / 4..end / 4]))
+            .ok_or_else(|| eyre!("CPU pixel data is unavailable for this GPU-derived image"))
     }
 }
 
-pub static MEAN_PROCESSOR: LazyLock<Mutex<MeanProcessor>> = LazyLock::new(|| Mutex::new(MeanProcessor::new()));
+pub static MEAN_PROCESSOR: LazyLock<MeanProcessor> = LazyLock::new(MeanProcessor::new);
+
+pub enum PixelValues<'a> {
+    Borrowed(&'a [f32]),
+    Owned { values: [f32; 4], len: usize },
+}
+
+impl std::ops::Deref for PixelValues<'_> {
+    type Target = [f32];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(values) => values,
+            Self::Owned { values, len } => &values[..*len],
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct MinMaxTotal {
@@ -209,38 +224,95 @@ impl MinMaxTotal {
     }
 }
 
-// data of MatImage should be always f32. dtype of spec is not dtype of mat, but the original dtype before conversion to f32.
-pub struct MatImage {
-    id: u64,
-    mat: Arc<opencv::core::Mat>,
-    spec: ImageSpec,
+#[derive(Clone)]
+pub struct ImageData(Arc<ImageDataInner>);
 
+struct ImageDataInner {
+    id: u64,
+    spec: ImageSpec,
+    storage: ImageStorage,
+    gpu: OnceLock<Arc<GpuImageTexture>>,
+    gpu_init: Mutex<()>,
     hist: OnceLock<Vec<Vec<f32>>>,
     minmax: OnceLock<MinMaxTotal>,
 }
 
-impl MatImage {
-    pub fn new(mat: opencv::core::Mat, dtype: i32) -> Self {
-        let spec = ImageSpec::new(&mat, dtype);
-        assert!(mat.empty() || mat.depth() == f32::typ());
-        Self {
-            mat: Arc::new(mat),
-            spec,
+enum ImageStorage {
+    Cpu(Arc<[f32]>),
+    Derived(DerivedImage),
+    Empty,
+}
+
+struct DerivedImage {
+    primary: ImageData,
+    secondary: ImageData,
+    mode: crate::model::ComparisonMode,
+    blend_alpha: f32,
+    channel_strategy: u32,
+}
+
+impl ImageData {
+    pub fn from_f32(spec: ImageSpec, pixels: Vec<f32>) -> Result<Self> {
+        let expected = spec.width.max(0) as usize * spec.height.max(0) as usize * spec.channels.max(0) as usize;
+        if pixels.len() != expected {
+            return Err(eyre!("Unexpected image data length: {} != {expected}", pixels.len()));
+        }
+        Ok(Self(Arc::new(ImageDataInner {
             id: new_id(),
+            spec,
+            storage: ImageStorage::Cpu(pixels.into()),
+            gpu: OnceLock::new(),
+            gpu_init: Mutex::new(()),
             hist: OnceLock::new(),
             minmax: OnceLock::new(),
+        })))
+    }
+
+    pub fn empty(dtype: i32) -> Self {
+        Self(Arc::new(ImageDataInner {
+            id: new_id(),
+            spec: ImageSpec::new(0, 0, 0, dtype),
+            storage: ImageStorage::Empty,
+            gpu: OnceLock::new(),
+            gpu_init: Mutex::new(()),
+            hist: OnceLock::new(),
+            minmax: OnceLock::new(),
+        }))
+    }
+
+    pub fn derived_comparison(
+        primary: ImageData,
+        secondary: ImageData,
+        spec: ImageSpec,
+        mode: crate::model::ComparisonMode,
+        blend_alpha: f32,
+        channel_strategy: u32,
+    ) -> Self {
+        Self(Arc::new(ImageDataInner {
+            id: new_id(),
+            spec,
+            storage: ImageStorage::Derived(DerivedImage {
+                primary,
+                secondary,
+                mode,
+                blend_alpha,
+                channel_strategy,
+            }),
+            gpu: OnceLock::new(),
+            gpu_init: Mutex::new(()),
+            hist: OnceLock::new(),
+            minmax: OnceLock::new(),
+        }))
+    }
+
+    pub fn pixels(&self) -> Option<&[f32]> {
+        match &self.0.storage {
+            ImageStorage::Cpu(pixels) => Some(pixels),
+            ImageStorage::Derived(_) | ImageStorage::Empty => None,
         }
     }
 
-    pub fn mat(&self) -> &opencv::core::Mat {
-        self.mat.as_ref()
-    }
-
-    pub fn mat_shared(&self) -> Arc<opencv::core::Mat> {
-        Arc::clone(&self.mat)
-    }
-
-    pub fn mean_value_in_rect(&self, rect: opencv::core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
+    pub fn mean_value_in_rect(&self, rect: Recti, dim: MeanDim) -> Result<Vec<f64>> {
         #[cfg(debug_assertions)]
         let _timer = match dim {
             MeanDim::All => crate::util::timer::ScopedTimer::new("Compute mean all"),
@@ -248,7 +320,7 @@ impl MatImage {
             MeanDim::Row => crate::util::timer::ScopedTimer::new("Compute mean row"),
         };
 
-        MEAN_PROCESSOR.lock().unwrap().compute(self, rect, dim)
+        MEAN_PROCESSOR.compute(self, rect, dim)
     }
 
     pub fn compute_hist(&self) -> Vec<Vec<f32>> {
@@ -259,39 +331,16 @@ impl MatImage {
         if spec.width == 0 || spec.height == 0 || spec.channels <= 0 {
             return vec![];
         }
-        let channels = spec.channels;
-
-        let input = self.mat.as_ref();
-
-        let bins = 256;
-        let hist_size = core::Vector::from_slice(&[bins]);
-        let ranges = core::Vector::from(vec![0f32, 1f32]);
-        let mask = core::Mat::default();
-        let input = core::Mat::copy(input)
-            .expect("Mat::copy failed")
-            .opencv_into_extern_container_nofail();
-        let input = core::Vector::<core::Mat>::from_iter([input]);
-
-        let mut result: Vec<Vec<f32>> = Vec::with_capacity(channels as usize);
-
-        for ch in 0..channels {
-            let hist_channels = core::Vector::from_slice(&[ch]);
-
-            let mut hist = core::Mat::default();
-
-            imgproc::calc_hist(&input, &hist_channels, &mask, &mut hist, &hist_size, &ranges, false)
-                .expect("calc_hist failed");
-
-            let slice: &[f32] = hist.data_typed::<f32>().expect("data_typed failed");
-
-            result.push(slice.to_vec());
-        }
-
-        result
+        self.gpu_texture()
+            .and_then(|texture| gpu_compute()?.histogram(&texture))
+            .unwrap_or_else(|error| {
+                eprintln!("GPU histogram failed: {error}");
+                Vec::new()
+            })
     }
 
     pub fn hist(&self) -> &Vec<Vec<f32>> {
-        self.hist.get_or_init(|| self.compute_hist())
+        self.0.hist.get_or_init(|| self.compute_hist())
     }
 
     fn compute_minmax(&self) -> MinMaxTotal {
@@ -303,56 +352,39 @@ impl MatImage {
             return MinMaxTotal::new(vec![], vec![]);
         }
 
-        let mut mins = vec![f32::INFINITY; spec.channels as usize];
-        let mut maxs = vec![f32::NEG_INFINITY; spec.channels as usize];
-
-        let channels = self.mat.channels();
-        for ch in 0..channels {
-            let mut dst = core::Mat::default();
-            core::extract_channel(self.mat.as_ref(), &mut dst, ch).expect("extract_channel failed");
-
-            // Ignore INFINITY and NEG_INFINITY values for min/max computation using mask
-            let mut mask = Mat::default();
-            core::in_range(
-                &dst,
-                &core::Scalar::all(f32::MIN.to_f64()),
-                &core::Scalar::all(f32::MAX.to_f64()),
-                &mut mask,
-            )
-            .expect("in_range failed");
-
-            let mut min_val = 0f64;
-            let mut max_val = 0f64;
-            let _ = core::min_max_loc(&dst, Some(&mut min_val), Some(&mut max_val), None, None, &mask);
-            mins[ch as usize] = min_val as f32;
-            maxs[ch as usize] = max_val as f32;
+        match self
+            .gpu_texture()
+            .and_then(|texture| gpu_compute()?.minmax(&texture, Recti::ZERO))
+        {
+            Ok((mins, maxs)) => MinMaxTotal::new(mins, maxs),
+            Err(error) => {
+                eprintln!("GPU min/max failed: {error}");
+                MinMaxTotal::new(vec![0.0; spec.channels as usize], vec![0.0; spec.channels as usize])
+            }
         }
-
-        MinMaxTotal::new(mins, maxs)
     }
 
     pub fn minmax(&self) -> &MinMaxTotal {
-        self.minmax.get_or_init(|| self.compute_minmax())
+        self.0.minmax.get_or_init(|| self.compute_minmax())
     }
-}
 
-impl MatImage {
-    pub fn from_bytes_size_type(bytes: &Vec<u8>, size: Size, dtype: i32) -> Result<MatImage> {
-        let mut mat = unsafe { core::Mat::new_rows_cols(size.height, size.width, dtype)? };
-
-        if mat.empty() {
-            return Err(eyre!("Failed to load image"));
+    pub fn from_bytes_size_type(bytes: &[u8], size: Size, dtype: i32) -> Result<ImageData> {
+        let depth = dtype.cv_type_depth();
+        let channels = dtype.cv_type_channels();
+        let element_count = size.width.max(0) as usize * size.height.max(0) as usize * channels.max(0) as usize;
+        let expected_bytes = element_count * depth.cv_type_depth_bytes();
+        if bytes.len() != expected_bytes {
+            return Err(eyre!("Unexpected raw image size: {} != {expected_bytes}", bytes.len()));
         }
-
-        let raw = mat.data_bytes_mut()?;
-        raw.copy_from_slice(bytes);
-
-        let mat_f32 = Self::postprocess(mat, 1.0, false)?;
-
-        Ok(MatImage::new(mat_f32, dtype))
+        let factor = (1.0 / depth.alpha()) as f32;
+        let mut pixels = Vec::with_capacity(element_count);
+        for index in 0..element_count {
+            pixels.push(read_cv_scalar(bytes, index, depth)? * factor);
+        }
+        Self::from_f32(ImageSpec::new(size.width, size.height, channels, depth), pixels)
     }
 
-    pub fn from_bytes(bytes: &Vec<u8>) -> Result<MatImage> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<ImageData> {
         let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, bytes)?;
         let mat = imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?;
 
@@ -360,13 +392,10 @@ impl MatImage {
             return Err(eyre!("Failed to load image"));
         }
 
-        let dtype = mat.depth();
-        let mat_f32 = Self::postprocess(mat, 1.0, true)?;
-
-        Ok(MatImage::new(mat_f32, dtype))
+        Self::from_decoded_mat(mat, 1.0, true)
     }
 
-    pub fn load_from_path(path: &PathBuf) -> Result<MatImage> {
+    pub fn load_from_path(path: &PathBuf) -> Result<ImageData> {
         if !path.exists() {
             return Err(eyre!("Image does not exist: {:?}", path));
         }
@@ -418,8 +447,7 @@ impl MatImage {
                 if ext == "pfm" {
                     (bytes, scale_abs) = fix_pfm_header_and_parse_scale(&bytes);
                 } else if ext == "flo" {
-                    // Optical flow (.flo) file: decode directly to CV_32FC2 Mat
-                    return Ok(MatImage::new(decode_flo_to_mat(&bytes)?, core::CV_32F));
+                    return decode_flo(&bytes);
                 }
                 let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
                 bgr_convert = true;
@@ -431,13 +459,10 @@ impl MatImage {
             return Err(eyre!("Failed to load image"));
         }
 
-        let dtype = mat.depth();
-        let mat_f32 = Self::postprocess(mat, scale_abs, bgr_convert)?;
-
-        Ok(MatImage::new(mat_f32, dtype))
+        Self::from_decoded_mat(mat, scale_abs, bgr_convert)
     }
 
-    pub fn load_from_clipboard() -> Result<MatImage> {
+    pub fn load_from_clipboard() -> Result<ImageData> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Clipboard read");
 
@@ -454,20 +479,11 @@ impl MatImage {
             return Err(eyre!("Invalid clipboard image dimensions or channels"));
         }
 
-        let mat = core::Mat::new_rows_cols_with_data(height, width * channels, &bytes)?;
-        let mat = mat.reshape(channels, height)?.clone_pointee();
-
-        if mat.empty() {
-            return Err(eyre!("Failed to load image"));
-        }
-
-        let dtype = mat.depth();
-        let mat_f32 = Self::postprocess(mat, 1.0, false)?;
-
-        Ok(MatImage::new(mat_f32, dtype))
+        let pixels = bytes.into_iter().map(|value| value as f32 / 255.0).collect();
+        Self::from_f32(ImageSpec::new(width, height, channels, core::CV_8U), pixels)
     }
 
-    pub fn load_from_url(url: &str) -> Result<MatImage> {
+    pub fn load_from_url(url: &str) -> Result<ImageData> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image download");
 
@@ -479,64 +495,184 @@ impl MatImage {
             return Err(eyre!("Failed to load image"));
         }
 
-        let dtype = mat.depth();
-        let mat_f32 = Self::postprocess(mat, 1.0, true)?;
-
-        Ok(MatImage::new(mat_f32, dtype))
+        Self::from_decoded_mat(mat, 1.0, true)
     }
 
-    pub fn postprocess(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<core::Mat> {
+    pub fn from_decoded_mat(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<ImageData> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");
 
+        if mat.empty() {
+            return Err(eyre!("Failed to load image"));
+        }
         let dtype = mat.depth();
-
-        let tmp = if bgr_convert {
-            let channels = mat.channels();
-            let mut tmp = core::Mat::default();
-
-            let color_convert = match mat.channels() {
-                1 => -1,
-                3 => imgproc::COLOR_BGR2RGB,
-                4 => imgproc::COLOR_BGRA2RGBA,
-                _ => {
-                    return Err(eyre!("Unsupported image channels: {}", channels));
-                }
-            };
-
-            if color_convert != -1 {
-                imgproc::cvt_color_def(&mat, &mut tmp, color_convert)?;
-                tmp
-            } else {
-                mat
+        let width = mat.cols();
+        let height = mat.rows();
+        let channels = mat.channels();
+        if !(1..=4).contains(&channels) {
+            return Err(eyre!("Unsupported image channels: {channels}"));
+        }
+        let mat = if mat.is_continuous() { mat } else { mat.try_clone()? };
+        let bytes = mat.data_bytes()?;
+        let element_count = width as usize * height as usize * channels as usize;
+        let factor = (scale / dtype.alpha()) as f32;
+        let mut pixels = Vec::with_capacity(element_count);
+        for index in 0..element_count {
+            pixels.push(read_cv_scalar(bytes, index, dtype)? * factor);
+        }
+        if bgr_convert && channels >= 3 {
+            for pixel in pixels.chunks_exact_mut(channels as usize) {
+                pixel.swap(0, 2);
             }
-        } else {
-            mat
-        };
+        }
+        Self::from_f32(ImageSpec::new(width, height, channels, dtype), pixels)
+    }
 
-        let mat_f32 = if dtype != f32::typ() || scale != 1.0 {
-            let mut mat_f32 = core::Mat::default();
-            tmp.convert_to(&mut mat_f32, core::CV_32F, scale / dtype.alpha(), 0.0)?;
-            mat_f32
-        } else {
-            tmp
+    pub fn gpu_texture(&self) -> Result<Arc<GpuImageTexture>> {
+        if let Some(texture) = self.0.gpu.get() {
+            return Ok(Arc::clone(texture));
+        }
+        let _init_guard = self.0.gpu_init.lock().unwrap();
+        if let Some(texture) = self.0.gpu.get() {
+            return Ok(Arc::clone(texture));
+        }
+        let compute = gpu_compute()?;
+        let texture = match &self.0.storage {
+            ImageStorage::Cpu(pixels) => compute.upload(&self.0.spec, pixels)?,
+            ImageStorage::Derived(derived) => {
+                let primary = derived.primary.gpu_texture()?;
+                let secondary = derived.secondary.gpu_texture()?;
+                compute.compare(
+                    &primary,
+                    &secondary,
+                    &self.0.spec,
+                    derived.mode,
+                    derived.blend_alpha,
+                    derived.channel_strategy,
+                )?
+            }
+            ImageStorage::Empty => return Err(eyre!("Image is empty")),
         };
+        let _ = self.0.gpu.set(Arc::clone(&texture));
+        Ok(self.0.gpu.get().cloned().unwrap_or(texture))
+    }
 
-        Ok(mat_f32)
+    fn pixel_values(&self, x: i32, y: i32) -> Result<Vec<f32>> {
+        let spec = self.spec();
+        if x < 0 || x >= spec.width || y < 0 || y >= spec.height {
+            return Err(eyre!("Coordinates out of bounds"));
+        }
+        match &self.0.storage {
+            ImageStorage::Cpu(pixels) => {
+                let start = ((y * spec.width + x) * spec.channels) as usize;
+                Ok(pixels[start..start + spec.channels as usize].to_vec())
+            }
+            ImageStorage::Derived(derived) => {
+                let mut lhs = derived.primary.pixel_values(x, y)?;
+                let mut rhs = derived.secondary.pixel_values(x, y)?;
+                normalize_pixel_channels(&mut lhs, &mut rhs, derived.channel_strategy, spec.channels as usize);
+                Ok(lhs
+                    .iter()
+                    .zip(rhs.iter())
+                    .take(spec.channels as usize)
+                    .map(|(&a, &b)| match derived.mode {
+                        crate::model::ComparisonMode::Diff => a - b,
+                        crate::model::ComparisonMode::Blend => {
+                            a * (1.0 - derived.blend_alpha) + b * derived.blend_alpha
+                        }
+                        crate::model::ComparisonMode::Split => a,
+                    })
+                    .collect())
+            }
+            ImageStorage::Empty => Err(eyre!("Image is empty")),
+        }
+    }
+
+    pub(crate) fn scalar_at(&self, pixel_index: usize, channel: usize) -> Option<f32> {
+        let spec = self.spec();
+        if pixel_index >= spec.width as usize * spec.height as usize || channel >= spec.channels as usize {
+            return None;
+        }
+        match &self.0.storage {
+            ImageStorage::Cpu(pixels) => pixels.get(pixel_index * spec.channels as usize + channel).copied(),
+            ImageStorage::Derived(derived) => {
+                let primary_channel = if derived.channel_strategy == 1 { 0 } else { channel };
+                let secondary_channel = if derived.channel_strategy == 2 { 0 } else { channel };
+                let lhs = derived.primary.scalar_at(pixel_index, primary_channel)?;
+                let rhs = derived.secondary.scalar_at(pixel_index, secondary_channel)?;
+                Some(match derived.mode {
+                    crate::model::ComparisonMode::Diff => lhs - rhs,
+                    crate::model::ComparisonMode::Blend => {
+                        lhs * (1.0 - derived.blend_alpha) + rhs * derived.blend_alpha
+                    }
+                    crate::model::ComparisonMode::Split => lhs,
+                })
+            }
+            ImageStorage::Empty => None,
+        }
     }
 }
 
-impl Image for MatImage {
+impl Image for ImageData {
     fn id(&self) -> u64 {
-        self.id
+        self.0.id
     }
 
     fn spec(&self) -> ImageSpec {
-        self.spec.clone()
+        self.0.spec.clone()
     }
 
-    fn data_ptr(&self) -> Result<&[u8]> {
-        Ok(self.mat.data_bytes()?)
+    fn data(&self) -> Option<&[f32]> {
+        self.pixels()
+    }
+
+    fn gpu_texture(&self) -> Result<Arc<GpuImageTexture>> {
+        ImageData::gpu_texture(self)
+    }
+
+    fn get_pixel_at(&self, x: i32, y: i32) -> Result<PixelValues<'_>> {
+        if let Some(pixels) = self.pixels() {
+            let spec = self.spec();
+            if x < 0 || x >= spec.width || y < 0 || y >= spec.height {
+                return Err(eyre!("Coordinates out of bounds"));
+            }
+            let start = ((y * spec.width + x) * spec.channels) as usize;
+            return Ok(PixelValues::Borrowed(&pixels[start..start + spec.channels as usize]));
+        }
+        let spec = self.spec();
+        let pixel = self.pixel_values(x, y)?;
+        let mut values = [0.0; 4];
+        values[..pixel.len()].copy_from_slice(&pixel);
+        Ok(PixelValues::Owned {
+            values,
+            len: spec.channels as usize,
+        })
+    }
+}
+
+fn read_cv_scalar(bytes: &[u8], index: usize, dtype: i32) -> Result<f32> {
+    let value = match dtype {
+        core::CV_8U => bytes[index] as f32,
+        core::CV_8S => (bytes[index] as i8) as f32,
+        core::CV_16U => u16::from_ne_bytes(bytes[index * 2..index * 2 + 2].try_into()?) as f32,
+        core::CV_16S => i16::from_ne_bytes(bytes[index * 2..index * 2 + 2].try_into()?) as f32,
+        core::CV_32S => i32::from_ne_bytes(bytes[index * 4..index * 4 + 4].try_into()?) as f32,
+        core::CV_32F => f32::from_ne_bytes(bytes[index * 4..index * 4 + 4].try_into()?),
+        core::CV_64F => f64::from_ne_bytes(bytes[index * 8..index * 8 + 8].try_into()?) as f32,
+        core::CV_16F => half::f16::from_bits(u16::from_ne_bytes(bytes[index * 2..index * 2 + 2].try_into()?)).to_f32(),
+        _ => return Err(eyre!("Unsupported OpenCV image depth: {dtype}")),
+    };
+    Ok(value)
+}
+
+fn normalize_pixel_channels(lhs: &mut Vec<f32>, rhs: &mut Vec<f32>, strategy: u32, output_channels: usize) {
+    match strategy {
+        1 => lhs.resize(output_channels, lhs[0]),
+        2 => rhs.resize(output_channels, rhs[0]),
+        _ => {
+            lhs.truncate(output_channels);
+            rhs.truncate(output_channels);
+        }
     }
 }
 
@@ -592,13 +728,13 @@ fn fix_pfm_header_and_parse_scale(input: &[u8]) -> (Vec<u8>, f64) {
     (out, scale_abs)
 }
 
-// Decode Middlebury .flo optical flow file into OpenCV Mat (CV_32FC2)
+// Decode Middlebury .flo optical flow directly into the application's image storage.
 // Format (little-endian):
 // - magic: f32 (202021.25)
 // - width: i32
 // - height: i32
 // - data: width * height * 2 f32 (u, v) in row-major, interleaved
-fn decode_flo_to_mat(bytes: &[u8]) -> Result<core::Mat> {
+fn decode_flo(bytes: &[u8]) -> Result<ImageData> {
     // Need at least 12 bytes for header
     if bytes.len() < 12 {
         return Err(eyre!(".flo: file too small: {} bytes", bytes.len()));
@@ -625,32 +761,9 @@ fn decode_flo_to_mat(bytes: &[u8]) -> Result<core::Mat> {
         return Err(eyre!(".flo: not enough data: have {}, need {}", bytes.len() - 12, data_bytes));
     }
 
-    // Allocate CV_32FC2 Mat
-    let mut mat = unsafe { core::Mat::new_rows_cols(height, width, core::CV_32FC2)? };
-
-    // Fill data with proper endianness handling without assuming single-channel typed access
-    #[cfg(target_endian = "little")]
-    {
-        // Direct byte copy on little-endian
-        let src = &bytes[12..12 + data_bytes];
-        let dst_bytes = mat.data_bytes_mut()?;
-        debug_assert!(dst_bytes.len() >= data_bytes);
-        dst_bytes[..data_bytes].copy_from_slice(src);
+    let mut pixels = Vec::with_capacity(num_floats);
+    for chunk in bytes[12..12 + data_bytes].chunks_exact(4) {
+        pixels.push(f32::from_le_bytes(chunk.try_into().unwrap()));
     }
-
-    #[cfg(target_endian = "big")]
-    {
-        // Convert LE bytes to native f32 values
-        let dst_bytes = mat.data_bytes_mut()?;
-        let (_, dst_f32, _) = dst_bytes.align_to_mut::<f32>();
-        debug_assert_eq!(dst_f32.len(), num_floats);
-        let mut off = 12usize;
-        for v in dst_f32.iter_mut() {
-            let f = f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-            *v = f;
-            off += 4;
-        }
-    }
-
-    Ok(mat)
+    ImageData::from_f32(ImageSpec::new(width, height, 2, core::CV_32F), pixels)
 }

@@ -1,10 +1,10 @@
 use crate::{
-    model::{MatImage, SocketAsset},
+    model::{ImageData, SocketAsset},
     util::concurrency::NotifierSender,
 };
 use color_eyre::eyre::Result;
 use flate2::read::ZlibDecoder;
-use opencv::core::{Mat, MatExprTraitConst, MatTraitManual, Size};
+use opencv::core::Size;
 use std::{
     io::{self, Read},
     net::{Shutdown, SocketAddr, TcpListener, TcpStream},
@@ -268,15 +268,13 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
             let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
 
             let mut z = ZlibDecoder::new(payload.as_slice());
-            let mut mat = Mat::zeros(extra.shape[0] as i32, extra.shape[1] as i32, cv_type)?.to_mat()?;
-            let raw = mat.data_bytes_mut()?;
-            z.read_exact(raw)?;
-
-            MatImage::new(MatImage::postprocess(mat, 1.0, false)?, dtype)
+            let mut raw = vec![0u8; extra.nbytes as usize];
+            z.read_exact(&mut raw)?;
+            ImageData::from_bytes_size_type(&raw, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
         }
-        "png" => MatImage::from_bytes(&payload)?,
-        "exr" => MatImage::from_bytes(&payload)?,
-        "cv" => MatImage::from_bytes(&payload)?,
+        "png" => ImageData::from_bytes(&payload)?,
+        "exr" => ImageData::from_bytes(&payload)?,
+        "cv" => ImageData::from_bytes(&payload)?,
         "raw" => {
             validate_raw_extra(&extra)?;
             let dtype = extra.dtype as i32;
@@ -287,7 +285,7 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
             };
             let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
 
-            MatImage::from_bytes_size_type(&payload, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
+            ImageData::from_bytes_size_type(&payload, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
         }
         _ => {
             return Err(io::Error::new(

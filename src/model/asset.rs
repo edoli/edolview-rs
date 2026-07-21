@@ -1,12 +1,10 @@
 use color_eyre::eyre::Result;
 use std::{path::PathBuf, sync::Arc};
 
-use opencv::core::{MatTrait, MatTraitConst};
+use crate::model::{Image, ImageData};
+use crate::util::cv_ext::CvIntExt;
 
-use crate::model::{Image, MatImage};
-use crate::util::cv_ext::{CvIntExt, CvMatExt};
-
-pub type SharedAsset = Arc<dyn Asset<MatImage>>;
+pub type SharedAsset = Arc<dyn Asset<ImageData>>;
 
 #[derive(PartialEq)]
 pub enum AssetType {
@@ -34,11 +32,11 @@ pub trait Asset<T: Image> {
 pub struct FileAsset {
     path: String,
     hash: String,
-    image: MatImage,
+    image: ImageData,
 }
 
 impl FileAsset {
-    pub fn new(path: String, hash: String, image: MatImage) -> Self {
+    pub fn new(path: String, hash: String, image: ImageData) -> Self {
         Self { path, hash, image }
     }
 
@@ -55,12 +53,12 @@ impl FileAsset {
     }
 }
 
-impl Asset<MatImage> for FileAsset {
+impl Asset<ImageData> for FileAsset {
     fn name(&self) -> &str {
         &self.path
     }
 
-    fn image(&self) -> &MatImage {
+    fn image(&self) -> &ImageData {
         &self.image
     }
 
@@ -75,13 +73,13 @@ impl Asset<MatImage> for FileAsset {
 
 pub struct ClipboardAsset {
     name: String,
-    image: MatImage,
+    image: ImageData,
 }
 
 static CLIPBOARD_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl ClipboardAsset {
-    pub fn new(image: MatImage) -> Self {
+    pub fn new(image: ImageData) -> Self {
         Self {
             name: format!(
                 "Clipboard {}",
@@ -92,12 +90,12 @@ impl ClipboardAsset {
     }
 }
 
-impl Asset<MatImage> for ClipboardAsset {
+impl Asset<ImageData> for ClipboardAsset {
     fn name(&self) -> &str {
         &self.name
     }
 
-    fn image(&self) -> &MatImage {
+    fn image(&self) -> &ImageData {
         &self.image
     }
 
@@ -112,21 +110,21 @@ impl Asset<MatImage> for ClipboardAsset {
 
 pub struct SocketAsset {
     name: String,
-    image: MatImage,
+    image: ImageData,
 }
 
 impl SocketAsset {
-    pub fn new(name: String, image: MatImage) -> Self {
+    pub fn new(name: String, image: ImageData) -> Self {
         Self { name, image }
     }
 }
 
-impl Asset<MatImage> for SocketAsset {
+impl Asset<ImageData> for SocketAsset {
     fn name(&self) -> &str {
         &self.name
     }
 
-    fn image(&self) -> &MatImage {
+    fn image(&self) -> &ImageData {
         &self.image
     }
 
@@ -141,21 +139,21 @@ impl Asset<MatImage> for SocketAsset {
 
 pub struct UrlAsset {
     url: String,
-    image: MatImage,
+    image: ImageData,
 }
 
 impl UrlAsset {
-    pub fn new(url: String, image: MatImage) -> Self {
+    pub fn new(url: String, image: ImageData) -> Self {
         Self { url, image }
     }
 }
 
-impl Asset<MatImage> for UrlAsset {
+impl Asset<ImageData> for UrlAsset {
     fn name(&self) -> &str {
         &self.url
     }
 
-    fn image(&self) -> &MatImage {
+    fn image(&self) -> &ImageData {
         &self.image
     }
 
@@ -170,7 +168,7 @@ impl Asset<MatImage> for UrlAsset {
 
 pub struct ComparisonAsset {
     name: String,
-    image: MatImage,
+    image: ImageData,
 }
 
 #[derive(Clone, Copy)]
@@ -223,22 +221,21 @@ impl ChannelComparisonStrategy {
         }
     }
 
-    fn normalize(
-        self,
-        mat1: &opencv::core::Mat,
-        mat2: &opencv::core::Mat,
-    ) -> Option<(opencv::core::Mat, opencv::core::Mat)> {
+    fn output_channels(self, channels1: i32, channels2: i32) -> Option<i32> {
         match self {
-            Self::Match => Some((mat1.clone(), mat2.clone())),
-            Self::DuplicatePrimaryToChannels(channels) => {
-                Some((mat1.duplicate_mono_to_channels(channels), mat2.clone()))
-            }
-            Self::DuplicateSecondaryToChannels(channels) => {
-                Some((mat1.clone(), mat2.duplicate_mono_to_channels(channels)))
-            }
-            Self::UsePrimaryFirstChannels(channels) => Some((mat1.clone(), mat2.take_first_channels(channels))),
-            Self::UseSecondaryFirstChannels(channels) => Some((mat1.take_first_channels(channels), mat2.clone())),
+            Self::Match => Some(channels1),
+            Self::DuplicatePrimaryToChannels(_) => Some(channels2),
+            Self::DuplicateSecondaryToChannels(_) => Some(channels1),
+            Self::UsePrimaryFirstChannels(channels) | Self::UseSecondaryFirstChannels(channels) => Some(channels),
             Self::Unsupported => None,
+        }
+    }
+
+    fn gpu_code(self) -> u32 {
+        match self {
+            Self::DuplicatePrimaryToChannels(_) => 1,
+            Self::DuplicateSecondaryToChannels(_) => 2,
+            _ => 0,
         }
     }
 }
@@ -281,53 +278,37 @@ impl ComparisonAsset {
         let spec1 = img1.spec();
         let spec2 = img2.spec();
 
-        let mat1 = img1.mat();
-        let mat2 = img2.mat();
-        let strategy = ChannelComparisonStrategy::from_channels(mat1.channels(), mat2.channels());
+        let strategy = ChannelComparisonStrategy::from_channels(spec1.channels, spec2.channels);
         let comparison_notices = build_comparison_notices(strategy, &spec1, &spec2);
 
         if mode == ComparisonMode::Split {
             return (
                 Self {
                     name,
-                    image: MatImage::new(mat1.clone(), spec1.dtype),
+                    image: img1.clone(),
                 },
                 (!comparison_notices.is_empty()).then(|| comparison_notices.join("\n")),
             );
         }
 
-        let Some((mat1, mat2)) = strategy.normalize(mat1, mat2) else {
+        let Some(output_channels) = strategy.output_channels(spec1.channels, spec2.channels) else {
             return (
                 Self {
                     name,
-                    image: MatImage::new(opencv::core::Mat::default(), img1.spec().dtype),
+                    image: ImageData::empty(img1.spec().dtype),
                 },
                 (!comparison_notices.is_empty()).then(|| comparison_notices.join("\n")),
             );
         };
 
-        let mut mat = mat1.clone();
-        let roi_rect = opencv::core::Rect::new(0, 0, mat1.cols().min(mat2.cols()), mat1.rows().min(mat2.rows()));
-
-        if roi_rect.width > 0 && roi_rect.height > 0 {
-            let mat1_roi = mat1.roi(roi_rect).unwrap();
-            let mat2_roi = mat2.roi(roi_rect).unwrap();
-            let mut mat_roi = mat.roi_mut(roi_rect).unwrap();
-
-            match mode {
-                ComparisonMode::Diff => {
-                    opencv::core::subtract(&mat1_roi, &mat2_roi, &mut mat_roi, &opencv::core::no_array(), -1).unwrap();
-                }
-                ComparisonMode::Blend => {
-                    let alpha = blend_alpha.clamp(0.0, 1.0) as f64;
-                    opencv::core::add_weighted(&mat1_roi, 1.0 - alpha, &mat2_roi, alpha, 0.0, &mut mat_roi, -1)
-                        .unwrap();
-                }
-                ComparisonMode::Split => unreachable!("split comparison is rendered directly by the viewer"),
-            }
-        }
-
-        let comparison_image = MatImage::new(mat, spec1.dtype);
+        let comparison_image = ImageData::derived_comparison(
+            img1.clone(),
+            img2.clone(),
+            crate::model::ImageSpec::new(spec1.width, spec1.height, output_channels, spec1.dtype),
+            mode,
+            blend_alpha,
+            strategy.gpu_code(),
+        );
 
         (
             Self {
@@ -339,12 +320,12 @@ impl ComparisonAsset {
     }
 }
 
-impl Asset<MatImage> for ComparisonAsset {
+impl Asset<ImageData> for ComparisonAsset {
     fn name(&self) -> &str {
         &self.name
     }
 
-    fn image(&self) -> &MatImage {
+    fn image(&self) -> &ImageData {
         &self.image
     }
 

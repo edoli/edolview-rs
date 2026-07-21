@@ -1,271 +1,660 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
-    },
-    thread,
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
 };
 
 use color_eyre::eyre::{eyre, Result};
-use opencv::{
-    core::{self, MatTraitConst, MatTraitConstManual, ModifyInplace},
-    imgproc,
-};
 
-use crate::{
-    model::{Image, MatImage},
-    util::cv_ext::cv_make_type,
-};
+use crate::model::{gpu_compute, Image, ImageData, Recti};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum MeanDim {
     All,
     Column,
     Row,
 }
 
-pub struct MeanProcessor {
-    // Cached integral image for the current MatImage (built asynchronously).
-    integral_image: Arc<Mutex<OnceLock<core::Mat>>>,
-    // Set once precompute starts; used to avoid repeated spawns.
-    is_precompute_begin: AtomicBool,
+/// CPU summed-area table using the same normalized f32 values as `ImageData`.
+/// Accumulation is f64 to preserve the precision of the former CV_64F table.
+pub(crate) struct IntegralImage {
+    width: usize,
+    height: usize,
+    channels: usize,
+    stride: usize,
+    values: Vec<f64>,
+}
 
-    // Tracks which image the cache belongs to.
-    last_image_id: u64,
+#[inline(always)]
+fn build_cpu_integral<const CHANNELS: usize>(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    values: &mut [f64],
+    active_image_id: &AtomicU64,
+    image_id: u64,
+) -> bool {
+    let input = pixels.as_ptr();
+    let output = values.as_mut_ptr();
+    for y in 0..height {
+        if active_image_id.load(Ordering::Acquire) != image_id {
+            return false;
+        }
+        let mut row_sum = [0.0f64; CHANNELS];
+        for x in 0..width {
+            let pixel = (y * width + x) * CHANNELS;
+            let dst = ((y + 1) * stride + x + 1) * CHANNELS;
+            let above = (y * stride + x + 1) * CHANNELS;
+            for channel in 0..CHANNELS {
+                // ImageData validates the pixel count, and the integral allocation
+                // includes the one-pixel top/left border used by these offsets.
+                unsafe {
+                    row_sum[channel] += *input.add(pixel + channel) as f64;
+                    *output.add(dst + channel) = *output.add(above + channel) + row_sum[channel];
+                }
+            }
+        }
+    }
+    true
+}
+
+fn build_cpu_integral_rgba(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    values: &mut [f64],
+    active_image_id: &AtomicU64,
+    image_id: u64,
+) -> bool {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if std::arch::is_x86_feature_detected!("avx2") {
+        // The runtime feature check satisfies the target_feature contract.
+        return unsafe {
+            build_cpu_integral_rgba_avx2(pixels, width, height, stride, values, active_image_id, image_id)
+        };
+    }
+    build_cpu_integral::<4>(pixels, width, height, stride, values, active_image_id, image_id)
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn build_cpu_integral_rgba_avx2(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    values: &mut [f64],
+    active_image_id: &AtomicU64,
+    image_id: u64,
+) -> bool {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::*;
+
+    let input = pixels.as_ptr();
+    let output = values.as_mut_ptr();
+    for y in 0..height {
+        if active_image_id.load(Ordering::Acquire) != image_id {
+            return false;
+        }
+        let mut row_sum = _mm256_setzero_pd();
+        for x in 0..width {
+            let pixel = (y * width + x) * 4;
+            let dst = ((y + 1) * stride + x + 1) * 4;
+            let above = (y * stride + x + 1) * 4;
+            row_sum = _mm256_add_pd(row_sum, _mm256_cvtps_pd(_mm_loadu_ps(input.add(pixel))));
+            let total = _mm256_add_pd(_mm256_loadu_pd(output.add(above)), row_sum);
+            _mm256_storeu_pd(output.add(dst), total);
+        }
+    }
+    true
+}
+
+#[inline(always)]
+fn build_derived_integral<const CHANNELS: usize>(
+    image: &ImageData,
+    width: usize,
+    height: usize,
+    stride: usize,
+    values: &mut [f64],
+    active_image_id: &AtomicU64,
+    image_id: u64,
+) -> Result<bool> {
+    for y in 0..height {
+        if active_image_id.load(Ordering::Acquire) != image_id {
+            return Ok(false);
+        }
+        let mut row_sum = [0.0f64; CHANNELS];
+        for x in 0..width {
+            let pixel = y * width + x;
+            let dst = ((y + 1) * stride + x + 1) * CHANNELS;
+            let above = (y * stride + x + 1) * CHANNELS;
+            for channel in 0..CHANNELS {
+                let value = image
+                    .scalar_at(pixel, channel)
+                    .ok_or_else(|| eyre!("Image pixels are unavailable for integral precompute"))?;
+                row_sum[channel] += value as f64;
+                values[dst + channel] = values[above + channel] + row_sum[channel];
+            }
+        }
+    }
+    Ok(true)
+}
+
+impl IntegralImage {
+    pub(crate) fn build(image: &ImageData, active_image_id: &AtomicU64) -> Result<Option<Self>> {
+        let spec = image.spec();
+        if spec.width <= 0 || spec.height <= 0 || !(1..=4).contains(&spec.channels) {
+            return Err(eyre!("Invalid image dimensions for integral table"));
+        }
+        let width = spec.width as usize;
+        let height = spec.height as usize;
+        let channels = spec.channels as usize;
+        let stride = width + 1;
+        let element_count = stride
+            .checked_mul(height + 1)
+            .and_then(|value| value.checked_mul(channels))
+            .ok_or_else(|| eyre!("Integral table size overflow"))?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(element_count)
+            .map_err(|error| eyre!("Failed to allocate integral table: {error}"))?;
+        values.resize(element_count, 0.0);
+
+        let image_id = image.id();
+        let complete = match (image.pixels(), channels) {
+            (Some(pixels), 1) => {
+                build_cpu_integral::<1>(pixels, width, height, stride, &mut values, active_image_id, image_id)
+            }
+            (Some(pixels), 2) => {
+                build_cpu_integral::<2>(pixels, width, height, stride, &mut values, active_image_id, image_id)
+            }
+            (Some(pixels), 3) => {
+                build_cpu_integral::<3>(pixels, width, height, stride, &mut values, active_image_id, image_id)
+            }
+            (Some(pixels), 4) => {
+                build_cpu_integral_rgba(pixels, width, height, stride, &mut values, active_image_id, image_id)
+            }
+            (None, 1) => {
+                build_derived_integral::<1>(image, width, height, stride, &mut values, active_image_id, image_id)?
+            }
+            (None, 2) => {
+                build_derived_integral::<2>(image, width, height, stride, &mut values, active_image_id, image_id)?
+            }
+            (None, 3) => {
+                build_derived_integral::<3>(image, width, height, stride, &mut values, active_image_id, image_id)?
+            }
+            (None, 4) => {
+                build_derived_integral::<4>(image, width, height, stride, &mut values, active_image_id, image_id)?
+            }
+            _ => unreachable!("channel count was validated above"),
+        };
+        if !complete {
+            return Ok(None);
+        }
+
+        Ok(Some(Self {
+            width,
+            height,
+            channels,
+            stride,
+            values,
+        }))
+    }
+
+    pub(crate) fn mean(&self, rect: Recti, dim: MeanDim) -> Result<Vec<f64>> {
+        let rect = rect.validate();
+        if rect.empty() {
+            return Ok(Vec::new());
+        }
+        let (x, y, width, height) = rect.xywh();
+        if x < 0
+            || y < 0
+            || width <= 0
+            || height <= 0
+            || x + width > self.width as i32
+            || y + height > self.height as i32
+        {
+            return Err(eyre!("Mean rectangle is outside the image"));
+        }
+        let x = x as usize;
+        let y = y as usize;
+        let width = width as usize;
+        let height = height as usize;
+
+        match dim {
+            MeanDim::All => {
+                let mut result = vec![0.0; self.channels];
+                let divisor = (width * height) as f64;
+                for (channel, value) in result.iter_mut().enumerate() {
+                    *value = self.rect_sum(x, y, width, height, channel) / divisor;
+                }
+                Ok(result)
+            }
+            MeanDim::Column => {
+                let mut result = vec![0.0; width * self.channels];
+                let top_left = (y * self.stride + x) * self.channels;
+                let bottom_left = ((y + height) * self.stride + x) * self.channels;
+                let divisor = height as f64;
+                for (offset, value) in result.iter_mut().enumerate() {
+                    *value = (self.values[bottom_left + self.channels + offset]
+                        - self.values[bottom_left + offset]
+                        - self.values[top_left + self.channels + offset]
+                        + self.values[top_left + offset])
+                        / divisor;
+                }
+                Ok(result)
+            }
+            MeanDim::Row => {
+                let mut result = vec![0.0; height * self.channels];
+                let row_stride = self.stride * self.channels;
+                let right_offset = width * self.channels;
+                let divisor = width as f64;
+                let values = self.values.as_ptr();
+                let output = result.as_mut_ptr();
+                for row in 0..height {
+                    let top_left = ((y + row) * self.stride + x) * self.channels;
+                    let bottom_left = top_left + row_stride;
+                    for channel in 0..self.channels {
+                        // Bounds were established by the rectangle validation above, and all
+                        // offsets address the allocated (width + 1) x (height + 1) table.
+                        unsafe {
+                            *output.add(row * self.channels + channel) = (*values
+                                .add(bottom_left + right_offset + channel)
+                                - *values.add(bottom_left + channel)
+                                - *values.add(top_left + right_offset + channel)
+                                + *values.add(top_left + channel))
+                                / divisor;
+                        }
+                    }
+                }
+                Ok(result)
+            }
+        }
+    }
+
+    #[inline]
+    fn rect_sum(&self, x: usize, y: usize, width: usize, height: usize, channel: usize) -> f64 {
+        let top_left = (y * self.stride + x) * self.channels + channel;
+        let top_right = (y * self.stride + x + width) * self.channels + channel;
+        let bottom_left = ((y + height) * self.stride + x) * self.channels + channel;
+        let bottom_right = ((y + height) * self.stride + x + width) * self.channels + channel;
+        self.values[bottom_right] - self.values[bottom_left] - self.values[top_right] + self.values[top_left]
+    }
+
+    pub(crate) fn bytes(&self) -> usize {
+        self.values.len() * std::mem::size_of::<f64>()
+    }
+}
+
+struct MeanCache {
+    image_id: u64,
+    building: bool,
+    integral: Option<IntegralImage>,
+}
+
+impl Default for MeanCache {
+    fn default() -> Self {
+        Self {
+            image_id: u64::MAX,
+            building: false,
+            integral: None,
+        }
+    }
+}
+
+pub struct MeanProcessor {
+    cache: Arc<Mutex<MeanCache>>,
+    active_image_id: Arc<AtomicU64>,
 }
 
 impl MeanProcessor {
     pub fn new() -> Self {
         Self {
-            integral_image: Arc::new(Mutex::new(OnceLock::new())),
-            is_precompute_begin: AtomicBool::new(false),
-            last_image_id: u64::MAX,
+            cache: Arc::new(Mutex::new(MeanCache::default())),
+            active_image_id: Arc::new(AtomicU64::new(u64::MAX)),
         }
     }
 
-    // Build integral image for fast mean queries.
-    // Note: cost is paid once per image; results are reused by fast_compute().
-    fn precompute(mat: &core::Mat) -> Result<core::Mat> {
-        #[cfg(debug_assertions)]
-        let _timer = crate::util::timer::ScopedTimer::new("MeanProcessor::precompute");
+    /// Uses the O(1) summed-area query whenever precompute is ready. The GPU
+    /// reduction remains a no-copy fallback during the short build window.
+    pub fn compute(&self, image: &ImageData, rect: Recti, dim: MeanDim) -> Result<Vec<f64>> {
+        if rect.validate().empty() {
+            return Ok(Vec::new());
+        }
+        {
+            let cache = self.cache.lock().unwrap();
+            if cache.image_id == image.id() {
+                if let Some(integral) = cache.integral.as_ref() {
+                    return integral.mean(rect, dim);
+                }
+            }
+        }
 
-        let mut integral_image = core::Mat::default();
-        imgproc::integral(mat, &mut integral_image, core::CV_64F)?;
-        Ok(integral_image)
+        self.precompute_async(image);
+        let texture = image.gpu_texture()?;
+        gpu_compute()?.mean(&texture, rect, dim)
     }
 
-    // Fast mean using precomputed integral image.
-    // Returns error if the integral image is not ready.
-    fn fast_compute(&self, mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
-        #[cfg(debug_assertions)]
-        let _timer = crate::util::timer::ScopedTimer::new("MeanProcessor::fast_compute");
-
-        let channels = mat.channels() as usize;
-        let width = rect.width as usize;
-        let height = rect.height as usize;
-
-        let integral_image_lock = self.integral_image.lock().unwrap();
-
-        let integral_image_mat = integral_image_lock
-            .get()
-            .ok_or_else(|| eyre!("Integral image not computed yet"))?;
-
-        let step = integral_image_mat.cols() as usize;
-        let x = rect.x as usize;
-        let y = rect.y as usize;
-
-        match dim {
-            MeanDim::All => {
-                let bytes = integral_image_mat.data_bytes()?;
-                let (head, f32s, tail) = unsafe { bytes.align_to::<f64>() };
-                if !head.is_empty() || !tail.is_empty() {
-                    return Err(eyre!("Integral image data is not aligned to f32"));
-                }
-
-                let tl_idx = (y * step + x) * channels;
-                let tr_idx = (y * step + (x + width)) * channels;
-                let bl_idx = ((y + height) * step + x) * channels;
-                let br_idx = ((y + height) * step + (x + width)) * channels;
-
-                let mut means = vec![0f64; channels];
-                for c in 0..channels {
-                    let sum = f32s[br_idx + c] - f32s[bl_idx + c] - f32s[tr_idx + c] + f32s[tl_idx + c];
-                    means[c] = sum / (width * height) as f64;
-                }
-                Ok(means)
-            }
-            MeanDim::Column => {
-                let x = x as i32;
-                let y = y as i32;
-                let width = width as i32;
-                let height = height as i32;
-
-                let top_row = integral_image_mat.row(y)?;
-                let bot_row = integral_image_mat.row(y + height)?;
-
-                let r_right = core::Range::new(x + 1, x + width + 1)?;
-                let r_left = core::Range::new(x, x + width)?;
-
-                let top_right = top_row.col_range(&r_right)?;
-                let bot_right = bot_row.col_range(&r_right)?;
-                let top_left = top_row.col_range(&r_left)?;
-                let bot_left = bot_row.col_range(&r_left)?;
-
-                let no_mask = core::no_array();
-
-                let mut d_right = core::Mat::default();
-                core::subtract(&bot_right, &top_right, &mut d_right, &no_mask, -1)?;
-
-                let mut d_left = core::Mat::default();
-                core::subtract(&bot_left, &top_left, &mut d_left, &no_mask, -1)?;
-
-                let mut col_sums = core::Mat::default();
-                core::subtract(&d_right, &d_left, &mut col_sums, &no_mask, -1)?;
-
-                unsafe {
-                    let f = 1.0 / (height as f64);
-                    col_sums.modify_inplace(|i, o| core::multiply_def(i, &core::Scalar::new(f, f, f, f), o))?;
-                }
-
-                Ok(col_sums.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
-            }
-            MeanDim::Row => {
-                let x = x as i32;
-                let y = y as i32;
-                let width = width as i32;
-                let height = height as i32;
-
-                let left_col = integral_image_mat.col(x)?;
-                let right_col = integral_image_mat.col(x + width)?;
-
-                let r_bottom = core::Range::new(y + 1, y + height + 1)?;
-                let r_top = core::Range::new(y, y + height)?;
-
-                let top_right = left_col.row_range(&r_bottom)?;
-                let bot_right = right_col.row_range(&r_bottom)?;
-                let top_left = left_col.row_range(&r_top)?;
-                let bot_left = right_col.row_range(&r_top)?;
-
-                let no_mask = core::no_array();
-
-                let mut d_bot = core::Mat::default();
-                core::subtract(&bot_right, &top_right, &mut d_bot, &no_mask, -1)?;
-
-                let mut d_top = core::Mat::default();
-                core::subtract(&bot_left, &top_left, &mut d_top, &no_mask, -1)?;
-
-                let mut row_sums = core::Mat::default();
-                core::subtract(&d_bot, &d_top, &mut row_sums, &no_mask, -1)?;
-
-                unsafe {
-                    let f = 1.0 / (width as f64);
-                    row_sums.modify_inplace(|i, o| core::multiply_def(i, &core::Scalar::new(f, f, f, f), o))?;
-                }
-
-                Ok(row_sums.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
-            }
-        }
-    }
-
-    // Slow path for first frame or if integral image is unavailable.
-    // Uses OpenCV reduce/mean on the ROI.
-    fn fallback_compute(mat: &core::Mat, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
-        #[cfg(debug_assertions)]
-        let _timer = crate::util::timer::ScopedTimer::new("MeanProcessor::fallback_compute");
-
-        let size = mat.size().unwrap();
-        let channels = mat.channels();
-        if rect.x < 0 || rect.y < 0 || rect.x + rect.width > size.width || rect.y + rect.height > size.height {
-            return Err(eyre!("Rect out of bounds"));
-        }
-        let roi = core::Mat::roi(mat, rect)?;
-
-        match dim {
-            MeanDim::All => {
-                let mean = core::mean(&roi, &core::no_array())?;
-                Ok(mean[..channels as usize].to_vec())
-            }
-            MeanDim::Column => {
-                let mut dst = core::Mat::default();
-                core::reduce(&roi, &mut dst, 0, core::REDUCE_AVG, cv_make_type(core::CV_64F, channels))?;
-                Ok(dst.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
-            }
-            MeanDim::Row => {
-                let mut dst = core::Mat::default();
-                core::reduce(&roi, &mut dst, 1, core::REDUCE_AVG, cv_make_type(core::CV_64F, channels))?;
-                Ok(dst.reshape(1, 0)?.data_typed::<f64>()?.to_vec())
-            }
-        }
-    }
-
-    // Compute mean, preferring fast path when precompute is ready.
-    // If precompute has not started, spawn it and return fallback result.
-    fn compute_mat(&self, mat: Arc<core::Mat>, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
-        let width = rect.width;
-        let height = rect.height;
-        let mat_ref = mat.as_ref();
-
-        if width <= 0 || height <= 0 {
-            return Ok(vec![]);
-        }
-
-        if self.is_precompute_begin.load(Ordering::Relaxed) {
-            if self.integral_image.lock().unwrap().get().is_some() {
-                self.fast_compute(mat_ref, rect, dim)
-            } else {
-                Self::fallback_compute(mat_ref, rect, dim)
-            }
-        } else {
-            self.is_precompute_begin.store(true, Ordering::Relaxed);
-            let slot = Arc::clone(&self.integral_image);
-            let mat_shared = Arc::clone(&mat);
-            thread::spawn(move || {
-                if let Ok(ii) = Self::precompute(mat_shared.as_ref()) {
-                    let _ = slot.lock().unwrap().set(ii);
-                }
-            });
-            Self::fallback_compute(mat_ref, rect, dim)
-        }
-    }
-
-    // Public entry point for computing means. Resets cache when image changes.
-    // Note: first call may still hit the fallback path.
-    pub fn compute(&mut self, image: &MatImage, rect: core::Rect, dim: MeanDim) -> Result<Vec<f64>> {
+    pub fn precompute_async(&self, image: &ImageData) {
         let image_id = image.id();
-        let last_image_id = self.last_image_id;
-        if image_id != last_image_id {
-            self.last_image_id = image_id;
-
-            if last_image_id != u64::MAX {
-                self.is_precompute_begin.store(false, Ordering::Relaxed);
-                let _ = self.integral_image.lock().unwrap().take();
+        {
+            let mut cache = self.cache.lock().unwrap();
+            if cache.image_id == image_id && (cache.building || cache.integral.is_some()) {
+                return;
             }
+            cache.image_id = image_id;
+            cache.building = true;
+            cache.integral = None;
         }
-        self.compute_mat(image.mat_shared(), rect, dim)
-    }
+        self.active_image_id.store(image_id, Ordering::Release);
 
-    // Kick off integral image computation without blocking.
-    // Useful to hide the first-frame cost before any marquee interaction.
-    // Thread-safety: concurrent callers may race but will converge on one cache.
-    pub fn precompute_async(&mut self, image: &MatImage) {
-        let image_id = image.id();
-        if image_id != self.last_image_id {
-            self.last_image_id = image_id;
-            self.is_precompute_begin.store(false, Ordering::Relaxed);
-            let _ = self.integral_image.lock().unwrap().take();
-        }
-
-        if self.is_precompute_begin.load(Ordering::Relaxed) {
-            return;
-        }
-
-        self.is_precompute_begin.store(true, Ordering::Relaxed);
-        let slot = Arc::clone(&self.integral_image);
-        let mat_shared = image.mat_shared();
-        thread::spawn(move || {
-            if let Ok(ii) = Self::precompute(mat_shared.as_ref()) {
-                let _ = slot.lock().unwrap().set(ii);
+        let image = image.clone();
+        let cache = Arc::clone(&self.cache);
+        let active_image_id = Arc::clone(&self.active_image_id);
+        std::thread::spawn(move || {
+            let result = IntegralImage::build(&image, &active_image_id);
+            let mut cache = cache.lock().unwrap();
+            if cache.image_id != image_id {
+                return;
+            }
+            cache.building = false;
+            match result {
+                Ok(Some(integral)) => cache.integral = Some(integral),
+                Ok(None) => {}
+                Err(error) => eprintln!("Mean integral precompute failed: {error}"),
             }
         });
+    }
+
+    #[cfg(test)]
+    fn install_integral(&self, image: &ImageData, integral: IntegralImage) {
+        self.active_image_id.store(image.id(), Ordering::Release);
+        *self.cache.lock().unwrap() = MeanCache {
+            image_id: image.id(),
+            building: false,
+            integral: Some(integral),
+        };
+    }
+
+    #[cfg(test)]
+    fn clear_integral(&self) {
+        self.active_image_id.store(u64::MAX, Ordering::Release);
+        *self.cache.lock().unwrap() = MeanCache::default();
+    }
+}
+
+impl Default for MeanProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::ImageSpec;
+    use opencv::prelude::*;
+    use std::{hint::black_box, path::PathBuf, time::Instant};
+
+    fn median(mut values: Vec<f64>) -> f64 {
+        values.sort_by(f64::total_cmp);
+        values[values.len() / 2]
+    }
+
+    fn measure_us(iterations: usize, mut operation: impl FnMut()) -> f64 {
+        let mut samples = Vec::with_capacity(7);
+        operation();
+        for _ in 0..7 {
+            let start = Instant::now();
+            for _ in 0..iterations {
+                operation();
+            }
+            samples.push(start.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64);
+        }
+        median(samples)
+    }
+
+    fn cv_integral(image: &ImageData) -> opencv::core::Mat {
+        let spec = image.spec();
+        let pixels = image.pixels().unwrap();
+        let row = opencv::core::Mat::new_rows_cols_with_data(spec.height, spec.width * spec.channels, pixels).unwrap();
+        let mat = row.reshape(spec.channels, spec.height).unwrap();
+        let mut integral = opencv::core::Mat::default();
+        opencv::imgproc::integral(&mat, &mut integral, opencv::core::CV_64F).unwrap();
+        integral
+    }
+
+    fn cv_integral_values(integral: &opencv::core::Mat) -> &[f64] {
+        let bytes = integral.data_bytes().unwrap();
+        let (head, values, tail) = unsafe { bytes.align_to::<f64>() };
+        assert!(head.is_empty() && tail.is_empty());
+        values
+    }
+
+    fn cv_mean_all(integral: &opencv::core::Mat, rect: Recti, channels: usize) -> Vec<f64> {
+        let (x, y, width, height) = rect.xywh();
+        let stride = integral.cols() as usize;
+        let values = cv_integral_values(integral);
+        let x = x as usize;
+        let y = y as usize;
+        let width = width as usize;
+        let height = height as usize;
+        let mut result = vec![0.0; channels];
+        for channel in 0..channels {
+            let top_left = (y * stride + x) * channels + channel;
+            let top_right = (y * stride + x + width) * channels + channel;
+            let bottom_left = ((y + height) * stride + x) * channels + channel;
+            let bottom_right = ((y + height) * stride + x + width) * channels + channel;
+            result[channel] = (values[bottom_right] - values[bottom_left] - values[top_right] + values[top_left])
+                / (width * height) as f64;
+        }
+        result
+    }
+
+    fn cv_mean_columns(integral: &opencv::core::Mat, rect: Recti, _channels: usize) -> Vec<f64> {
+        let (x, y, width, height) = rect.xywh();
+        let top_row = integral.row(y).unwrap();
+        let bottom_row = integral.row(y + height).unwrap();
+        let right_range = opencv::core::Range::new(x + 1, x + width + 1).unwrap();
+        let left_range = opencv::core::Range::new(x, x + width).unwrap();
+        let top_right = top_row.col_range(&right_range).unwrap();
+        let bottom_right = bottom_row.col_range(&right_range).unwrap();
+        let top_left = top_row.col_range(&left_range).unwrap();
+        let bottom_left = bottom_row.col_range(&left_range).unwrap();
+        let no_mask = opencv::core::no_array();
+        let mut right_sums = opencv::core::Mat::default();
+        opencv::core::subtract(&bottom_right, &top_right, &mut right_sums, &no_mask, -1).unwrap();
+        let mut left_sums = opencv::core::Mat::default();
+        opencv::core::subtract(&bottom_left, &top_left, &mut left_sums, &no_mask, -1).unwrap();
+        let mut column_sums = opencv::core::Mat::default();
+        opencv::core::subtract(&right_sums, &left_sums, &mut column_sums, &no_mask, -1).unwrap();
+        let mut scaled = opencv::core::Mat::default();
+        opencv::core::multiply_def(&column_sums, &opencv::core::Scalar::all(1.0 / height as f64), &mut scaled).unwrap();
+        scaled.reshape(1, 0).unwrap().data_typed::<f64>().unwrap().to_vec()
+    }
+
+    fn cv_mean_rows(integral: &opencv::core::Mat, rect: Recti, _channels: usize) -> Vec<f64> {
+        let (x, y, width, height) = rect.xywh();
+        let left_column = integral.col(x).unwrap();
+        let right_column = integral.col(x + width).unwrap();
+        let bottom_range = opencv::core::Range::new(y + 1, y + height + 1).unwrap();
+        let top_range = opencv::core::Range::new(y, y + height).unwrap();
+        let left_bottom = left_column.row_range(&bottom_range).unwrap();
+        let right_bottom = right_column.row_range(&bottom_range).unwrap();
+        let left_top = left_column.row_range(&top_range).unwrap();
+        let right_top = right_column.row_range(&top_range).unwrap();
+        let no_mask = opencv::core::no_array();
+        let mut bottom_sums = opencv::core::Mat::default();
+        opencv::core::subtract(&right_bottom, &left_bottom, &mut bottom_sums, &no_mask, -1).unwrap();
+        let mut top_sums = opencv::core::Mat::default();
+        opencv::core::subtract(&right_top, &left_top, &mut top_sums, &no_mask, -1).unwrap();
+        let mut row_sums = opencv::core::Mat::default();
+        opencv::core::subtract(&bottom_sums, &top_sums, &mut row_sums, &no_mask, -1).unwrap();
+        let mut scaled = opencv::core::Mat::default();
+        opencv::core::multiply_def(&row_sums, &opencv::core::Scalar::all(1.0 / width as f64), &mut scaled).unwrap();
+        scaled.reshape(1, 0).unwrap().data_typed::<f64>().unwrap().to_vec()
+    }
+
+    #[test]
+    fn integral_means_match_direct_values() {
+        let spec = ImageSpec::new(3, 2, 2, opencv::core::CV_32F);
+        let image =
+            ImageData::from_f32(spec, vec![1.0, 10.0, 2.0, 20.0, 3.0, 30.0, 4.0, 40.0, 5.0, 50.0, 6.0, 60.0]).unwrap();
+        let active = AtomicU64::new(image.id());
+        let integral = IntegralImage::build(&image, &active).unwrap().unwrap();
+        let full = Recti::from_min_size(crate::util::math_ext::vec2i(0, 0), crate::util::math_ext::vec2i(3, 2));
+        assert_eq!(integral.mean(full, MeanDim::All).unwrap(), vec![3.5, 35.0]);
+        assert_eq!(
+            integral.mean(full, MeanDim::Column).unwrap(),
+            vec![2.5, 25.0, 3.5, 35.0, 4.5, 45.0]
+        );
+        assert_eq!(integral.mean(full, MeanDim::Row).unwrap(), vec![2.0, 20.0, 5.0, 50.0]);
+    }
+
+    #[test]
+    fn specialized_rgb_and_rgba_integrals_match_direct_values() {
+        for channels in [3, 4] {
+            let width = 7;
+            let height = 5;
+            let pixels: Vec<f32> = (0..width * height * channels)
+                .map(|index| (index as f32 - 17.0) / 13.0)
+                .collect();
+            let image =
+                ImageData::from_f32(ImageSpec::new(width, height, channels, opencv::core::CV_32F), pixels.clone())
+                    .unwrap();
+            let active = AtomicU64::new(image.id());
+            let integral = IntegralImage::build(&image, &active).unwrap().unwrap();
+            let full =
+                Recti::from_min_size(crate::util::math_ext::vec2i(0, 0), crate::util::math_ext::vec2i(width, height));
+            let actual = integral.mean(full, MeanDim::All).unwrap();
+            for channel in 0..channels as usize {
+                let expected = pixels
+                    .chunks_exact(channels as usize)
+                    .map(|pixel| pixel[channel] as f64)
+                    .sum::<f64>()
+                    / (width * height) as f64;
+                assert!((actual[channel] - expected).abs() < 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual OpenCV versus custom integral benchmark"]
+    fn benchmark_integral_mean_on_reference_images() {
+        let root = PathBuf::from(std::env::var("EDOLVIEW_BENCH_DATA").expect("EDOLVIEW_BENCH_DATA"));
+        println!("format,size,width,height,channels,phase,unit,opencv,custom,opencv_over_custom,integral_mib");
+        for (format, stem) in [("exr", "metro_noord"), ("hdr", "voortrekker_interior")] {
+            for size_name in ["1k", "2k", "4k", "8k"] {
+                let image = ImageData::load_from_path(&root.join(format!("{stem}_{size_name}.{format}"))).unwrap();
+                let spec = image.spec();
+                let rect = Recti::from_min_size(
+                    crate::util::math_ext::vec2i(0, 0),
+                    crate::util::math_ext::vec2i(spec.width, spec.height),
+                );
+                let channels = spec.channels as usize;
+
+                let precompute_iterations = match size_name {
+                    "1k" => 7,
+                    "2k" => 5,
+                    _ => 3,
+                };
+                let mut cv_precompute_samples = Vec::with_capacity(precompute_iterations);
+                let mut cv_table = None;
+                for _ in 0..precompute_iterations {
+                    drop(cv_table.take());
+                    let start = Instant::now();
+                    cv_table = Some(cv_integral(&image));
+                    cv_precompute_samples.push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+                let cv_precompute_ms = median(cv_precompute_samples);
+                let cv_table = cv_table.unwrap();
+                let all_iterations = 20_000;
+                let vector_iterations = match size_name {
+                    "1k" => 2_000,
+                    "2k" => 1_000,
+                    "4k" => 500,
+                    _ => 200,
+                };
+                let cv_all_us = measure_us(all_iterations, || {
+                    black_box(cv_mean_all(&cv_table, rect, channels));
+                });
+                let cv_columns_us = measure_us(vector_iterations, || {
+                    black_box(cv_mean_columns(&cv_table, rect, channels));
+                });
+                let cv_rows_us = measure_us(vector_iterations, || {
+                    black_box(cv_mean_rows(&cv_table, rect, channels));
+                });
+                // The former public path also entered the global MeanProcessor mutex.
+                // Include an equivalent uncontended lock when comparing end-to-end calls.
+                let cv_runtime_guard = Mutex::new(());
+                let cv_runtime_all_us = measure_us(all_iterations, || {
+                    let _guard = cv_runtime_guard.lock().unwrap();
+                    black_box(cv_mean_all(&cv_table, rect, channels));
+                });
+                let cv_runtime_columns_us = measure_us(vector_iterations, || {
+                    let _guard = cv_runtime_guard.lock().unwrap();
+                    black_box(cv_mean_columns(&cv_table, rect, channels));
+                });
+                let cv_runtime_rows_us = measure_us(vector_iterations, || {
+                    let _guard = cv_runtime_guard.lock().unwrap();
+                    black_box(cv_mean_rows(&cv_table, rect, channels));
+                });
+                drop(cv_table);
+
+                let active = AtomicU64::new(image.id());
+                let mut custom_precompute_samples = Vec::with_capacity(precompute_iterations);
+                let mut custom_table = None;
+                for _ in 0..precompute_iterations {
+                    drop(custom_table.take());
+                    let start = Instant::now();
+                    custom_table = IntegralImage::build(&image, &active).unwrap();
+                    custom_precompute_samples.push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+                let custom_precompute_ms = median(custom_precompute_samples);
+                let custom_table = custom_table.unwrap();
+                let custom_all_us = measure_us(all_iterations, || {
+                    black_box(custom_table.mean(rect, MeanDim::All).unwrap());
+                });
+                let custom_columns_us = measure_us(vector_iterations, || {
+                    black_box(custom_table.mean(rect, MeanDim::Column).unwrap());
+                });
+                let custom_rows_us = measure_us(vector_iterations, || {
+                    black_box(custom_table.mean(rect, MeanDim::Row).unwrap());
+                });
+                let integral_mib = custom_table.bytes() as f64 / (1024.0 * 1024.0);
+
+                crate::model::image::MEAN_PROCESSOR.install_integral(&image, custom_table);
+                let runtime_all_us = measure_us(all_iterations, || {
+                    black_box(image.mean_value_in_rect(rect, MeanDim::All).unwrap());
+                });
+                let runtime_columns_us = measure_us(vector_iterations, || {
+                    black_box(image.mean_value_in_rect(rect, MeanDim::Column).unwrap());
+                });
+                let runtime_rows_us = measure_us(vector_iterations, || {
+                    black_box(image.mean_value_in_rect(rect, MeanDim::Row).unwrap());
+                });
+
+                let emit = |phase: &str, unit: &str, opencv: f64, custom: f64| {
+                    println!(
+                        "{format},{size_name},{},{},{},{phase},{unit},{opencv:.6},{custom:.6},{:.3},{integral_mib:.3}",
+                        spec.width,
+                        spec.height,
+                        spec.channels,
+                        opencv / custom,
+                    );
+                };
+                emit("precompute", "ms", cv_precompute_ms, custom_precompute_ms);
+                emit("mean_all", "us", cv_all_us, custom_all_us);
+                emit("mean_columns", "us", cv_columns_us, custom_columns_us);
+                emit("mean_rows", "us", cv_rows_us, custom_rows_us);
+                emit("runtime_mean_all", "us", cv_runtime_all_us, runtime_all_us);
+                emit("runtime_mean_columns", "us", cv_runtime_columns_us, runtime_columns_us);
+                emit("runtime_mean_rows", "us", cv_runtime_rows_us, runtime_rows_us);
+                crate::model::image::MEAN_PROCESSOR.clear_integral();
+            }
+        }
     }
 }

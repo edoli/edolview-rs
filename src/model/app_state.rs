@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 
 use crate::{
     model::{
-        AssetType, ClipboardAsset, ComparisonAsset, ComparisonMode, FileAsset, Image, MatImage, Recti, SharedAsset,
+        AssetType, ClipboardAsset, ComparisonAsset, ComparisonMode, FileAsset, Image, ImageData, Recti, SharedAsset,
         SocketInfo, SocketState, Statistics,
     },
     ui::gpu::ShaderParams,
@@ -121,12 +121,12 @@ impl AppState {
             return Ok(());
         }
 
-        let image = MatImage::load_from_path(&path)?;
+        let image = ImageData::load_from_path(&path)?;
         self.apply_loaded_file_asset(path, hash_str, image);
         Ok(())
     }
 
-    pub fn apply_loaded_file_asset(&mut self, path: PathBuf, hash: String, image: MatImage) {
+    pub fn apply_loaded_file_asset(&mut self, path: PathBuf, hash: String, image: ImageData) {
         let path_str = path.to_string_lossy().to_string();
         let asset: SharedAsset = Arc::new(FileAsset::new(path_str, hash.clone(), image));
 
@@ -178,8 +178,8 @@ impl AppState {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Total image load time [from clipboard]");
 
-        let image = MatImage::load_from_clipboard()
-            .or_else(|_| MatImage::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()));
+        let image = ImageData::load_from_clipboard()
+            .or_else(|_| ImageData::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()));
 
         if let Err(_) = &image {
             let ctx = ClipboardContext::new().unwrap();
@@ -196,7 +196,7 @@ impl AppState {
 
             for path in &paths {
                 if path.exists() && path.is_file() {
-                    let image = MatImage::load_from_path(path)?;
+                    let image = ImageData::load_from_path(path)?;
                     let path_str = path.to_string_lossy().to_string();
                     let hash_str = FileAsset::hash_from_path(path)?;
                     self.set_primary_asset(Arc::new(FileAsset::new(path_str, hash_str, image)));
@@ -331,10 +331,7 @@ impl AppState {
                     self.channel_index = num_channels - 1;
                 }
 
-                crate::model::image::MEAN_PROCESSOR
-                    .lock()
-                    .unwrap()
-                    .precompute_async(asset.image());
+                crate::model::image::MEAN_PROCESSOR.precompute_async(asset.image());
             }
         } else {
             self.asset = None;

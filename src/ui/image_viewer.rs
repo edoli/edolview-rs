@@ -288,7 +288,7 @@ impl ImageViewer {
                     if let Some(cursor_pos) = app_state.cursor_pos {
                         if let Ok(vals) = active_image.get_pixel_at(cursor_pos.x, cursor_pos.y) {
                             let spec = active_image.spec();
-                            let text = spec.pixel_values_to_string(vals);
+                            let text = spec.pixel_values_to_string(&*vals);
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 let _ = cb.set_text(text);
                             }
@@ -306,8 +306,7 @@ impl ImageViewer {
                 }
                 ui.separator();
                 if ui.button("Copy Rect Mean Color").clicked() {
-                    if let Ok(vals) = active_image.mean_value_in_rect(app_state.marquee_rect.to_cv_rect(), MeanDim::All)
-                    {
+                    if let Ok(vals) = active_image.mean_value_in_rect(app_state.marquee_rect, MeanDim::All) {
                         let spec = active_image.spec();
                         let text = spec.pixel_values_to_string(&vals);
                         if let Ok(mut cb) = arboard::Clipboard::new() {

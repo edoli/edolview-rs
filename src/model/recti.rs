@@ -139,15 +139,6 @@ impl Recti {
             max: Pos2::new(self.max.x as f32, self.max.y as f32),
         }
     }
-
-    pub fn to_cv_rect(&self) -> opencv::core::Rect {
-        opencv::core::Rect {
-            x: self.min.x,
-            y: self.min.y,
-            width: self.width(),
-            height: self.height(),
-        }
-    }
 }
 
 impl std::str::FromStr for Recti {
