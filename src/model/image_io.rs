@@ -508,14 +508,14 @@ fn is_tiff(bytes: &[u8]) -> bool {
         .any(|magic| bytes.starts_with(magic))
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum ExrLayout {
     Rgb,
     Rgba,
-    Mono(&'static str),
+    Mono(Text),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct ExrSelection {
     layout: ExrLayout,
     width: usize,
@@ -525,7 +525,7 @@ struct ExrSelection {
 }
 
 impl ExrSelection {
-    fn channels(self) -> usize {
+    fn channels(&self) -> usize {
         match self.layout {
             ExrLayout::Rgb => 3,
             ExrLayout::Rgba => 4,
@@ -533,7 +533,7 @@ impl ExrSelection {
         }
     }
 
-    fn value_count(self) -> Result<usize> {
+    fn value_count(&self) -> Result<usize> {
         self.width
             .checked_mul(self.height)
             .and_then(|pixels| pixels.checked_mul(self.channels()))
@@ -571,13 +571,14 @@ fn decode_exr_reader<R: BufRead + Seek>(reader: R) -> Result<DecodedImage> {
     let selection = select_exr_layout(exr_reader.meta_data())?;
     selection.value_count()?;
 
-    let pixels = match selection.layout {
+    let pixels = match selection.layout.clone() {
         ExrLayout::Rgb => {
+            let pixel_selection = selection.clone();
             let image = read()
                 .no_deep_data()
                 .largest_resolution_level()
                 .rgb_channels(
-                    move |_resolution, _channels| ExrPixels::new(selection),
+                    move |_resolution, _channels| ExrPixels::new(pixel_selection.clone()),
                     |pixels, position, (r, g, b): (f32, f32, f32)| pixels.set(position, [r, g, b]),
                 )
                 .first_valid_layer()
@@ -586,11 +587,12 @@ fn decode_exr_reader<R: BufRead + Seek>(reader: R) -> Result<DecodedImage> {
             image.layer_data.channel_data.pixels.values
         }
         ExrLayout::Rgba => {
+            let pixel_selection = selection.clone();
             let image = read()
                 .no_deep_data()
                 .largest_resolution_level()
                 .rgba_channels(
-                    move |_resolution, _channels| ExrPixels::new(selection),
+                    move |_resolution, _channels| ExrPixels::new(pixel_selection.clone()),
                     |pixels, position, (r, g, b, a): (f32, f32, f32, f32)| {
                         pixels.set(position, [r, g, b, a]);
                     },
@@ -601,13 +603,14 @@ fn decode_exr_reader<R: BufRead + Seek>(reader: R) -> Result<DecodedImage> {
             image.layer_data.channel_data.pixels.values
         }
         ExrLayout::Mono(channel_name) => {
+            let pixel_selection = selection.clone();
             let image = read()
                 .no_deep_data()
                 .largest_resolution_level()
                 .specific_channels()
                 .required::<f32>(channel_name)
                 .collect_pixels(
-                    move |_resolution, _channels| ExrPixels::new(selection),
+                    move |_resolution, _channels| ExrPixels::new(pixel_selection.clone()),
                     |pixels, position, (value,): (f32,)| pixels.set(position, [value]),
                 )
                 .first_valid_layer()
@@ -645,18 +648,21 @@ fn select_exr_layout(meta: &MetaData) -> Result<ExrSelection> {
         return exr_selection(header, layout);
     }
 
-    // A float mono image has no representation in image-rs DynamicImage. If
-    // there is no RGB layer, retain the first conventional scalar channel
-    // (including the common depth channel Z) as one component.
-    for header in meta.headers.iter().filter(|header| !header.deep) {
-        for channel_name in ["R", "L", "Y", "Z"] {
-            if has_channel(header, channel_name) {
-                return exr_selection(header, ExrLayout::Mono(channel_name));
-            }
-        }
+    // A float mono image has no representation in image-rs DynamicImage.
+    // Custom EXR passes frequently use semantic names such as `depth`,
+    // `mask`, or `normal.x`. When a non-deep layer has exactly one channel,
+    // its name is unambiguous and it can use the same direct mono path without
+    // expanding the image to RGB.
+    if let Some(header) = meta
+        .headers
+        .iter()
+        .find(|header| !header.deep && header.channels.list.len() == 1)
+    {
+        let channel_name = header.channels.list[0].name.clone();
+        return exr_selection(header, ExrLayout::Mono(channel_name));
     }
 
-    Err(eyre!("EXR has no non-deep RGB/RGBA layer or single R, L, Y, or Z channel"))
+    Err(eyre!("EXR has no non-deep RGB/RGBA layer or exactly one-channel mono layer"))
 }
 
 fn exr_selection(header: &exr::meta::header::Header, layout: ExrLayout) -> Result<ExrSelection> {
@@ -1717,8 +1723,8 @@ mod tests {
     }
 
     #[test]
-    fn decodes_r_l_y_and_z_exr_as_one_float_channel() {
-        for channel_name in ["R", "L", "Y", "Z"] {
+    fn decodes_named_and_custom_mono_exr_as_one_float_channel() {
+        for channel_name in ["R", "L", "Y", "Z", "depth", "custom.mask"] {
             let decoded = decode_bytes(&encode_mono_exr(channel_name)).unwrap();
             assert_eq!((decoded.width, decoded.height, decoded.channels), (2, 1, 1), "{channel_name}");
             assert_eq!(decoded.pixel_type, PixelType::F32, "{channel_name}");
