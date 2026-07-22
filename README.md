@@ -68,16 +68,12 @@ https://github.com/user-attachments/assets/4a219f8b-39f3-48a8-a5ea-b9d610bb3f40
 
 ## How to Build
 
-The project is Rust-based and uses **OpenCV 4.12.0** for image decoding and processing.
+The project is Rust-based and uses **image-rs 0.25.10**, the pure-Rust decoder.
 Optional HEIF/HEIC support can be enabled with `--features heif` after preparing `libheif`.
+Optional AVIF decoding can be enabled with `--features avif` after preparing the native `dav1d` library required by image-rs.
 
 ### 0) Prerequisites (all platforms)
 * Rust
-* CMake, LLVM/Clang
-* curl, unzip
-* pkg-config (Linux/macOS)
-* Git
-* Ninja (Windows)
 
 
 ### 1) Install Rust
@@ -107,72 +103,7 @@ winget install Rustlang.Rustup
 rustc -V; cargo -V
 ```
 
-### 2) Prepare OpenCV
-
-**Linux (Ubuntu)**
-
-```bash
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-  build-essential cmake git curl unzip pkg-config \
-  clang libclang-dev llvm-dev nasm
-
-git clone -b release https://github.com/edoli/opencv-edolview.git opencv
-cd opencv
-sh cmake_script.sh
-
-export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
-```
-
-**macOS**
-
-```bash
-brew update
-brew install cmake llvm git pkg-config nasm
-
-LLVM_PREFIX="$(brew --prefix llvm)"
-export LIBCLANG_PATH="$LLVM_PREFIX/lib"
-export DYLD_LIBRARY_PATH="$LLVM_PREFIX/lib:${DYLD_LIBRARY_PATH:-}"
-export PATH="$LLVM_PREFIX/bin:$PATH"
-
-git clone -b release https://github.com/edoli/opencv-edolview.git opencv
-cd opencv
-sh cmake_script.sh
-
-export PKG_CONFIG_PATH="$(pwd)/../install/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
-```
-
-**Windows (PowerShell)**
-
-```powershell
-choco install -y --no-progress llvm cmake ninja git curl unzip nasm
-
-$llvmBin = "C:\Program Files\LLVM\bin"
-if (Test-Path $llvmBin) {
-  $env:PATH = "$llvmBin;$env:PATH"
-  $env:LIBCLANG_PATH = $llvmBin
-}
-
-git clone -b release https://github.com/edoli/opencv-edolview.git opencv
-Push-Location opencv
-pwsh .\cmake_script.ps1
-
-# Optional helpers for linking
-$installDir = Join-Path $pwd "..\install"
-$libPath = "$installDir\x64\vc17\staticlib"
-$libs = Get-ChildItem -Path $libPath -Filter *.lib | ForEach-Object { $_.BaseName }
-$libsJoined = $libs -join ","
-
-$env:OPENCV_LINK_LIBS=$libsJoined
-$env:OPENCV_LINK_PATHS = $libPath
-$env:OPENCV_INCLUDE_PATHS = "$installDir\include"
-$env:OPENCV_LINK_STATIC = "1"
-Pop-Location
-```
-
-### 3) Optional HEIF/HEIC support
+### 2) Optional HEIF/HEIC support
 
 Install and build the vcpkg dependencies before using `--features heif`:
 
@@ -193,7 +124,7 @@ export PKG_CONFIG_PATH="$(pwd)/target/vcpkg/installed/arm64-osx-release/lib/pkgc
 
 Windows uses the vcpkg triplet from `Cargo.toml` and does not need an extra `PKG_CONFIG_PATH` setting.
 
-### 4) Build the viewer
+### 3) Build the viewer
 
 ```bash
 # generate resources for the app
@@ -216,17 +147,15 @@ cargo run
 
 ### Troubleshooting
 
-* `pkg-config: opencv4 not found` → set `PKG_CONFIG_PATH` to your OpenCV’s `lib/pkgconfig`.
-* Windows link errors → ensure `OPENCV_LINK_PATHS`/`OPENCV_INCLUDE_PATHS` point to your static build.
-* macOS libclang issues → ensure Homebrew LLVM is on `PATH`, with `LIBCLANG_PATH`/`DYLD_LIBRARY_PATH` set.
+* HEIF build errors → verify that the vcpkg `libheif` installation for the current target is available.
 
 ## Supported file formats
 EdolView accepts the following file extensions in the current build:
 
-* Common image formats: `png`, `jpg`, `jpeg`, `jpe`, `jp2`, `bmp`, `dib`, `tif`, `tiff`, `webp`
-* HDR and analysis formats: `exr`, `hdr`, `pic`, `raw`, `pfm`, `flo`
-* Netpbm family: `pbm`, `pgm`, `ppm`, `pnm`, `pxm`
-* Other raster formats: `sr`
+* Common image formats: `png`, `apng`, `jpg`, `jpeg`, `jpe`, `jfif`, `jp2`, `j2k`, `j2c`, `jpc`, `jpf`, `bmp`, `dib`, `tif`, `tiff`, `webp`, `gif`, `tga`, `ico`, `qoi`, `ff`
+* HDR and analysis formats: `exr`, `hdr`, `pic`, `pfm`, `flo`
+* Netpbm family: `pbm`, `pgm`, `ppm`, `pnm`, `pxm`, `pam`
+* Optional AVIF support: `avif`
 * Optional HEIF support: `heic`, `heif`
 
 ## License

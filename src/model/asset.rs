@@ -2,7 +2,6 @@ use color_eyre::eyre::Result;
 use std::{path::PathBuf, sync::Arc};
 
 use crate::model::{Image, ImageData};
-use crate::util::cv_ext::CvIntExt;
 
 pub type SharedAsset = Arc<dyn Asset<ImageData>>;
 
@@ -252,8 +251,8 @@ fn build_comparison_notices(
     if spec1.dtype != spec2.dtype {
         notices.push(format!(
             "Data type mismatch: comparing {} against {}.",
-            spec1.dtype.cv_type_name(),
-            spec2.dtype.cv_type_name()
+            spec1.dtype.name(),
+            spec2.dtype.name()
         ));
     }
     notices

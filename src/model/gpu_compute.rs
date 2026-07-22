@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use color_eyre::eyre::{eyre, Result};
 use wgpu::util::DeviceExt as _;
 
-use super::{ComparisonMode, ImageSpec, MeanDim, Recti};
+use super::{ComparisonMode, ImageSpec, MeanDim, PixelType, Recti};
 use crate::util::math_ext::Vec2i;
 
 const WORKGROUP_SIZE: u32 = 256;
@@ -758,7 +758,7 @@ fn create_empty_rgba_texture(
             width: width as i32,
             height: height as i32,
             channels,
-            dtype: opencv::core::CV_32F,
+            dtype: PixelType::F32,
         },
     }
 }
@@ -1113,35 +1113,34 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Image, ImageData};
-    use opencv::prelude::*;
-    use std::hint::black_box;
-    use std::path::PathBuf;
-    use std::time::Instant;
+    use crate::model::{Image, ImageData, PixelType};
 
     fn context() -> Arc<GpuComputeContext> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: None,
+        static CONTEXT: std::sync::OnceLock<Arc<GpuComputeContext>> = std::sync::OnceLock::new();
+        Arc::clone(CONTEXT.get_or_init(|| {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+            let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            }))
+            .expect("GPU adapter");
+            let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("edolview compute test device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: adapter.limits(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+            }))
+            .expect("GPU device");
+            install_gpu_compute(&device, &queue, adapter.get_info().backend == wgpu::Backend::Dx12);
+            gpu_compute().unwrap()
         }))
-        .expect("GPU adapter");
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("edolview compute test device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: adapter.limits(),
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            trace: wgpu::Trace::Off,
-        }))
-        .expect("GPU device");
-        install_gpu_compute(&device, &queue, adapter.get_info().backend == wgpu::Backend::Dx12);
-        gpu_compute().unwrap()
     }
 
     fn test_image(offset: f32) -> ImageData {
-        let spec = ImageSpec::new(64, 32, 4, opencv::core::CV_32F);
+        let spec = ImageSpec::new(64, 32, 4, PixelType::F32);
         let pixels = (0..spec.width * spec.height)
             .flat_map(|index| {
                 let value = index as f32 / (spec.width * spec.height) as f32 + offset;
@@ -1257,235 +1256,6 @@ mod tests {
         for (channel, expected) in [-0.01, -0.005, 0.01, 0.0].into_iter().enumerate() {
             assert!((mins[channel] - expected).abs() < 1e-5);
             assert!((maxs[channel] - expected).abs() < 1e-5);
-        }
-    }
-
-    fn median_ms(mut samples: Vec<f64>) -> f64 {
-        samples.sort_by(f64::total_cmp);
-        samples[samples.len() / 2]
-    }
-
-    fn measure(repetitions: usize, mut operation: impl FnMut()) -> f64 {
-        operation();
-        let mut samples = Vec::with_capacity(repetitions);
-        for _ in 0..repetitions {
-            let start = Instant::now();
-            operation();
-            samples.push(start.elapsed().as_secs_f64() * 1000.0);
-        }
-        median_ms(samples)
-    }
-
-    fn cv_minmax(mat: &opencv::core::Mat) {
-        let mut channels = opencv::core::Vector::<opencv::core::Mat>::new();
-        opencv::core::split(mat, &mut channels).unwrap();
-        for channel in channels {
-            let mut min = 0.0;
-            let mut max = 0.0;
-            opencv::core::min_max_loc(&channel, Some(&mut min), Some(&mut max), None, None, &opencv::core::no_array())
-                .unwrap();
-            black_box((min, max));
-        }
-    }
-
-    fn cv_histogram(mat: &opencv::core::Mat) {
-        let input = opencv::core::Vector::<opencv::core::Mat>::from_iter([mat.clone()]);
-        for channel in 0..mat.channels() {
-            let mut hist = opencv::core::Mat::default();
-            opencv::imgproc::calc_hist(
-                &input,
-                &opencv::core::Vector::from_slice(&[channel]),
-                &opencv::core::Mat::default(),
-                &mut hist,
-                &opencv::core::Vector::from_slice(&[256]),
-                &opencv::core::Vector::from(vec![0.0f32, 1.0]),
-                false,
-            )
-            .unwrap();
-            black_box(hist);
-        }
-    }
-
-    fn cv_ssim_identical(mat: &opencv::core::Mat) -> f64 {
-        fn blur(input: &opencv::core::Mat) -> opencv::core::Mat {
-            let mut output = opencv::core::Mat::default();
-            opencv::imgproc::gaussian_blur_def(input, &mut output, opencv::core::Size::new(11, 11), 1.5).unwrap();
-            output
-        }
-        fn multiply(lhs: &impl opencv::core::ToInputArray, rhs: &impl opencv::core::ToInputArray) -> opencv::core::Mat {
-            let mut output = opencv::core::Mat::default();
-            opencv::core::multiply_def(lhs, rhs, &mut output).unwrap();
-            output
-        }
-        fn add(lhs: &impl opencv::core::ToInputArray, rhs: &impl opencv::core::ToInputArray) -> opencv::core::Mat {
-            let mut output = opencv::core::Mat::default();
-            opencv::core::add_def(lhs, rhs, &mut output).unwrap();
-            output
-        }
-        fn subtract(lhs: &impl opencv::core::ToInputArray, rhs: &impl opencv::core::ToInputArray) -> opencv::core::Mat {
-            let mut output = opencv::core::Mat::default();
-            opencv::core::subtract_def(lhs, rhs, &mut output).unwrap();
-            output
-        }
-
-        let image_squared_a = multiply(mat, mat);
-        let mean_a = blur(mat);
-        let mean_squared_a = multiply(&mean_a, &mean_a);
-        let variance_a = subtract(&blur(&image_squared_a), &mean_squared_a);
-        let image_squared_b = multiply(mat, mat);
-        let mean_b = blur(mat);
-        let mean_squared_b = multiply(&mean_b, &mean_b);
-        let variance_b = subtract(&blur(&image_squared_b), &mean_squared_b);
-        let image_product = multiply(mat, mat);
-        let mean_product = multiply(&mean_a, &mean_b);
-        let covariance = subtract(&blur(&image_product), &mean_product);
-
-        let numerator_mean = add(
-            &multiply(&mean_product, &opencv::core::Scalar::all(2.0)),
-            &opencv::core::Scalar::all(0.0001),
-        );
-        let numerator_variance = add(
-            &multiply(&covariance, &opencv::core::Scalar::all(2.0)),
-            &opencv::core::Scalar::all(0.0009),
-        );
-        let numerator = multiply(&numerator_mean, &numerator_variance);
-        let denominator_mean = add(&add(&mean_squared_a, &mean_squared_b), &opencv::core::Scalar::all(0.0001));
-        let denominator_variance = add(&add(&variance_a, &variance_b), &opencv::core::Scalar::all(0.0009));
-        let denominator = multiply(&denominator_mean, &denominator_variance);
-        let mut quality = opencv::core::Mat::default();
-        opencv::core::divide2_def(&numerator, &denominator, &mut quality).unwrap();
-        let mean = opencv::core::mean_def(&quality).unwrap();
-        mean[..mat.channels() as usize].iter().sum::<f64>() / mat.channels() as f64
-    }
-
-    #[test]
-    #[ignore = "manual CPU Mat versus GPU benchmark"]
-    fn benchmark_mat_vs_gpu_on_reference_images() {
-        let root = PathBuf::from(std::env::var("EDOLVIEW_BENCH_DATA").expect("EDOLVIEW_BENCH_DATA"));
-        let compute = context();
-        println!("format,size,width,height,channels,operation,mat_ms,gpu_ms,speedup");
-        for (format, stem) in [("exr", "metro_noord"), ("hdr", "voortrekker_interior")] {
-            for size_name in ["1k", "2k", "4k", "8k"] {
-                let path = root.join(format!("{stem}_{size_name}.{format}"));
-                let image = ImageData::load_from_path(&path).unwrap();
-                let spec = image.spec();
-                let pixels = image.pixels().unwrap();
-                let row = opencv::core::Mat::new_rows_cols_with_data(spec.height, spec.width * spec.channels, pixels)
-                    .unwrap();
-                let mat = row.reshape(spec.channels, spec.height).unwrap().clone_pointee();
-                let texture = image.gpu_texture().unwrap();
-                compute.wait_idle().unwrap();
-                let repetitions = match size_name {
-                    "1k" => 7,
-                    "2k" => 5,
-                    "4k" => 3,
-                    _ => 2,
-                };
-
-                let emit = |operation: &str, mat_ms: f64, gpu_ms: f64| {
-                    println!(
-                        "{format},{size_name},{},{},{},{operation},{mat_ms:.4},{gpu_ms:.4},{:.3}",
-                        spec.width,
-                        spec.height,
-                        spec.channels,
-                        mat_ms / gpu_ms
-                    );
-                };
-
-                emit(
-                    "minmax",
-                    measure(repetitions, || cv_minmax(&mat)),
-                    measure(repetitions, || {
-                        black_box(compute.minmax(&texture, Recti::ZERO).unwrap());
-                    }),
-                );
-                emit(
-                    "mean_all",
-                    measure(repetitions, || {
-                        black_box(opencv::core::mean_def(&mat).unwrap());
-                    }),
-                    measure(repetitions, || {
-                        black_box(compute.mean(&texture, Recti::ZERO, MeanDim::All).unwrap());
-                    }),
-                );
-                emit(
-                    "mean_columns",
-                    measure(repetitions, || {
-                        let mut output = opencv::core::Mat::default();
-                        opencv::core::reduce(
-                            &mat,
-                            &mut output,
-                            0,
-                            opencv::core::REDUCE_AVG,
-                            crate::util::cv_ext::cv_make_type(opencv::core::CV_64F, spec.channels),
-                        )
-                        .unwrap();
-                        black_box(output);
-                    }),
-                    measure(repetitions, || {
-                        black_box(compute.mean(&texture, Recti::ZERO, MeanDim::Column).unwrap());
-                    }),
-                );
-                emit(
-                    "histogram",
-                    measure(repetitions, || cv_histogram(&mat)),
-                    measure(repetitions, || {
-                        black_box(compute.histogram(&texture).unwrap());
-                    }),
-                );
-                emit(
-                    "psnr",
-                    measure(repetitions, || {
-                        black_box(opencv::core::psnr(&mat, &mat, 1.0).unwrap());
-                    }),
-                    measure(repetitions, || {
-                        black_box(compute.psnr(&texture, &texture, Recti::ZERO, 1.0, 1.0).unwrap());
-                    }),
-                );
-                emit(
-                    "diff",
-                    measure(repetitions, || {
-                        let mut output = opencv::core::Mat::default();
-                        opencv::core::subtract_def(&mat, &mat, &mut output).unwrap();
-                        black_box(output);
-                    }),
-                    measure(repetitions, || {
-                        black_box(
-                            compute
-                                .compare(&texture, &texture, &spec, ComparisonMode::Diff, 0.5, 0)
-                                .unwrap(),
-                        );
-                        compute.wait_idle().unwrap();
-                    }),
-                );
-                emit(
-                    "blend",
-                    measure(repetitions, || {
-                        let mut output = opencv::core::Mat::default();
-                        opencv::core::add_weighted(&mat, 0.5, &mat, 0.5, 0.0, &mut output, -1).unwrap();
-                        black_box(output);
-                    }),
-                    measure(repetitions, || {
-                        black_box(
-                            compute
-                                .compare(&texture, &texture, &spec, ComparisonMode::Blend, 0.5, 0)
-                                .unwrap(),
-                        );
-                        compute.wait_idle().unwrap();
-                    }),
-                );
-                if matches!(size_name, "1k" | "2k") {
-                    emit(
-                        "ssim",
-                        measure(2, || {
-                            black_box(cv_ssim_identical(&mat));
-                        }),
-                        measure(2, || {
-                            black_box(compute.ssim(&texture, &texture, Recti::ZERO).unwrap());
-                        }),
-                    );
-                }
-            }
         }
     }
 }

@@ -4,7 +4,6 @@
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use eframe::egui::{self, ViewportBuilder};
-use opencv::{core, imgcodecs, imgproc, prelude::*};
 use std::{path::PathBuf, sync::Arc};
 
 use crate::ui::ViewerApp;
@@ -25,7 +24,7 @@ const ICON_DATA: &[u8] = include_bytes!("../icons/icon.png");
 #[cfg(target_os = "windows")]
 const WINDOWS_APP_USER_MODEL_ID: &str = "kr.edoli.edolview";
 
-/// Simple image viewer using OpenCV for decoding + egui for GUI.
+/// GPU-accelerated image viewer using image-rs for decoding and egui for GUI.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
 struct Args {
@@ -56,24 +55,19 @@ fn main() -> Result<()> {
         std::env::remove_var("WAYLAND_DISPLAY");
     }
 
-    #[cfg(debug_assertions)]
-    println!("{}", core::get_build_information()?);
-
-    let icon_raw = core::Mat::new_rows_cols_with_data(1, ICON_DATA.len() as i32, &ICON_DATA)?;
-    let icon_mat_bgra = imgcodecs::imdecode(&icon_raw, imgcodecs::IMREAD_UNCHANGED)?;
-    let mut icon_mat_rgba = core::Mat::default();
-    imgproc::cvt_color_def(&icon_mat_bgra, &mut icon_mat_rgba, imgproc::COLOR_BGRA2RGBA)?;
-    let icon_bytes = icon_mat_rgba.data_bytes();
-
-    let icon = if let Ok(icon_bytes) = icon_bytes {
-        egui::IconData {
-            rgba: icon_bytes.to_vec(),
-            width: icon_mat_rgba.cols() as u32,
-            height: icon_mat_rgba.rows() as u32,
+    let icon = match image::load_from_memory(ICON_DATA) {
+        Ok(icon) => {
+            let icon = icon.into_rgba8();
+            egui::IconData {
+                width: icon.width(),
+                height: icon.height(),
+                rgba: icon.into_raw(),
+            }
         }
-    } else {
-        eprintln!("Failed to load icon image; continuing without icon");
-        egui::IconData::default()
+        Err(error) => {
+            eprintln!("Failed to load icon image; continuing without icon: {error}");
+            egui::IconData::default()
+        }
     };
 
     let mut native_options = eframe::NativeOptions {

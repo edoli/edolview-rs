@@ -1,10 +1,9 @@
 use crate::{
-    model::{ImageData, SocketAsset},
+    model::{ImageData, PixelType, SocketAsset},
     util::concurrency::NotifierSender,
 };
 use color_eyre::eyre::Result;
 use flate2::read::ZlibDecoder;
-use opencv::core::Size;
 use std::{
     io::{self, Read},
     net::{Shutdown, SocketAddr, TcpListener, TcpStream},
@@ -256,36 +255,26 @@ fn handle_client(stream: &mut TcpStream) -> Result<SocketAsset> {
     let mat = match extra.compression.as_str() {
         "zlib" => {
             validate_raw_extra(&extra)?;
-            let dtype = extra.dtype as i32;
+            let pixel_type = PixelType::from_protocol_code(extra.dtype)?;
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Zlib decode");
 
-            let channel = if extra.shape.len() == 3 {
-                extra.shape[2] as i32
-            } else {
-                1
-            };
-            let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
+            let channels = extra.shape[2] as i32;
 
             let mut z = ZlibDecoder::new(payload.as_slice());
             let mut raw = vec![0u8; extra.nbytes as usize];
             z.read_exact(&mut raw)?;
-            ImageData::from_bytes_size_type(&raw, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
+            ImageData::from_raw_bytes(&raw, extra.shape[1] as i32, extra.shape[0] as i32, channels, pixel_type)?
         }
         "png" => ImageData::from_bytes(&payload)?,
         "exr" => ImageData::from_bytes(&payload)?,
         "cv" => ImageData::from_bytes(&payload)?,
         "raw" => {
             validate_raw_extra(&extra)?;
-            let dtype = extra.dtype as i32;
-            let channel = if extra.shape.len() == 3 {
-                extra.shape[2] as i32
-            } else {
-                1
-            };
-            let cv_type = crate::util::cv_ext::cv_make_type(dtype, channel);
+            let pixel_type = PixelType::from_protocol_code(extra.dtype)?;
+            let channels = extra.shape[2] as i32;
 
-            ImageData::from_bytes_size_type(&payload, Size::new(extra.shape[1] as i32, extra.shape[0] as i32), cv_type)?
+            ImageData::from_raw_bytes(&payload, extra.shape[1] as i32, extra.shape[0] as i32, channels, pixel_type)?
         }
         _ => {
             return Err(io::Error::new(

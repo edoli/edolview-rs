@@ -1,10 +1,6 @@
 use crate::model::{gpu_compute, GpuImageTexture, MeanDim, MeanProcessor, Recti};
-use crate::util::cv_ext::CvIntExt;
 use color_eyre::eyre::{eyre, Result};
 use half::f16;
-use opencv::core::Size;
-use opencv::prelude::*;
-use opencv::{core, imgcodecs};
 use std::f64;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::{
@@ -14,42 +10,85 @@ use std::{
     sync::OnceLock,
 };
 
-pub unsafe trait DataType: Copy {
-    fn typ() -> i32;
+/// Source component type. Numeric values intentionally match the existing
+/// socket protocol's legacy depth codes so external clients remain compatible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum PixelType {
+    U8 = 0,
+    I8 = 1,
+    U16 = 2,
+    I16 = 3,
+    I32 = 4,
+    F32 = 5,
+    F64 = 6,
+    F16 = 7,
 }
 
-macro_rules! data_type {
-    ($rust_type: ty, $type: expr) => {
-        unsafe impl DataType for $rust_type {
-            #[inline]
-            fn typ() -> i32 {
-                $type
-            }
+impl PixelType {
+    pub fn from_protocol_code(code: u32) -> Result<Self> {
+        match code {
+            0 => Ok(Self::U8),
+            1 => Ok(Self::I8),
+            2 => Ok(Self::U16),
+            3 => Ok(Self::I16),
+            4 => Ok(Self::I32),
+            5 => Ok(Self::F32),
+            6 => Ok(Self::F64),
+            7 => Ok(Self::F16),
+            _ => Err(eyre!("Unsupported pixel type code: {code}")),
         }
-    };
-}
+    }
 
-// int
-data_type!(u8, 0);
-data_type!(i8, 1);
-data_type!(u16, 2);
-data_type!(i16, 3);
-data_type!(i32, 4);
-data_type!(f32, 5);
-data_type!(f64, 6);
-data_type!(f16, 7);
+    pub fn bytes(self) -> usize {
+        match self {
+            Self::U8 | Self::I8 => 1,
+            Self::U16 | Self::I16 | Self::F16 => 2,
+            Self::I32 | Self::F32 => 4,
+            Self::F64 => 8,
+        }
+    }
+
+    pub fn is_floating(self) -> bool {
+        matches!(self, Self::F16 | Self::F32 | Self::F64)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::U8 => "uint8",
+            Self::I8 => "int8",
+            Self::U16 => "uint16",
+            Self::I16 => "int16",
+            Self::I32 => "int32",
+            Self::F16 => "float16",
+            Self::F32 => "float32",
+            Self::F64 => "float64",
+        }
+    }
+
+    pub fn alpha(self) -> f64 {
+        match self {
+            Self::U8 => u8::MAX as f64,
+            Self::I8 => i8::MAX as f64,
+            Self::U16 => u16::MAX as f64,
+            Self::I16 => i16::MAX as f64,
+            Self::I32 => i32::MAX as f64,
+            Self::F16 | Self::F32 | Self::F64 => 1.0,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ImageSpec {
     pub width: i32,
     pub height: i32,
     pub channels: i32,
-    pub dtype: i32, // OpenCV type, e.g. CV_8U, CV_32F
+    pub dtype: PixelType,
 }
 
 // data of ImageSpec should be always f32
 impl ImageSpec {
-    pub fn new(width: i32, height: i32, channels: i32, dtype: i32) -> Self {
+    pub fn new(width: i32, height: i32, channels: i32, dtype: PixelType) -> Self {
         Self {
             width,
             height,
@@ -68,7 +107,7 @@ impl ImageSpec {
 
     pub fn pixel_values_to_string<T: Into<f64> + Copy>(&self, vals: &[T]) -> String {
         let alpha = self.dtype.alpha();
-        let is_float = self.dtype.cv_type_is_floating();
+        let is_float = self.dtype.is_floating();
         let mut parts: Vec<String> = Vec::with_capacity(vals.len());
         for &v in vals.iter() {
             let vf: f64 = v.into();
@@ -238,7 +277,10 @@ struct ImageDataInner {
 }
 
 enum ImageStorage {
-    Cpu(Arc<[f32]>),
+    // `ImageDataInner` is already reference counted, so an additional `Arc`
+    // around the pixels only adds a second allocation and a full Vec-to-slice
+    // copy during construction.
+    Cpu(Vec<f32>),
     Derived(DerivedImage),
     Empty,
 }
@@ -260,7 +302,7 @@ impl ImageData {
         Ok(Self(Arc::new(ImageDataInner {
             id: new_id(),
             spec,
-            storage: ImageStorage::Cpu(pixels.into()),
+            storage: ImageStorage::Cpu(pixels),
             gpu: OnceLock::new(),
             gpu_init: Mutex::new(()),
             hist: OnceLock::new(),
@@ -268,7 +310,7 @@ impl ImageData {
         })))
     }
 
-    pub fn empty(dtype: i32) -> Self {
+    pub fn empty(dtype: PixelType) -> Self {
         Self(Arc::new(ImageDataInner {
             id: new_id(),
             spec: ImageSpec::new(0, 0, 0, dtype),
@@ -368,31 +410,29 @@ impl ImageData {
         self.0.minmax.get_or_init(|| self.compute_minmax())
     }
 
-    pub fn from_bytes_size_type(bytes: &[u8], size: Size, dtype: i32) -> Result<ImageData> {
-        let depth = dtype.cv_type_depth();
-        let channels = dtype.cv_type_channels();
-        let element_count = size.width.max(0) as usize * size.height.max(0) as usize * channels.max(0) as usize;
-        let expected_bytes = element_count * depth.cv_type_depth_bytes();
+    pub fn from_raw_bytes(
+        bytes: &[u8],
+        width: i32,
+        height: i32,
+        channels: i32,
+        pixel_type: PixelType,
+    ) -> Result<ImageData> {
+        if width <= 0 || height <= 0 || !(1..=4).contains(&channels) {
+            return Err(eyre!("Invalid raw image dimensions or channels"));
+        }
+        let element_count = width as usize * height as usize * channels as usize;
+        let expected_bytes = element_count * pixel_type.bytes();
         if bytes.len() != expected_bytes {
             return Err(eyre!("Unexpected raw image size: {} != {expected_bytes}", bytes.len()));
         }
-        let factor = (1.0 / depth.alpha()) as f32;
+        let factor = (1.0 / pixel_type.alpha()) as f32;
         let mut pixels = Vec::with_capacity(element_count);
-        for index in 0..element_count {
-            pixels.push(read_cv_scalar(bytes, index, depth)? * factor);
-        }
-        Self::from_f32(ImageSpec::new(size.width, size.height, channels, depth), pixels)
+        append_raw_pixels(&mut pixels, bytes, element_count, pixel_type, factor)?;
+        Self::from_f32(ImageSpec::new(width, height, channels, pixel_type), pixels)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<ImageData> {
-        let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, bytes)?;
-        let mat = imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?;
-
-        if mat.empty() {
-            return Err(eyre!("Failed to load image"));
-        }
-
-        Self::from_decoded_mat(mat, 1.0, true)
+        Self::from_decoded(crate::model::image_io::decode_bytes(bytes)?)
     }
 
     pub fn load_from_path(path: &PathBuf) -> Result<ImageData> {
@@ -400,66 +440,27 @@ impl ImageData {
             return Err(eyre!("Image does not exist: {:?}", path));
         }
 
-        // Determine extension for special handling (e.g., PFM)
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-
-        let mut scale_abs = 1.0f64;
-        let bgr_convert: bool;
-
-        let mat = {
+        let decoded = {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Image read");
-
-            let is_unicode_path = crate::util::path_ext::is_ascii_path(path);
-
-            if is_unicode_path
-                && ext != "pfm"
-                && ext != "flo"
-                && !crate::supported_image::is_heif_extension(ext.as_str())
-            {
-                // Read image using imread fails on paths with non-ASCII characters.
-                bgr_convert = true;
-                imgcodecs::imread(path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
-            } else if ext == "exr" {
-                // Copy file to temp file with ASCII path and read it
-                let temp_dir = crate::util::path_ext::safe_temp_dir();
-                let temp_path = temp_dir.join("edolview_temp.exr");
-                {
-                    #[cfg(debug_assertions)]
-                    let _timer_copy = crate::util::timer::ScopedTimer::new("Image file temp copy");
-
-                    fs::copy(&path, &temp_path).map_err(|e| eyre!("Failed to copy file: {e}"))?;
-                }
-                bgr_convert = true;
-                imgcodecs::imread(temp_path.to_string_lossy().as_ref(), imgcodecs::IMREAD_UNCHANGED)?
+            if ext == "pfm" {
+                crate::model::image_io::decode_pfm(&fs::read(path)?)?
+            } else if ext == "flo" {
+                crate::model::image_io::decode_flo(&fs::read(path)?)?
             } else if crate::supported_image::is_heif_extension(ext.as_str()) {
                 #[cfg(not(feature = "heif"))]
                 return Err(eyre!("HEIF support is not enabled"));
 
                 #[cfg(feature = "heif")]
                 {
-                    bgr_convert = false;
-                    unsafe { crate::model::image_io::load_heif(path)? }
+                    crate::model::image_io::decode_heif(path)?
                 }
             } else {
-                let mut bytes = fs::read(&path).map_err(|e| eyre!("Failed to read file bytes: {e}"))?;
-
-                if ext == "pfm" {
-                    (bytes, scale_abs) = fix_pfm_header_and_parse_scale(&bytes);
-                } else if ext == "flo" {
-                    return decode_flo(&bytes);
-                }
-                let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
-                bgr_convert = true;
-                imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?
+                crate::model::image_io::decode_path(path)?
             }
         };
-
-        if mat.empty() {
-            return Err(eyre!("Failed to load image"));
-        }
-
-        Self::from_decoded_mat(mat, scale_abs, bgr_convert)
+        Self::from_decoded(decoded)
     }
 
     pub fn load_from_clipboard() -> Result<ImageData> {
@@ -480,7 +481,7 @@ impl ImageData {
         }
 
         let pixels = bytes.into_iter().map(|value| value as f32 / 255.0).collect();
-        Self::from_f32(ImageSpec::new(width, height, channels, core::CV_8U), pixels)
+        Self::from_f32(ImageSpec::new(width, height, channels, PixelType::U8), pixels)
     }
 
     pub fn load_from_url(url: &str) -> Result<ImageData> {
@@ -489,43 +490,16 @@ impl ImageData {
 
         let bytes = ureq::get(url).call()?.body_mut().read_to_vec()?;
 
-        let bytes_mat = core::Mat::new_rows_cols_with_data(1, bytes.len() as i32, &bytes)?;
-        let mat = imgcodecs::imdecode(&bytes_mat, imgcodecs::IMREAD_UNCHANGED)?;
-        if mat.empty() {
-            return Err(eyre!("Failed to load image"));
-        }
-
-        Self::from_decoded_mat(mat, 1.0, true)
+        Self::from_bytes(&bytes)
     }
 
-    pub fn from_decoded_mat(mat: core::Mat, scale: f64, bgr_convert: bool) -> Result<ImageData> {
+    fn from_decoded(decoded: crate::model::image_io::DecodedImage) -> Result<ImageData> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");
-
-        if mat.empty() {
-            return Err(eyre!("Failed to load image"));
-        }
-        let dtype = mat.depth();
-        let width = mat.cols();
-        let height = mat.rows();
-        let channels = mat.channels();
-        if !(1..=4).contains(&channels) {
-            return Err(eyre!("Unsupported image channels: {channels}"));
-        }
-        let mat = if mat.is_continuous() { mat } else { mat.try_clone()? };
-        let bytes = mat.data_bytes()?;
-        let element_count = width as usize * height as usize * channels as usize;
-        let factor = (scale / dtype.alpha()) as f32;
-        let mut pixels = Vec::with_capacity(element_count);
-        for index in 0..element_count {
-            pixels.push(read_cv_scalar(bytes, index, dtype)? * factor);
-        }
-        if bgr_convert && channels >= 3 {
-            for pixel in pixels.chunks_exact_mut(channels as usize) {
-                pixel.swap(0, 2);
-            }
-        }
-        Self::from_f32(ImageSpec::new(width, height, channels, dtype), pixels)
+        Self::from_f32(
+            ImageSpec::new(decoded.width, decoded.height, decoded.channels, decoded.pixel_type),
+            decoded.pixels,
+        )
     }
 
     pub fn gpu_texture(&self) -> Result<Arc<GpuImageTexture>> {
@@ -650,19 +624,59 @@ impl Image for ImageData {
     }
 }
 
-fn read_cv_scalar(bytes: &[u8], index: usize, dtype: i32) -> Result<f32> {
-    let value = match dtype {
-        core::CV_8U => bytes[index] as f32,
-        core::CV_8S => (bytes[index] as i8) as f32,
-        core::CV_16U => u16::from_ne_bytes(bytes[index * 2..index * 2 + 2].try_into()?) as f32,
-        core::CV_16S => i16::from_ne_bytes(bytes[index * 2..index * 2 + 2].try_into()?) as f32,
-        core::CV_32S => i32::from_ne_bytes(bytes[index * 4..index * 4 + 4].try_into()?) as f32,
-        core::CV_32F => f32::from_ne_bytes(bytes[index * 4..index * 4 + 4].try_into()?),
-        core::CV_64F => f64::from_ne_bytes(bytes[index * 8..index * 8 + 8].try_into()?) as f32,
-        core::CV_16F => half::f16::from_bits(u16::from_ne_bytes(bytes[index * 2..index * 2 + 2].try_into()?)).to_f32(),
-        _ => return Err(eyre!("Unsupported OpenCV image depth: {dtype}")),
-    };
-    Ok(value)
+fn append_raw_pixels(
+    pixels: &mut Vec<f32>,
+    bytes: &[u8],
+    element_count: usize,
+    pixel_type: PixelType,
+    factor: f32,
+) -> Result<()> {
+    let required_bytes = element_count
+        .checked_mul(pixel_type.bytes())
+        .ok_or_else(|| eyre!("Raw image byte count overflow"))?;
+    let bytes = bytes
+        .get(..required_bytes)
+        .ok_or_else(|| eyre!("Unexpected raw image size: {} < {required_bytes}", bytes.len()))?;
+
+    macro_rules! append_scaled {
+        ($ty:ty, $convert:expr) => {{
+            if let Ok(values) = bytemuck::try_cast_slice::<u8, $ty>(bytes) {
+                pixels.extend(values.iter().map(|&value| ($convert)(value) * factor));
+            } else {
+                // Socket payloads can begin at arbitrary byte alignment.
+                pixels.extend(bytes.chunks_exact(mem::size_of::<$ty>()).map(|chunk| {
+                    let value = <$ty>::from_ne_bytes(chunk.try_into().expect("exact scalar chunk"));
+                    ($convert)(value) * factor
+                }));
+            }
+        }};
+    }
+
+    match pixel_type {
+        PixelType::U8 => pixels.extend(bytes.iter().map(|&value| value as f32 * factor)),
+        PixelType::I8 => pixels.extend(bytes.iter().map(|&value| (value as i8) as f32 * factor)),
+        PixelType::U16 => append_scaled!(u16, |value: u16| value as f32),
+        PixelType::I16 => append_scaled!(i16, |value: i16| value as f32),
+        PixelType::I32 => append_scaled!(i32, |value: i32| value as f32),
+        PixelType::F32 => {
+            if let Ok(values) = bytemuck::try_cast_slice::<u8, f32>(bytes) {
+                if factor == 1.0 {
+                    pixels.extend_from_slice(values);
+                } else {
+                    pixels.extend(values.iter().map(|&value| value * factor));
+                }
+            } else {
+                pixels.extend(
+                    bytes
+                        .chunks_exact(mem::size_of::<f32>())
+                        .map(|chunk| f32::from_ne_bytes(chunk.try_into().expect("exact scalar chunk")) * factor),
+                );
+            }
+        }
+        PixelType::F64 => append_scaled!(f64, |value: f64| value as f32),
+        PixelType::F16 => append_scaled!(u16, |value: u16| f16::from_bits(value).to_f32()),
+    }
+    Ok(())
 }
 
 fn normalize_pixel_channels(lhs: &mut Vec<f32>, rhs: &mut Vec<f32>, strategy: u32, output_channels: usize) {
@@ -682,88 +696,83 @@ fn new_id() -> u64 {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-// Fix PFM header quirks for OpenCV and parse scale (3rd line)
-// - Trim a single trailing space just before the newline for the first three lines
-// - Return fixed bytes and |scale| value parsed from the 3rd line (defaults to 1.0)
-fn fix_pfm_header_and_parse_scale(input: &[u8]) -> (Vec<u8>, f64) {
-    let mut out: Vec<u8> = Vec::with_capacity(input.len());
-    let mut i = 0usize;
-    let mut nl = 0u8;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
 
-    while i < input.len() && nl < 3 {
-        let b = input[i];
-        if b == b'\n' {
-            if !out.is_empty() && *out.last().unwrap() == b' ' {
-                // Replace trailing space with newline, do not push current newline
-                let last = out.len() - 1;
-                out[last] = b'\n';
-            } else {
-                out.push(b'\n');
+    #[test]
+    fn from_f32_keeps_the_input_allocation() {
+        let pixels = vec![0.0, 0.25, 0.5, 1.0];
+        let input_ptr = pixels.as_ptr();
+        let image = ImageData::from_f32(ImageSpec::new(1, 1, 4, PixelType::F32), pixels).unwrap();
+
+        assert_eq!(image.pixels().unwrap().as_ptr(), input_ptr);
+    }
+
+    #[test]
+    fn unaligned_typed_bytes_still_decode() {
+        let values = [1_u16, 32768, u16::MAX];
+        let mut bytes = vec![0_u8];
+        bytes.extend_from_slice(bytemuck::cast_slice(&values));
+
+        let image = ImageData::from_raw_bytes(&bytes[1..], values.len() as i32, 1, 1, PixelType::U16).unwrap();
+
+        let expected: Vec<f32> = values.iter().map(|&value| value as f32 / u16::MAX as f32).collect();
+        assert_eq!(image.pixels().unwrap(), expected);
+
+        let float_values = [0.125_f32, 0.5, 1.0];
+        let mut float_bytes = vec![0_u8];
+        float_bytes.extend_from_slice(bytemuck::cast_slice(&float_values));
+        let float_image =
+            ImageData::from_raw_bytes(&float_bytes[1..], float_values.len() as i32, 1, 1, PixelType::F32).unwrap();
+        assert_eq!(float_image.pixels().unwrap(), float_values);
+    }
+
+    #[test]
+    fn image_rs_decodes_the_embedded_png() {
+        let image = ImageData::from_bytes(include_bytes!("../../icons/icon.png")).unwrap();
+        let spec = image.spec();
+        assert!(spec.width > 0 && spec.height > 0);
+        assert_eq!(spec.channels, 4);
+        assert_eq!(spec.dtype, PixelType::U8);
+    }
+
+    #[test]
+    #[ignore = "manual reference image loading benchmark"]
+    fn loads_reference_images() {
+        let root = PathBuf::from(std::env::var("EDOLVIEW_BENCH_DATA").expect("EDOLVIEW_BENCH_DATA"));
+        for (format, stem) in [("exr", "metro_noord"), ("hdr", "voortrekker_interior")] {
+            for size in ["1k", "2k", "4k", "8k"] {
+                let path = root.join(format!("{stem}_{size}.{format}"));
+                let start = Instant::now();
+                let image = ImageData::load_from_path(&path).unwrap();
+                let spec = image.spec();
+                println!(
+                    "{format},{size},{},{},{},{},{:.3}",
+                    spec.width,
+                    spec.height,
+                    spec.channels,
+                    spec.dtype.name(),
+                    start.elapsed().as_secs_f64() * 1000.0
+                );
+                assert_eq!(
+                    image.pixels().unwrap().len(),
+                    spec.width as usize * spec.height as usize * spec.channels as usize
+                );
             }
-            nl += 1;
-        } else {
-            out.push(b);
         }
-        i += 1;
-    }
-
-    // Parse absolute scale from the third line of the (possibly fixed) header
-    let mut scale_abs = 1.0f64;
-    if let Ok(header_str) = std::str::from_utf8(&out) {
-        let mut lines = header_str.lines();
-        let _magic = lines.next();
-        let _dim = lines.next();
-        if let Some(scale_line) = lines.next() {
-            if let Ok(v) = scale_line.trim().parse::<f64>() {
-                scale_abs = v.abs();
-            }
+        if let Some(path) = std::env::var_os("EDOLVIEW_JP2_TEST").map(PathBuf::from) {
+            let image = ImageData::load_from_path(&path).unwrap();
+            let spec = image.spec();
+            println!(
+                "jp2,test,{},{},{},{}",
+                spec.width,
+                spec.height,
+                spec.channels,
+                spec.dtype.name()
+            );
+            assert!(spec.width > 0 && spec.height > 0 && (1..=4).contains(&spec.channels));
         }
     }
-
-    // Append rest of the data unchanged
-    if i < input.len() {
-        out.extend_from_slice(&input[i..]);
-    }
-
-    (out, scale_abs)
-}
-
-// Decode Middlebury .flo optical flow directly into the application's image storage.
-// Format (little-endian):
-// - magic: f32 (202021.25)
-// - width: i32
-// - height: i32
-// - data: width * height * 2 f32 (u, v) in row-major, interleaved
-fn decode_flo(bytes: &[u8]) -> Result<ImageData> {
-    // Need at least 12 bytes for header
-    if bytes.len() < 12 {
-        return Err(eyre!(".flo: file too small: {} bytes", bytes.len()));
-    }
-
-    let magic = f32::from_le_bytes(bytes[0..4].try_into().unwrap());
-    if magic != 202021.25f32 {
-        return Err(eyre!(".flo: invalid magic: {}", magic));
-    }
-
-    let width = i32::from_le_bytes(bytes[4..8].try_into().unwrap());
-    let height = i32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    if width <= 0 || height <= 0 {
-        return Err(eyre!(".flo: invalid dimensions: {}x{}", width, height));
-    }
-
-    let num_pixels = (width as usize)
-        .checked_mul(height as usize)
-        .ok_or_else(|| eyre!(".flo: image size overflow"))?;
-    let num_floats = num_pixels.checked_mul(2).ok_or_else(|| eyre!(".flo: channels overflow"))?;
-    let data_bytes = num_floats.checked_mul(4).ok_or_else(|| eyre!(".flo: data size overflow"))?;
-
-    if bytes.len() < 12 + data_bytes {
-        return Err(eyre!(".flo: not enough data: have {}, need {}", bytes.len() - 12, data_bytes));
-    }
-
-    let mut pixels = Vec::with_capacity(num_floats);
-    for chunk in bytes[12..12 + data_bytes].chunks_exact(4) {
-        pixels.push(f32::from_le_bytes(chunk.try_into().unwrap()));
-    }
-    ImageData::from_f32(ImageSpec::new(width, height, 2, core::CV_32F), pixels)
 }

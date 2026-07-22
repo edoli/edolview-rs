@@ -15,7 +15,7 @@ pub enum MeanDim {
 }
 
 /// CPU summed-area table using the same normalized f32 values as `ImageData`.
-/// Accumulation is f64 to preserve the precision of the former CV_64F table.
+/// Accumulation is f64 to preserve the precision of the former integral table.
 pub(crate) struct IntegralImage {
     width: usize,
     height: usize,
@@ -395,112 +395,11 @@ impl Default for MeanProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::ImageSpec;
-    use opencv::prelude::*;
-    use std::{hint::black_box, path::PathBuf, time::Instant};
-
-    fn median(mut values: Vec<f64>) -> f64 {
-        values.sort_by(f64::total_cmp);
-        values[values.len() / 2]
-    }
-
-    fn measure_us(iterations: usize, mut operation: impl FnMut()) -> f64 {
-        let mut samples = Vec::with_capacity(7);
-        operation();
-        for _ in 0..7 {
-            let start = Instant::now();
-            for _ in 0..iterations {
-                operation();
-            }
-            samples.push(start.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64);
-        }
-        median(samples)
-    }
-
-    fn cv_integral(image: &ImageData) -> opencv::core::Mat {
-        let spec = image.spec();
-        let pixels = image.pixels().unwrap();
-        let row = opencv::core::Mat::new_rows_cols_with_data(spec.height, spec.width * spec.channels, pixels).unwrap();
-        let mat = row.reshape(spec.channels, spec.height).unwrap();
-        let mut integral = opencv::core::Mat::default();
-        opencv::imgproc::integral(&mat, &mut integral, opencv::core::CV_64F).unwrap();
-        integral
-    }
-
-    fn cv_integral_values(integral: &opencv::core::Mat) -> &[f64] {
-        let bytes = integral.data_bytes().unwrap();
-        let (head, values, tail) = unsafe { bytes.align_to::<f64>() };
-        assert!(head.is_empty() && tail.is_empty());
-        values
-    }
-
-    fn cv_mean_all(integral: &opencv::core::Mat, rect: Recti, channels: usize) -> Vec<f64> {
-        let (x, y, width, height) = rect.xywh();
-        let stride = integral.cols() as usize;
-        let values = cv_integral_values(integral);
-        let x = x as usize;
-        let y = y as usize;
-        let width = width as usize;
-        let height = height as usize;
-        let mut result = vec![0.0; channels];
-        for channel in 0..channels {
-            let top_left = (y * stride + x) * channels + channel;
-            let top_right = (y * stride + x + width) * channels + channel;
-            let bottom_left = ((y + height) * stride + x) * channels + channel;
-            let bottom_right = ((y + height) * stride + x + width) * channels + channel;
-            result[channel] = (values[bottom_right] - values[bottom_left] - values[top_right] + values[top_left])
-                / (width * height) as f64;
-        }
-        result
-    }
-
-    fn cv_mean_columns(integral: &opencv::core::Mat, rect: Recti, _channels: usize) -> Vec<f64> {
-        let (x, y, width, height) = rect.xywh();
-        let top_row = integral.row(y).unwrap();
-        let bottom_row = integral.row(y + height).unwrap();
-        let right_range = opencv::core::Range::new(x + 1, x + width + 1).unwrap();
-        let left_range = opencv::core::Range::new(x, x + width).unwrap();
-        let top_right = top_row.col_range(&right_range).unwrap();
-        let bottom_right = bottom_row.col_range(&right_range).unwrap();
-        let top_left = top_row.col_range(&left_range).unwrap();
-        let bottom_left = bottom_row.col_range(&left_range).unwrap();
-        let no_mask = opencv::core::no_array();
-        let mut right_sums = opencv::core::Mat::default();
-        opencv::core::subtract(&bottom_right, &top_right, &mut right_sums, &no_mask, -1).unwrap();
-        let mut left_sums = opencv::core::Mat::default();
-        opencv::core::subtract(&bottom_left, &top_left, &mut left_sums, &no_mask, -1).unwrap();
-        let mut column_sums = opencv::core::Mat::default();
-        opencv::core::subtract(&right_sums, &left_sums, &mut column_sums, &no_mask, -1).unwrap();
-        let mut scaled = opencv::core::Mat::default();
-        opencv::core::multiply_def(&column_sums, &opencv::core::Scalar::all(1.0 / height as f64), &mut scaled).unwrap();
-        scaled.reshape(1, 0).unwrap().data_typed::<f64>().unwrap().to_vec()
-    }
-
-    fn cv_mean_rows(integral: &opencv::core::Mat, rect: Recti, _channels: usize) -> Vec<f64> {
-        let (x, y, width, height) = rect.xywh();
-        let left_column = integral.col(x).unwrap();
-        let right_column = integral.col(x + width).unwrap();
-        let bottom_range = opencv::core::Range::new(y + 1, y + height + 1).unwrap();
-        let top_range = opencv::core::Range::new(y, y + height).unwrap();
-        let left_bottom = left_column.row_range(&bottom_range).unwrap();
-        let right_bottom = right_column.row_range(&bottom_range).unwrap();
-        let left_top = left_column.row_range(&top_range).unwrap();
-        let right_top = right_column.row_range(&top_range).unwrap();
-        let no_mask = opencv::core::no_array();
-        let mut bottom_sums = opencv::core::Mat::default();
-        opencv::core::subtract(&right_bottom, &left_bottom, &mut bottom_sums, &no_mask, -1).unwrap();
-        let mut top_sums = opencv::core::Mat::default();
-        opencv::core::subtract(&right_top, &left_top, &mut top_sums, &no_mask, -1).unwrap();
-        let mut row_sums = opencv::core::Mat::default();
-        opencv::core::subtract(&bottom_sums, &top_sums, &mut row_sums, &no_mask, -1).unwrap();
-        let mut scaled = opencv::core::Mat::default();
-        opencv::core::multiply_def(&row_sums, &opencv::core::Scalar::all(1.0 / width as f64), &mut scaled).unwrap();
-        scaled.reshape(1, 0).unwrap().data_typed::<f64>().unwrap().to_vec()
-    }
+    use crate::model::{ImageSpec, PixelType};
 
     #[test]
     fn integral_means_match_direct_values() {
-        let spec = ImageSpec::new(3, 2, 2, opencv::core::CV_32F);
+        let spec = ImageSpec::new(3, 2, 2, PixelType::F32);
         let image =
             ImageData::from_f32(spec, vec![1.0, 10.0, 2.0, 20.0, 3.0, 30.0, 4.0, 40.0, 5.0, 50.0, 6.0, 60.0]).unwrap();
         let active = AtomicU64::new(image.id());
@@ -523,8 +422,7 @@ mod tests {
                 .map(|index| (index as f32 - 17.0) / 13.0)
                 .collect();
             let image =
-                ImageData::from_f32(ImageSpec::new(width, height, channels, opencv::core::CV_32F), pixels.clone())
-                    .unwrap();
+                ImageData::from_f32(ImageSpec::new(width, height, channels, PixelType::F32), pixels.clone()).unwrap();
             let active = AtomicU64::new(image.id());
             let integral = IntegralImage::build(&image, &active).unwrap().unwrap();
             let full =
@@ -537,123 +435,6 @@ mod tests {
                     .sum::<f64>()
                     / (width * height) as f64;
                 assert!((actual[channel] - expected).abs() < 1e-12);
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "manual OpenCV versus custom integral benchmark"]
-    fn benchmark_integral_mean_on_reference_images() {
-        let root = PathBuf::from(std::env::var("EDOLVIEW_BENCH_DATA").expect("EDOLVIEW_BENCH_DATA"));
-        println!("format,size,width,height,channels,phase,unit,opencv,custom,opencv_over_custom,integral_mib");
-        for (format, stem) in [("exr", "metro_noord"), ("hdr", "voortrekker_interior")] {
-            for size_name in ["1k", "2k", "4k", "8k"] {
-                let image = ImageData::load_from_path(&root.join(format!("{stem}_{size_name}.{format}"))).unwrap();
-                let spec = image.spec();
-                let rect = Recti::from_min_size(
-                    crate::util::math_ext::vec2i(0, 0),
-                    crate::util::math_ext::vec2i(spec.width, spec.height),
-                );
-                let channels = spec.channels as usize;
-
-                let precompute_iterations = match size_name {
-                    "1k" => 7,
-                    "2k" => 5,
-                    _ => 3,
-                };
-                let mut cv_precompute_samples = Vec::with_capacity(precompute_iterations);
-                let mut cv_table = None;
-                for _ in 0..precompute_iterations {
-                    drop(cv_table.take());
-                    let start = Instant::now();
-                    cv_table = Some(cv_integral(&image));
-                    cv_precompute_samples.push(start.elapsed().as_secs_f64() * 1000.0);
-                }
-                let cv_precompute_ms = median(cv_precompute_samples);
-                let cv_table = cv_table.unwrap();
-                let all_iterations = 20_000;
-                let vector_iterations = match size_name {
-                    "1k" => 2_000,
-                    "2k" => 1_000,
-                    "4k" => 500,
-                    _ => 200,
-                };
-                let cv_all_us = measure_us(all_iterations, || {
-                    black_box(cv_mean_all(&cv_table, rect, channels));
-                });
-                let cv_columns_us = measure_us(vector_iterations, || {
-                    black_box(cv_mean_columns(&cv_table, rect, channels));
-                });
-                let cv_rows_us = measure_us(vector_iterations, || {
-                    black_box(cv_mean_rows(&cv_table, rect, channels));
-                });
-                // The former public path also entered the global MeanProcessor mutex.
-                // Include an equivalent uncontended lock when comparing end-to-end calls.
-                let cv_runtime_guard = Mutex::new(());
-                let cv_runtime_all_us = measure_us(all_iterations, || {
-                    let _guard = cv_runtime_guard.lock().unwrap();
-                    black_box(cv_mean_all(&cv_table, rect, channels));
-                });
-                let cv_runtime_columns_us = measure_us(vector_iterations, || {
-                    let _guard = cv_runtime_guard.lock().unwrap();
-                    black_box(cv_mean_columns(&cv_table, rect, channels));
-                });
-                let cv_runtime_rows_us = measure_us(vector_iterations, || {
-                    let _guard = cv_runtime_guard.lock().unwrap();
-                    black_box(cv_mean_rows(&cv_table, rect, channels));
-                });
-                drop(cv_table);
-
-                let active = AtomicU64::new(image.id());
-                let mut custom_precompute_samples = Vec::with_capacity(precompute_iterations);
-                let mut custom_table = None;
-                for _ in 0..precompute_iterations {
-                    drop(custom_table.take());
-                    let start = Instant::now();
-                    custom_table = IntegralImage::build(&image, &active).unwrap();
-                    custom_precompute_samples.push(start.elapsed().as_secs_f64() * 1000.0);
-                }
-                let custom_precompute_ms = median(custom_precompute_samples);
-                let custom_table = custom_table.unwrap();
-                let custom_all_us = measure_us(all_iterations, || {
-                    black_box(custom_table.mean(rect, MeanDim::All).unwrap());
-                });
-                let custom_columns_us = measure_us(vector_iterations, || {
-                    black_box(custom_table.mean(rect, MeanDim::Column).unwrap());
-                });
-                let custom_rows_us = measure_us(vector_iterations, || {
-                    black_box(custom_table.mean(rect, MeanDim::Row).unwrap());
-                });
-                let integral_mib = custom_table.bytes() as f64 / (1024.0 * 1024.0);
-
-                crate::model::image::MEAN_PROCESSOR.install_integral(&image, custom_table);
-                let runtime_all_us = measure_us(all_iterations, || {
-                    black_box(image.mean_value_in_rect(rect, MeanDim::All).unwrap());
-                });
-                let runtime_columns_us = measure_us(vector_iterations, || {
-                    black_box(image.mean_value_in_rect(rect, MeanDim::Column).unwrap());
-                });
-                let runtime_rows_us = measure_us(vector_iterations, || {
-                    black_box(image.mean_value_in_rect(rect, MeanDim::Row).unwrap());
-                });
-
-                let emit = |phase: &str, unit: &str, opencv: f64, custom: f64| {
-                    println!(
-                        "{format},{size_name},{},{},{},{phase},{unit},{opencv:.6},{custom:.6},{:.3},{integral_mib:.3}",
-                        spec.width,
-                        spec.height,
-                        spec.channels,
-                        opencv / custom,
-                    );
-                };
-                emit("precompute", "ms", cv_precompute_ms, custom_precompute_ms);
-                emit("mean_all", "us", cv_all_us, custom_all_us);
-                emit("mean_columns", "us", cv_columns_us, custom_columns_us);
-                emit("mean_rows", "us", cv_rows_us, custom_rows_us);
-                emit("runtime_mean_all", "us", cv_runtime_all_us, runtime_all_us);
-                emit("runtime_mean_columns", "us", cv_runtime_columns_us, runtime_columns_us);
-                emit("runtime_mean_rows", "us", cv_runtime_rows_us, runtime_rows_us);
-                crate::model::image::MEAN_PROCESSOR.clear_integral();
             }
         }
     }

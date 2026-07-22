@@ -1,7 +1,8 @@
 use eframe::egui::{self, Color32, ComboBox, Image, InnerResponse, Label, Rangef, Response, Ui, Widget, WidgetText};
 
+use crate::model::PixelType;
 use crate::res::TEXT_EDIT_PARSE_FAILED_FLASH;
-use crate::util::{color::ColorDisplay, cv_ext::CvIntExt};
+use crate::util::color::ColorDisplay;
 
 #[derive(Clone, Debug, Copy)]
 pub enum Size {
@@ -80,7 +81,7 @@ pub trait UiExt {
     fn raw_scroll_delta_y(&self) -> f32;
     fn colored_label(&mut self, color: impl Into<Color32>, text: impl ToString) -> Response;
     fn data_label(&mut self, text: impl Into<WidgetText>) -> Response;
-    fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response;
+    fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: PixelType) -> Response;
     fn text_edit_t<T: std::fmt::Display + std::str::FromStr>(&mut self, value: &mut T) -> Response;
     fn text_edit_value<T: std::fmt::Display + std::str::FromStr>(
         &mut self,
@@ -143,7 +144,7 @@ impl UiExt for Ui {
     }
 
     #[inline]
-    fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: i32) -> Response {
+    fn label_with_colored_rect(&mut self, color: Vec<f32>, dtype: PixelType) -> Response {
         let color32 = color.to_color32();
 
         self.horizontal(|ui| {
@@ -151,7 +152,7 @@ impl UiExt for Ui {
             let (rect, resp) = ui.allocate_exact_size(egui::vec2(rect_size, rect_size), egui::Sense::click());
             ui.painter().rect_filled(rect, 4.0, color32);
 
-            let color_text = if dtype.cv_type_is_floating() {
+            let color_text = if dtype.is_floating() {
                 color.to_rgba_string()
             } else {
                 color.to_rgba_int_string(dtype.alpha())

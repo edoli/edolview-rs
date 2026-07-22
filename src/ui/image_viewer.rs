@@ -1,18 +1,18 @@
 use color_eyre::eyre::{eyre, Result};
 use eframe::egui::{self, vec2};
-use opencv::{core, imgcodecs, imgproc, prelude::*};
+use image::ImageEncoder;
 use std::{
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
-use crate::model::{AppState, Image, MeanDim, Recti, EMPTY_MINMAX};
+use crate::model::{AppState, Image, MeanDim, PixelType, Recti, EMPTY_MINMAX};
 use crate::res::{
     selection_handle_clipped_fill, KeyboardShortcutExt, PIXEL_VALUE_CHANNEL_COLORS, SELECTION_HANDLE_CLIPPED_STROKE,
 };
 use crate::ui::component::egui_ext::UiExt;
 use crate::ui::gpu::{ExportRequest, GpuRenderer, ImagePaintCallback, ImageSlot, MinMaxOverlay, PaneDraw};
-use crate::util::cv_ext::CvIntExt;
 use crate::util::func_ext::FuncExt;
 use crate::util::math_ext::vec2i;
 
@@ -46,10 +46,10 @@ enum ResizeHandle {
     BottomRight,
 }
 
-fn min_max_compare_epsilon(dtype: i32) -> f32 {
-    match dtype.cv_type_depth() {
-        core::CV_16F => 0.000_976_562_5,
-        core::CV_32F | core::CV_64F => 0.000_001,
+fn min_max_compare_epsilon(dtype: PixelType) -> f32 {
+    match dtype {
+        PixelType::F16 => 0.000_976_562_5,
+        PixelType::F32 | PixelType::F64 => 0.000_001,
         _ => 0.5,
     }
 }
@@ -874,7 +874,7 @@ impl ImageViewer {
 
                                         let color = PIXEL_VALUE_CHANNEL_COLORS[c_idx.min(3)];
 
-                                        let text = if pane_image.spec().dtype.cv_type_is_floating() {
+                                        let text = if pane_image.spec().dtype.is_floating() {
                                             format!("{:.4}", (*v as f64) * pane_image.spec().dtype.alpha())
                                         } else {
                                             format!("{:.0}", (*v as f64) * pane_image.spec().dtype.alpha())
@@ -1500,33 +1500,26 @@ fn save_rendered_image(path: &Path, width: i32, height: i32, rgba_bytes: Vec<u8>
         .map(|ext| ext.to_ascii_lowercase())
         .unwrap_or_else(|| "png".to_owned());
 
-    let rgba_row = core::Mat::new_rows_cols_with_data(height, width * 4, &rgba_bytes)?;
-    let rgba = rgba_row.reshape(4, height)?.clone_pointee();
-    let mut encoded = core::Mat::default();
-    let mut params = core::Vector::<i32>::new();
-    let encode_ext = match extension.as_str() {
-        "png" => ".png",
-        "jpg" | "jpeg" => ".jpg",
-        other => return Err(eyre!("Unsupported export extension: {other}")),
-    };
-
     match extension.as_str() {
-        "png" => {
-            imgproc::cvt_color_def(&rgba, &mut encoded, imgproc::COLOR_RGBA2BGRA)?;
-        }
+        "png" => image::save_buffer_with_format(
+            path,
+            &rgba_bytes,
+            width as u32,
+            height as u32,
+            image::ColorType::Rgba8,
+            image::ImageFormat::Png,
+        )?,
         "jpg" | "jpeg" => {
-            imgproc::cvt_color_def(&rgba, &mut encoded, imgproc::COLOR_RGBA2BGR)?;
-            params.push(imgcodecs::IMWRITE_JPEG_QUALITY);
-            params.push(95);
+            let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+            for pixel in rgba_bytes.chunks_exact(4) {
+                rgb.extend_from_slice(&pixel[..3]);
+            }
+            let file = std::fs::File::create(path)?;
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(BufWriter::new(file), 95);
+            encoder.write_image(&rgb, width as u32, height as u32, image::ExtendedColorType::Rgb8)?;
         }
-        _ => unreachable!(),
+        other => return Err(eyre!("Unsupported export extension: {other}")),
     }
-
-    let mut encoded_bytes = core::Vector::<u8>::new();
-    if !imgcodecs::imencode(encode_ext, &encoded, &mut encoded_bytes, &params)? {
-        return Err(eyre!("OpenCV failed to encode image as {encode_ext}"));
-    }
-    std::fs::write(path, encoded_bytes.as_slice())?;
     Ok(())
 }
 

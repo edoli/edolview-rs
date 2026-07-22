@@ -10,6 +10,10 @@ pub const BASE_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[
         mime: "image/png",
     },
     SupportedImageFormat {
+        ext: "apng",
+        mime: "image/apng",
+    },
+    SupportedImageFormat {
         ext: "jpeg",
         mime: "image/jpeg",
     },
@@ -22,8 +26,28 @@ pub const BASE_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[
         mime: "image/jpeg",
     },
     SupportedImageFormat {
+        ext: "jfif",
+        mime: "image/jpeg",
+    },
+    SupportedImageFormat {
         ext: "jp2",
         mime: "image/jp2",
+    },
+    SupportedImageFormat {
+        ext: "j2k",
+        mime: "image/jp2",
+    },
+    SupportedImageFormat {
+        ext: "j2c",
+        mime: "image/j2c",
+    },
+    SupportedImageFormat {
+        ext: "jpc",
+        mime: "image/j2c",
+    },
+    SupportedImageFormat {
+        ext: "jpf",
+        mime: "image/jpx",
     },
     SupportedImageFormat {
         ext: "bmp",
@@ -58,8 +82,24 @@ pub const BASE_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[
         mime: "image/webp",
     },
     SupportedImageFormat {
-        ext: "raw",
-        mime: "image/x-raw",
+        ext: "gif",
+        mime: "image/gif",
+    },
+    SupportedImageFormat {
+        ext: "tga",
+        mime: "image/x-tga",
+    },
+    SupportedImageFormat {
+        ext: "ico",
+        mime: "image/x-icon",
+    },
+    SupportedImageFormat {
+        ext: "ff",
+        mime: "image/x-farbfeld",
+    },
+    SupportedImageFormat {
+        ext: "qoi",
+        mime: "image/qoi",
     },
     SupportedImageFormat {
         ext: "pfm",
@@ -86,14 +126,23 @@ pub const BASE_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[
         mime: "image/x-portable-anymap",
     },
     SupportedImageFormat {
-        ext: "sr",
-        mime: "image/x-sun-raster",
+        ext: "pam",
+        mime: "image/x-portable-arbitrarymap",
     },
     SupportedImageFormat {
         ext: "flo",
         mime: "application/x-middlebury-flow",
     },
 ];
+
+#[cfg(feature = "avif")]
+pub const AVIF_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[SupportedImageFormat {
+    ext: "avif",
+    mime: "image/avif",
+}];
+
+#[cfg(not(feature = "avif"))]
+pub const AVIF_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[];
 
 #[cfg(feature = "heif")]
 pub const HEIF_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[
@@ -111,8 +160,11 @@ pub const HEIF_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[
 pub const HEIF_SUPPORTED_IMAGE_FORMATS: &[SupportedImageFormat] = &[];
 
 pub fn supported_image_formats() -> Vec<SupportedImageFormat> {
-    let mut formats = Vec::with_capacity(BASE_SUPPORTED_IMAGE_FORMATS.len() + HEIF_SUPPORTED_IMAGE_FORMATS.len());
+    let mut formats = Vec::with_capacity(
+        BASE_SUPPORTED_IMAGE_FORMATS.len() + AVIF_SUPPORTED_IMAGE_FORMATS.len() + HEIF_SUPPORTED_IMAGE_FORMATS.len(),
+    );
     formats.extend_from_slice(BASE_SUPPORTED_IMAGE_FORMATS);
+    formats.extend_from_slice(AVIF_SUPPORTED_IMAGE_FORMATS);
     formats.extend_from_slice(HEIF_SUPPORTED_IMAGE_FORMATS);
     formats
 }
@@ -133,6 +185,7 @@ pub fn supported_image_mime_types() -> Vec<&'static str> {
 
 pub fn is_supported_image_extension(ext: &str) -> bool {
     BASE_SUPPORTED_IMAGE_FORMATS.iter().any(|format| format.ext == ext)
+        || AVIF_SUPPORTED_IMAGE_FORMATS.iter().any(|format| format.ext == ext)
         || HEIF_SUPPORTED_IMAGE_FORMATS.iter().any(|format| format.ext == ext)
 }
 

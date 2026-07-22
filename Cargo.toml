@@ -7,8 +7,13 @@ description = "Image viewer for visualization and analysis"
 license = "MIT"
 
 [dependencies]
-# Adjust version if build complains; this is a recent version as of 2025, change if needed.
-opencv = { version = "0.99.0", default-features = false, features = ["imgcodecs", "imgproc"] }
+# Enable image-rs' complete default decoder set. Native AVIF decoding is kept
+# behind the `avif` feature because it requires the system dav1d library. 
+# EXR, TIFF, and JPEG 2000 use dedicated paths to preserve layout and precision.
+image = "0.25.10"
+exr = { version = "1.74.2", default-features = false, features = ["rayon"] }
+hayro-jpeg2000 = "0.4.0"
+tiff = { version = "0.11.3", features = ["webp", "zstd"] }
 clap = { version = "4.6.1", features = ["derive"] }
 color-eyre = "0.6.5"
 # Use wgpu for both egui and the image pipeline so rendering and compute share one GPU API.
@@ -39,6 +44,7 @@ egui_extras = "0.35.0"
 [features]
 default = []
 heif = ["libheif-sys"]
+avif = ["image/avif-native"]
 
 [workspace]
 members = ["xtask"]

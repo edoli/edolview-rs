@@ -33,7 +33,7 @@ use crate::{
         fonts::{apply_fallback_fonts, spawn_fallback_font_loader, LoadedFallbackFonts},
         ImageViewer,
     },
-    util::{concurrency::mpsc_with_notify, cv_ext::CvIntExt, math_ext::vec2i, series::SeriesRef},
+    util::{concurrency::mpsc_with_notify, math_ext::vec2i, series::SeriesRef},
 };
 
 #[derive(PartialEq, Clone)]
@@ -1759,13 +1759,8 @@ impl eframe::App for ViewerApp {
                             if let Some(asset) = &self.state.asset {
                                 let spec = asset.image().spec();
                                 ui.add(
-                                    egui::Label::new(format!(
-                                        "{}×{} | {}",
-                                        spec.width,
-                                        spec.height,
-                                        spec.dtype.cv_type_name()
-                                    ))
-                                    .extend(),
+                                    egui::Label::new(format!("{}×{} | {}", spec.width, spec.height, spec.dtype.name()))
+                                        .extend(),
                                 );
                             } else {
                                 ui.label("No image loaded");
