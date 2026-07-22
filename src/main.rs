@@ -80,23 +80,6 @@ fn apply_adapter_compute_limits(required: &mut wgpu::Limits, adapter: &wgpu::Lim
     required.max_compute_workgroups_per_dimension = adapter.max_compute_workgroups_per_dimension;
 }
 
-fn backend_priority(backend: wgpu::Backend) -> u8 {
-    let native_backend = if cfg!(target_os = "windows") {
-        wgpu::Backend::Dx12
-    } else if cfg!(target_os = "macos") {
-        wgpu::Backend::Metal
-    } else {
-        wgpu::Backend::Vulkan
-    };
-
-    match backend {
-        backend if backend == native_backend => 5,
-        wgpu::Backend::Vulkan | wgpu::Backend::Metal | wgpu::Backend::Dx12 => 4,
-        wgpu::Backend::Gl => 1,
-        _ => 0,
-    }
-}
-
 fn device_priority(device_type: wgpu::DeviceType, power_preference: wgpu::PowerPreference) -> u8 {
     match power_preference {
         wgpu::PowerPreference::LowPower => match device_type {
@@ -121,6 +104,18 @@ fn configure_wgpu(options: &mut eframe::NativeOptions) {
         return;
     };
 
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        // Use the same tuned Vulkan path on Windows and Linux. Setting the
+        // instance backends explicitly also prevents WGPU_BACKEND from
+        // selecting DX12 or GL at runtime.
+        setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        setup.instance_descriptor.backends = wgpu::Backends::METAL;
+    }
+
     let power_preference = setup.power_preference;
     setup.native_adapter_selector = Some(Arc::new(move |adapters, surface| {
         adapters
@@ -131,7 +126,6 @@ fn configure_wgpu(options: &mut eframe::NativeOptions) {
                 let info = adapter.get_info();
                 (
                     info.device_type != wgpu::DeviceType::Cpu,
-                    backend_priority(info.backend),
                     device_priority(info.device_type, power_preference),
                 )
             })
