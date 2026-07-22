@@ -53,6 +53,7 @@ struct NativeUploadParams {
     image: [u32; 4],
     memory: [u32; 4],
     format: [u32; 4],
+    transform: [u32; 4],
 }
 
 impl ComputeParams {
@@ -274,7 +275,58 @@ impl GpuComputeContext {
         {
             return self.upload_u8_texture(image);
         }
+        if matches!(image.pixels, crate::model::image_io::DecodedPixels::Raw(_))
+            && !image.transform.flip_y
+            && !image.transform.swap_bytes
+            && image.transform.scale == 1.0
+            && image.layout.planes == 1
+            && image.layout.input_channels == image.channels as usize
+            && image.layout.row_stride_bytes == image.width as usize * image.channels as usize * 4
+            && matches!(image.channels, 1 | 2 | 4)
+        {
+            return self.upload_raw_f32_texture(image);
+        }
         self.upload_native_fused(image)
+    }
+
+    fn upload_raw_f32_texture(&self, image: &DecodedImage) -> Result<Arc<GpuImageTexture>> {
+        let format = texture_format(image.channels)?;
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("edolview raw F32 image"),
+            size: wgpu::Extent3d {
+                width: image.width as u32,
+                height: image.height as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let byte_count = image.layout.row_stride_bytes * image.height as usize;
+        let start = image.transform.data_offset_bytes;
+        let bytes = image
+            .pixels
+            .bytes()
+            .get(start..start + byte_count)
+            .ok_or_else(|| eyre!("Raw F32 image payload is truncated"))?;
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(image.layout.row_stride_bytes as u32),
+                rows_per_image: Some(image.height as u32),
+            },
+            texture.size(),
+        );
+        Ok(Arc::new(GpuImageTexture {
+            view: texture.create_view(&Default::default()),
+            texture,
+            spec: ImageSpec::new(image.width, image.height, image.channels, image.pixel_type),
+        }))
     }
 
     fn upload_u8_texture(&self, image: &DecodedImage) -> Result<Arc<GpuImageTexture>> {
@@ -370,10 +422,17 @@ impl GpuComputeContext {
             let plane_count = image.layout.planes.max(1) as usize;
             let mut sources = Vec::with_capacity(plane_count);
             for plane in 0..plane_count {
-                let start = if plane_count == 1 {
-                    base_y * image.layout.row_stride_bytes
+                let source_base_y = if image.transform.flip_y {
+                    image.height as usize - base_y - row_count
                 } else {
-                    plane * image.layout.plane_stride_bytes + base_y * image.layout.row_stride_bytes
+                    base_y
+                };
+                let start = if plane_count == 1 {
+                    image.transform.data_offset_bytes + source_base_y * image.layout.row_stride_bytes
+                } else {
+                    image.transform.data_offset_bytes
+                        + plane * image.layout.plane_stride_bytes
+                        + source_base_y * image.layout.row_stride_bytes
                 };
                 let end = start + row_count * image.layout.row_stride_bytes;
                 let bytes = source_bytes
@@ -399,6 +458,12 @@ impl GpuComputeContext {
                     image.layout.bit_depth as u32,
                 ],
                 format: [pixel_kind, image.color.shader_kind(), base_y as u32, row_count as u32],
+                transform: [
+                    0,
+                    u32::from(image.transform.flip_y) | (u32::from(image.transform.swap_bytes) << 1),
+                    image.transform.scale.to_bits(),
+                    0,
+                ],
             };
             let params = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("edolview native image upload parameters"),
@@ -1429,6 +1494,7 @@ struct NativeUploadParams {
     image: vec4<u32>,
     memory: vec4<u32>,
     format: vec4<u32>,
+    transform: vec4<u32>,
 }
 
 @group(0) @binding(0) var<storage, read> source0: array<u32>;
@@ -1483,19 +1549,21 @@ fn signed_maximum() -> f32 {
 
 fn sample_offset(x: u32, y: u32, channel: u32) -> u32 {
     let bytes = sample_bytes();
+    let source_y = select(y, params.format.w - y - 1u, (params.transform.y & 1u) != 0u);
     if params.memory.z > 1u {
-        return y * params.memory.x + x * bytes;
+        return source_y * params.memory.x + x * bytes;
     }
-    return y * params.memory.x + (x * params.image.z + channel) * bytes;
+    return source_y * params.memory.x + (x * params.image.z + channel) * bytes;
 }
 
 fn packed_sample(x: u32, y: u32, channel: u32) -> f32 {
-    var base = y * params.memory.x;
+    let source_y = select(y, params.format.w - y - 1u, (params.transform.y & 1u) != 0u);
+    var base = source_y * params.memory.x;
     var sample = x * params.image.z + channel;
     var plane = 0u;
     if params.memory.z > 1u {
         plane = channel;
-        base = y * params.memory.x;
+        base = source_y * params.memory.x;
         sample = x;
     }
     let bit = sample * params.memory.w;
@@ -1535,7 +1603,14 @@ fn normalized_sample(x: u32, y: u32, channel: u32) -> f32 {
     }
     let raw = load_byte(plane, offset) | (load_byte(plane, offset + 1u) << 8u) |
         (load_byte(plane, offset + 2u) << 16u) | (load_byte(plane, offset + 3u) << 24u);
-    if kind == 6u { return bitcast<f32>(raw); }
+    if kind == 6u {
+        var bits = raw;
+        if (params.transform.y & 2u) != 0u {
+            bits = ((raw & 0x000000ffu) << 24u) | ((raw & 0x0000ff00u) << 8u) |
+                ((raw & 0x00ff0000u) >> 8u) | ((raw & 0xff000000u) >> 24u);
+        }
+        return bitcast<f32>(bits) * bitcast<f32>(params.transform.z);
+    }
     return f32(raw) / unsigned_maximum();
 }
 
@@ -1626,7 +1701,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::image_io::{DecodedColor, DecodedImage, DecodedLayout, DecodedPixels};
+    use crate::model::image_io::{DecodedColor, DecodedImage, DecodedLayout, DecodedPixels, DecodedTransform};
     use crate::model::{Image, ImageData, PixelType};
 
     fn context() -> Arc<GpuComputeContext> {
@@ -1818,6 +1893,38 @@ mod tests {
         let (mins, maxs) = compute.minmax(&packed.gpu_texture().unwrap(), Recti::ZERO).unwrap();
         assert_eq!(mins, vec![0.0, 0.0, 0.0]);
         assert_eq!(maxs, vec![1.0, 1.0, 1.0]);
+
+        let mut raw = vec![0_u8; 4];
+        for value in [1.0_f32, 2.0, 3.0, 4.0] {
+            raw.extend_from_slice(&value.to_be_bytes());
+        }
+        let transformed = DecodedImage::new_with_transform(
+            2,
+            2,
+            1,
+            PixelType::F32,
+            DecodedPixels::Raw(raw),
+            DecodedLayout {
+                row_stride_bytes: 8,
+                plane_stride_bytes: 16,
+                planes: 1,
+                bit_depth: 32,
+                input_channels: 1,
+            },
+            DecodedColor::Direct,
+            DecodedTransform {
+                data_offset_bytes: 4,
+                flip_y: true,
+                swap_bytes: true,
+                scale: 2.0,
+            },
+        )
+        .unwrap();
+        let transformed = ImageData::from_decoded(transformed).unwrap();
+        let texture = transformed.gpu_texture().unwrap();
+        assert_eq!(texture.texture.format(), wgpu::TextureFormat::Rgba32Float);
+        let rows = compute.mean(&texture, Recti::ZERO, MeanDim::Row).unwrap();
+        assert_eq!(rows, vec![7.0, 3.0]);
     }
 
     #[test]
@@ -1857,13 +1964,18 @@ mod tests {
     #[ignore = "manual decode and GPU upload benchmark"]
     fn benchmark_decode_and_gpu_upload() {
         let files = std::env::var("EDOLVIEW_GPU_BENCH_FILES").expect("set EDOLVIEW_GPU_BENCH_FILES");
+        let iterations = std::env::var("EDOLVIEW_GPU_BENCH_ITERATIONS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(5)
+            .max(1);
         let compute = context();
         for path in files.split(';').filter(|value| !value.is_empty()) {
             let path = std::path::PathBuf::from(path);
             let mut decode_ms = Vec::new();
             let mut upload_ms = Vec::new();
             let mut output_format = None;
-            for iteration in 0..6 {
+            for iteration in 0..=iterations {
                 let start = std::time::Instant::now();
                 let image = ImageData::load_from_path(&path).unwrap();
                 let decoded = start.elapsed().as_secs_f64() * 1_000.0;

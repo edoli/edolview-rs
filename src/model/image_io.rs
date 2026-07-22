@@ -30,6 +30,10 @@ fn ensure_decoder_hooks() {
 }
 
 pub(crate) enum DecodedPixels {
+    /// An encoded-format payload whose scalar layout is described by
+    /// `DecodedTransform`. This avoids allocating a second full-image buffer
+    /// for simple uncompressed formats such as PFM and FLO.
+    Raw(Vec<u8>),
     U8(Vec<u8>),
     I8(Vec<i8>),
     U16(Vec<u16>),
@@ -43,6 +47,7 @@ pub(crate) enum DecodedPixels {
 impl DecodedPixels {
     pub(crate) fn len(&self) -> usize {
         match self {
+            Self::Raw(values) => values.len(),
             Self::U8(values) => values.len(),
             Self::I8(values) => values.len(),
             Self::U16(values) => values.len(),
@@ -56,6 +61,7 @@ impl DecodedPixels {
 
     pub(crate) fn bytes(&self) -> &[u8] {
         match self {
+            Self::Raw(values) => values,
             Self::U8(values) => values,
             Self::I8(values) => bytemuck::cast_slice(values),
             Self::U16(values) => bytemuck::cast_slice(values),
@@ -76,14 +82,15 @@ impl DecodedPixels {
 
     pub(crate) fn sample_bytes(&self) -> usize {
         match self {
+            Self::Raw(_) | Self::I32(_) | Self::U32(_) | Self::F32(_) => 4,
             Self::U8(_) | Self::I8(_) => 1,
             Self::U16(_) | Self::I16(_) | Self::F16(_) => 2,
-            Self::I32(_) | Self::U32(_) | Self::F32(_) => 4,
         }
     }
 
     pub(crate) fn shader_kind(&self) -> Option<u32> {
         match self {
+            Self::Raw(_) => Some(6),
             Self::U8(_) => Some(0),
             Self::I8(_) => Some(1),
             Self::U16(_) => Some(2),
@@ -102,6 +109,25 @@ pub(crate) struct DecodedLayout {
     pub planes: u32,
     pub bit_depth: u8,
     pub input_channels: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DecodedTransform {
+    pub data_offset_bytes: usize,
+    pub flip_y: bool,
+    pub swap_bytes: bool,
+    pub scale: f32,
+}
+
+impl Default for DecodedTransform {
+    fn default() -> Self {
+        Self {
+            data_offset_bytes: 0,
+            flip_y: false,
+            swap_bytes: false,
+            scale: 1.0,
+        }
+    }
 }
 
 pub(crate) enum DecodedColor {
@@ -141,6 +167,7 @@ pub struct DecodedImage {
     pub(crate) pixels: DecodedPixels,
     pub(crate) layout: DecodedLayout,
     pub(crate) color: DecodedColor,
+    pub(crate) transform: DecodedTransform,
 }
 
 impl DecodedImage {
@@ -179,6 +206,28 @@ impl DecodedImage {
         pixels: DecodedPixels,
         layout: DecodedLayout,
         color: DecodedColor,
+    ) -> Result<Self> {
+        Self::new_with_transform(
+            width,
+            height,
+            channels,
+            pixel_type,
+            pixels,
+            layout,
+            color,
+            DecodedTransform::default(),
+        )
+    }
+
+    pub(crate) fn new_with_transform(
+        width: u32,
+        height: u32,
+        channels: i32,
+        pixel_type: PixelType,
+        pixels: DecodedPixels,
+        layout: DecodedLayout,
+        color: DecodedColor,
+        transform: DecodedTransform,
     ) -> Result<Self> {
         let width = i32::try_from(width).map_err(|_| eyre!("Image width exceeds i32: {width}"))?;
         let height = i32::try_from(height).map_err(|_| eyre!("Image height exceeds i32: {height}"))?;
@@ -219,6 +268,10 @@ impl DecodedImage {
             Some(plane_bytes)
         }
         .ok_or_else(|| eyre!("Decoded image buffer size overflow"))?;
+        let required_bytes = transform
+            .data_offset_bytes
+            .checked_add(required_bytes)
+            .ok_or_else(|| eyre!("Decoded image buffer offset overflow"))?;
         if pixels.bytes().len() < required_bytes {
             return Err(eyre!(
                 "Decoded image buffer is truncated: {} < {required_bytes}",
@@ -241,6 +294,7 @@ impl DecodedImage {
             pixels,
             layout,
             color,
+            transform,
         })
     }
 
@@ -254,6 +308,16 @@ impl DecodedImage {
 
     pub(crate) fn is_canonical_direct(&self) -> bool {
         matches!(self.color, DecodedColor::Direct)
+            && matches!(
+                self.transform,
+                DecodedTransform {
+                    data_offset_bytes: 0,
+                    flip_y: false,
+                    swap_bytes: false,
+                    scale: 1.0
+                }
+            )
+            && !matches!(self.pixels, DecodedPixels::Raw(_))
             && self.layout.planes == 1
             && self.layout.bit_depth >= 8
             && self.layout.input_channels == self.channels as usize
@@ -313,6 +377,11 @@ impl DecodedImage {
     }
 
     fn normalized_sample(&self, x: usize, y: usize, channel: usize) -> Result<f32> {
+        let y = if self.transform.flip_y {
+            self.height as usize - y - 1
+        } else {
+            y
+        };
         let bit_depth = self.layout.bit_depth as usize;
         if bit_depth < 8 {
             let (base, sample) = if self.layout.planes > 1 {
@@ -332,11 +401,12 @@ impl DecodedImage {
         }
 
         let sample_bytes = self.pixels.sample_bytes();
-        let byte_offset = if self.layout.planes > 1 {
-            channel * self.layout.plane_stride_bytes + y * self.layout.row_stride_bytes + x * sample_bytes
-        } else {
-            y * self.layout.row_stride_bytes + (x * self.layout.input_channels + channel) * sample_bytes
-        };
+        let byte_offset = self.transform.data_offset_bytes
+            + if self.layout.planes > 1 {
+                channel * self.layout.plane_stride_bytes + y * self.layout.row_stride_bytes + x * sample_bytes
+            } else {
+                y * self.layout.row_stride_bytes + (x * self.layout.input_channels + channel) * sample_bytes
+            };
         let index = byte_offset / sample_bytes;
         let unsigned_max = if self.layout.bit_depth >= 32 {
             u32::MAX as f64
@@ -356,6 +426,20 @@ impl DecodedImage {
             };
         }
         let value = match &self.pixels {
+            DecodedPixels::Raw(values) => {
+                let bytes: [u8; 4] = values
+                    .get(byte_offset..byte_offset + 4)
+                    .ok_or_else(|| eyre!("Decoded raw sample buffer is truncated"))?
+                    .try_into()
+                    .expect("exact raw f32 sample");
+                let bits = u32::from_le_bytes(bytes);
+                let bits = if self.transform.swap_bytes {
+                    bits.swap_bytes()
+                } else {
+                    bits
+                };
+                f32::from_bits(bits) as f64
+            }
             DecodedPixels::U8(values) => sample!(values) as f64 / unsigned_max,
             DecodedPixels::I8(values) => sample!(values) as f64 / signed_max,
             DecodedPixels::U16(values) => sample!(values) as f64 / unsigned_max,
@@ -365,7 +449,7 @@ impl DecodedImage {
             DecodedPixels::F16(values) => half::f16::from_bits(sample!(values)).to_f32() as f64,
             DecodedPixels::F32(values) => sample!(values) as f64,
         };
-        Ok(value as f32)
+        Ok(value as f32 * self.transform.scale)
     }
 }
 
@@ -1242,7 +1326,38 @@ fn decoded_dynamic_image(image: DynamicImage) -> Result<DecodedImage> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct PfmHeader {
+    width: u32,
+    height: u32,
+    channels: i32,
+    data_offset: usize,
+    row_values: usize,
+    value_count: usize,
+    byte_count: usize,
+    little_endian: bool,
+    scale: f32,
+}
+
 pub fn decode_pfm(bytes: &[u8]) -> Result<DecodedImage> {
+    let header = parse_pfm_header(bytes)?;
+    if header.channels == 1 {
+        decode_pfm_gray(bytes, header)
+    } else {
+        decode_pfm_rgb_owned(bytes.to_vec(), header)
+    }
+}
+
+pub fn decode_pfm_owned(bytes: Vec<u8>) -> Result<DecodedImage> {
+    let header = parse_pfm_header(&bytes)?;
+    if header.channels == 1 {
+        decode_pfm_gray(&bytes, header)
+    } else {
+        decode_pfm_rgb_owned(bytes, header)
+    }
+}
+
+fn parse_pfm_header(bytes: &[u8]) -> Result<PfmHeader> {
     let mut offset = 0;
     let magic = next_pfm_token(bytes, &mut offset)?;
     let channels = match magic {
@@ -1275,29 +1390,74 @@ pub fn decode_pfm(bytes: &[u8]) -> Result<DecodedImage> {
         .checked_mul(height as usize)
         .ok_or_else(|| eyre!("PFM image size overflow"))?;
     let byte_count = value_count.checked_mul(4).ok_or_else(|| eyre!("PFM byte size overflow"))?;
-    let payload = bytes
+    bytes
         .get(offset..offset + byte_count)
         .ok_or_else(|| eyre!("PFM pixel payload is truncated"))?;
-    let little_endian = scale.is_sign_negative();
-    let scale = scale.abs();
-    let mut pixels = vec![0.0; value_count];
+    Ok(PfmHeader {
+        width,
+        height,
+        channels,
+        data_offset: offset,
+        row_values,
+        value_count,
+        byte_count,
+        little_endian: scale.is_sign_negative(),
+        scale: scale.abs(),
+    })
+}
 
-    // PFM stores scanlines from bottom to top.
-    for source_y in 0..height as usize {
-        let target_y = height as usize - source_y - 1;
-        let source_row = &payload[source_y * row_values * 4..(source_y + 1) * row_values * 4];
-        let target_row = &mut pixels[target_y * row_values..(target_y + 1) * row_values];
-        for (target, value) in target_row.iter_mut().zip(source_row.chunks_exact(4)) {
-            let bytes: [u8; 4] = value.try_into().expect("exact f32 PFM chunk");
-            *target = if little_endian {
-                f32::from_le_bytes(bytes)
-            } else {
-                f32::from_be_bytes(bytes)
-            } * scale;
-        }
+fn decode_pfm_gray(bytes: &[u8], header: PfmHeader) -> Result<DecodedImage> {
+    let payload = &bytes[header.data_offset..header.data_offset + header.byte_count];
+    let mut pixels = vec![0.0_f32; header.value_count];
+    let row_bytes = header.row_values * 4;
+    for source_y in 0..header.height as usize {
+        let target_y = header.height as usize - source_y - 1;
+        let source = &payload[source_y * row_bytes..(source_y + 1) * row_bytes];
+        let target = &mut pixels[target_y * header.row_values..(target_y + 1) * header.row_values];
+        bytemuck::cast_slice_mut(target).copy_from_slice(source);
     }
 
-    DecodedImage::new(width, height, channels, PixelType::F32, DecodedPixels::F32(pixels))
+    let swap_bytes = cfg!(target_endian = "little") != header.little_endian;
+    if swap_bytes {
+        for value in &mut pixels {
+            *value = f32::from_bits(value.to_bits().swap_bytes()) * header.scale;
+        }
+    } else if header.scale != 1.0 {
+        for value in &mut pixels {
+            *value *= header.scale;
+        }
+    }
+    DecodedImage::new(
+        header.width,
+        header.height,
+        header.channels,
+        PixelType::F32,
+        DecodedPixels::F32(pixels),
+    )
+}
+
+fn decode_pfm_rgb_owned(bytes: Vec<u8>, header: PfmHeader) -> Result<DecodedImage> {
+    DecodedImage::new_with_transform(
+        header.width,
+        header.height,
+        header.channels,
+        PixelType::F32,
+        DecodedPixels::Raw(bytes),
+        DecodedLayout {
+            row_stride_bytes: header.row_values * 4,
+            plane_stride_bytes: header.byte_count,
+            planes: 1,
+            bit_depth: 32,
+            input_channels: header.channels as usize,
+        },
+        DecodedColor::Direct,
+        DecodedTransform {
+            data_offset_bytes: header.data_offset,
+            flip_y: true,
+            swap_bytes: !header.little_endian,
+            scale: header.scale,
+        },
+    )
 }
 
 fn next_pfm_token<'a>(bytes: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
@@ -1327,6 +1487,10 @@ fn parse_pfm_token<T: std::str::FromStr>(token: &[u8], name: &str) -> Result<T> 
 }
 
 pub fn decode_flo(bytes: &[u8]) -> Result<DecodedImage> {
+    decode_flo_owned(bytes.to_vec())
+}
+
+pub fn decode_flo_owned(bytes: Vec<u8>) -> Result<DecodedImage> {
     if bytes.len() < 12 {
         return Err(eyre!(".flo: file too small: {} bytes", bytes.len()));
     }
@@ -1341,14 +1505,28 @@ pub fn decode_flo(bytes: &[u8]) -> Result<DecodedImage> {
     }
     let value_count = width as usize * height as usize * 2;
     let data_bytes = value_count.checked_mul(4).ok_or_else(|| eyre!(".flo data size overflow"))?;
-    let payload = bytes
+    bytes
         .get(12..12 + data_bytes)
         .ok_or_else(|| eyre!(".flo pixel payload is truncated"))?;
-    let pixels = payload
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("exact flo value")))
-        .collect();
-    DecodedImage::new(width as u32, height as u32, 2, PixelType::F32, DecodedPixels::F32(pixels))
+    DecodedImage::new_with_transform(
+        width as u32,
+        height as u32,
+        2,
+        PixelType::F32,
+        DecodedPixels::Raw(bytes),
+        DecodedLayout {
+            row_stride_bytes: width as usize * 2 * 4,
+            plane_stride_bytes: data_bytes,
+            planes: 1,
+            bit_depth: 32,
+            input_channels: 2,
+        },
+        DecodedColor::Direct,
+        DecodedTransform {
+            data_offset_bytes: 12,
+            ..DecodedTransform::default()
+        },
+    )
 }
 
 #[cfg(feature = "heif")]

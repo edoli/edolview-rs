@@ -451,9 +451,9 @@ impl ImageData {
             #[cfg(debug_assertions)]
             let _timer = crate::util::timer::ScopedTimer::new("Image read");
             if ext == "pfm" {
-                crate::model::image_io::decode_pfm(&fs::read(path)?)?
+                crate::model::image_io::decode_pfm_owned(fs::read(path)?)?
             } else if ext == "flo" {
-                crate::model::image_io::decode_flo(&fs::read(path)?)?
+                crate::model::image_io::decode_flo_owned(fs::read(path)?)?
             } else if crate::supported_image::is_heif_extension(ext.as_str()) {
                 #[cfg(not(feature = "heif"))]
                 return Err(eyre!("HEIF support is not enabled"));
