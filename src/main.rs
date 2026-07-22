@@ -155,15 +155,26 @@ fn configure_wgpu(options: &mut eframe::NativeOptions) {
     setup.device_descriptor = Arc::new(move |adapter| {
         let mut descriptor = default_device_descriptor(adapter);
         apply_adapter_compute_limits(&mut descriptor.required_limits, &adapter.limits());
-        if adapter.get_info().backend == wgpu::Backend::Dx12 {
-            // Keep the initial DX12 heaps small enough for low VRAM usage while
-            // allowing the allocator to grow for workloads with many resources.
-            // wgpu-hal derives the host range as half of this device range.
-            const MIB: u64 = 1024 * 1024;
-            descriptor.memory_hints = wgpu::MemoryHints::Manual {
-                suballocated_device_memory_block_size: 40 * MIB..256 * MIB,
-            };
-        }
+        const MIB: u64 = 1024 * 1024;
+        descriptor.memory_hints = match adapter.get_info().backend {
+            wgpu::Backend::Dx12 => {
+                // Keep the initial DX12 heaps small enough for low VRAM usage while
+                // allowing the allocator to grow for workloads with many resources.
+                // wgpu-hal derives the host range as half of this device range.
+                wgpu::MemoryHints::Manual {
+                    suballocated_device_memory_block_size: 40 * MIB..256 * MIB,
+                }
+            }
+            wgpu::Backend::Vulkan => {
+                // Vulkan's default Performance hint starts with much larger device
+                // and host blocks than the image upload path needs. A smaller range
+                // lowers peak VRAM without crossing the allocator's slow path.
+                wgpu::MemoryHints::Manual {
+                    suballocated_device_memory_block_size: 40 * MIB..192 * MIB,
+                }
+            }
+            _ => descriptor.memory_hints.clone(),
+        };
         descriptor
     });
 }

@@ -12,14 +12,10 @@ const REDUCTION_GROUPS: u32 = 1024;
 
 static GPU_COMPUTE: LazyLock<RwLock<Option<Arc<GpuComputeContext>>>> = LazyLock::new(|| RwLock::new(None));
 
-pub fn install_gpu_compute(device: &wgpu::Device, queue: &wgpu::Queue, stream_rgba_uploads: bool) {
+pub fn install_gpu_compute(device: &wgpu::Device, queue: &wgpu::Queue, backend: wgpu::Backend) {
     let mut slot = GPU_COMPUTE.write().unwrap();
     if slot.is_none() {
-        *slot = Some(Arc::new(GpuComputeContext::new(
-            device.clone(),
-            queue.clone(),
-            stream_rgba_uploads,
-        )));
+        *slot = Some(Arc::new(GpuComputeContext::new(device.clone(), queue.clone(), backend)));
     }
 }
 
@@ -88,12 +84,28 @@ pub struct GpuComputeContext {
     native_u8_upload_layout: wgpu::BindGroupLayout,
     native_u8_upload_pipeline: wgpu::ComputePipeline,
     stream_rgba_uploads: bool,
+    large_rgba_upload_chunk_bytes: u64,
+    rgb_upload_max_binding_size: u64,
     dummy_source: GpuImageTexture,
     dummy_target: GpuImageTexture,
 }
 
 impl GpuComputeContext {
-    fn new(device: wgpu::Device, queue: wgpu::Queue, stream_rgba_uploads: bool) -> Self {
+    fn new(device: wgpu::Device, queue: wgpu::Queue, backend: wgpu::Backend) -> Self {
+        const DEFAULT_RGBA_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+        const VULKAN_LARGE_RGBA_UPLOAD_CHUNK_BYTES: u64 = 40 * 1024 * 1024;
+        const VULKAN_RGB_UPLOAD_CHUNK_BYTES: u64 = 8 * 1024 * 1024;
+        let stream_rgba_uploads = matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Vulkan);
+        let large_rgba_upload_chunk_bytes = if backend == wgpu::Backend::Vulkan {
+            VULKAN_LARGE_RGBA_UPLOAD_CHUNK_BYTES
+        } else {
+            DEFAULT_RGBA_UPLOAD_CHUNK_BYTES
+        };
+        let rgb_upload_max_binding_size = if backend == wgpu::Backend::Vulkan {
+            VULKAN_RGB_UPLOAD_CHUNK_BYTES
+        } else {
+            device.limits().max_storage_buffer_binding_size as u64
+        };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("edolview image compute layout"),
             entries: &[
@@ -257,6 +269,8 @@ impl GpuComputeContext {
             native_u8_upload_layout,
             native_u8_upload_pipeline,
             stream_rgba_uploads,
+            large_rgba_upload_chunk_bytes,
+            rgb_upload_max_binding_size,
             dummy_source,
             dummy_target,
         }
@@ -576,12 +590,18 @@ impl GpuComputeContext {
     }
 
     fn upload_direct(&self, texture: &wgpu::Texture, spec: &ImageSpec, pixels: &[f32]) -> Result<()> {
-        const DX12_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+        const SMALL_RGBA_UPLOAD_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+        const LARGE_UPLOAD_THRESHOLD_BYTES: u64 = 64 * 1024 * 1024;
         let bytes = bytemuck::cast_slice(pixels);
+        let chunk_bytes = if bytes.len() as u64 <= LARGE_UPLOAD_THRESHOLD_BYTES {
+            SMALL_RGBA_UPLOAD_CHUNK_BYTES
+        } else {
+            self.large_rgba_upload_chunk_bytes
+        };
         let bytes_per_row = spec.width as u32 * spec.channels as u32 * 4;
-        let should_stream = self.stream_rgba_uploads && spec.channels == 4 && bytes.len() as u64 > DX12_CHUNK_BYTES;
+        let should_stream = self.stream_rgba_uploads && spec.channels == 4 && bytes.len() as u64 > chunk_bytes;
         let rows_per_chunk = if should_stream {
-            (DX12_CHUNK_BYTES / u64::from(bytes_per_row)).max(1) as u32
+            (chunk_bytes / u64::from(bytes_per_row)).max(1) as u32
         } else {
             spec.height as u32
         };
@@ -620,9 +640,12 @@ impl GpuComputeContext {
 
     fn upload_rgb(&self, texture: &wgpu::Texture, pixels: &[f32]) -> Result<()> {
         let size = texture.size();
-        let rows_per_chunk =
-            rgb_rows_per_chunk(size.width, self.device.limits().max_storage_buffer_binding_size as u64)
-                .min(size.height);
+        let rows_per_chunk = rgb_rows_per_chunk(
+            size.width,
+            self.rgb_upload_max_binding_size
+                .min(self.device.limits().max_storage_buffer_binding_size as u64),
+        )
+        .min(size.height);
         let view = texture.create_view(&Default::default());
         for base_y in (0..size.height).step_by(rows_per_chunk as usize) {
             let row_count = rows_per_chunk.min(size.height - base_y);
@@ -1723,7 +1746,7 @@ mod tests {
                 trace: wgpu::Trace::Off,
             }))
             .expect("GPU device");
-            install_gpu_compute(&device, &queue, adapter.get_info().backend == wgpu::Backend::Dx12);
+            install_gpu_compute(&device, &queue, adapter.get_info().backend);
             gpu_compute().unwrap()
         }))
     }

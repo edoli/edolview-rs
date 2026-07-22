@@ -1497,7 +1497,7 @@ impl eframe::App for ViewerApp {
             crate::model::install_gpu_compute(
                 &render_state.device,
                 &render_state.queue,
-                render_state.adapter.get_info().backend == wgpu::Backend::Dx12,
+                render_state.adapter.get_info().backend,
             );
         }
 
