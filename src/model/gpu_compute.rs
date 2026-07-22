@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use color_eyre::eyre::{eyre, Result};
 use wgpu::util::DeviceExt as _;
 
-use super::{ComparisonMode, ImageSpec, MeanDim, PixelType, Recti};
+use super::{image_io::DecodedImage, ComparisonMode, ImageSpec, MeanDim, PixelType, Recti};
 use crate::util::math_ext::Vec2i;
 
 const WORKGROUP_SIZE: u32 = 256;
@@ -47,6 +47,14 @@ struct ComputeParams {
     values: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct NativeUploadParams {
+    image: [u32; 4],
+    memory: [u32; 4],
+    format: [u32; 4],
+}
+
 impl ComputeParams {
     fn new(spec: &ImageSpec, rect: Recti) -> Self {
         let rect = normalized_rect(spec, rect);
@@ -74,6 +82,10 @@ pub struct GpuComputeContext {
     ssim_pipeline: std::sync::OnceLock<wgpu::ComputePipeline>,
     rgb_upload_layout: wgpu::BindGroupLayout,
     rgb_upload_pipeline: wgpu::ComputePipeline,
+    native_upload_layout: wgpu::BindGroupLayout,
+    native_upload_pipeline: wgpu::ComputePipeline,
+    native_u8_upload_layout: wgpu::BindGroupLayout,
+    native_u8_upload_pipeline: wgpu::ComputePipeline,
     stream_rgba_uploads: bool,
     dummy_source: GpuImageTexture,
     dummy_target: GpuImageTexture,
@@ -179,6 +191,50 @@ impl GpuComputeContext {
             compilation_options: Default::default(),
             cache: None,
         });
+        let native_upload_layout = create_native_upload_layout(
+            &device,
+            wgpu::TextureFormat::Rgba32Float,
+            "edolview native image upload layout",
+        );
+        let native_u8_upload_layout = create_native_upload_layout(
+            &device,
+            wgpu::TextureFormat::Rgba8Unorm,
+            "edolview native U8 image upload layout",
+        );
+        let native_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("edolview native image upload shader"),
+            source: wgpu::ShaderSource::Wgsl(NATIVE_UPLOAD_SHADER.into()),
+        });
+        let native_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("edolview native image upload pipeline layout"),
+            bind_group_layouts: &[Some(&native_upload_layout)],
+            immediate_size: 0,
+        });
+        let native_upload_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("edolview native image upload pipeline"),
+            layout: Some(&native_pipeline_layout),
+            module: &native_module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let native_u8_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("edolview native U8 image upload shader"),
+            source: wgpu::ShaderSource::Wgsl(NATIVE_UPLOAD_SHADER.replace("rgba32float", "rgba8unorm").into()),
+        });
+        let native_u8_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("edolview native U8 image upload pipeline layout"),
+            bind_group_layouts: &[Some(&native_u8_upload_layout)],
+            immediate_size: 0,
+        });
+        let native_u8_upload_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("edolview native U8 image upload pipeline"),
+            layout: Some(&native_u8_pipeline_layout),
+            module: &native_u8_module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
         let dummy_source = create_empty_rgba_texture(&device, 1, 1, 4, "edolview compute dummy source");
         let dummy_target = create_empty_rgba_texture(&device, 1, 1, 4, "edolview compute dummy target");
         Self {
@@ -195,10 +251,222 @@ impl GpuComputeContext {
             ssim_pipeline: std::sync::OnceLock::new(),
             rgb_upload_layout,
             rgb_upload_pipeline,
+            native_upload_layout,
+            native_upload_pipeline,
+            native_u8_upload_layout,
+            native_u8_upload_pipeline,
             stream_rgba_uploads,
             dummy_source,
             dummy_target,
         }
+    }
+
+    pub(crate) fn upload_decoded(&self, image: &DecodedImage) -> Result<Arc<GpuImageTexture>> {
+        if let Some(pixels) = image.f32_pixels() {
+            return self.upload(
+                &ImageSpec::new(image.width, image.height, image.channels, image.pixel_type),
+                pixels,
+            );
+        }
+        if image.is_canonical_direct()
+            && matches!(image.pixels, crate::model::image_io::DecodedPixels::U8(_))
+            && matches!(image.channels, 1 | 2 | 4)
+        {
+            return self.upload_u8_texture(image);
+        }
+        self.upload_native_fused(image)
+    }
+
+    fn upload_u8_texture(&self, image: &DecodedImage) -> Result<Arc<GpuImageTexture>> {
+        let format = match image.channels {
+            1 => wgpu::TextureFormat::R8Unorm,
+            2 => wgpu::TextureFormat::Rg8Unorm,
+            4 => wgpu::TextureFormat::Rgba8Unorm,
+            _ => unreachable!("the native U8 fast path validates channels"),
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("edolview native U8 image"),
+            size: wgpu::Extent3d {
+                width: image.width as u32,
+                height: image.height as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let bytes = image.pixels.bytes();
+        let bytes_per_row = image.width as u32 * image.channels as u32;
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(image.height as u32),
+            },
+            texture.size(),
+        );
+        Ok(Arc::new(GpuImageTexture {
+            view: texture.create_view(&Default::default()),
+            texture,
+            spec: ImageSpec::new(image.width, image.height, image.channels, image.pixel_type),
+        }))
+    }
+
+    fn upload_native_fused(&self, image: &DecodedImage) -> Result<Arc<GpuImageTexture>> {
+        let pixel_kind = image
+            .pixels
+            .shader_kind()
+            .ok_or_else(|| eyre!("This native pixel type cannot be normalized by WGSL"))?;
+        let compact_u8_output = matches!(image.pixels, crate::model::image_io::DecodedPixels::U8(_))
+            && matches!(image.color, crate::model::image_io::DecodedColor::Direct)
+            && image.layout.bit_depth <= 8
+            && image.layout.input_channels == image.channels as usize;
+        let output_format = if compact_u8_output {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba32Float
+        };
+        let output = create_native_output_texture(
+            &self.device,
+            image.width as u32,
+            image.height as u32,
+            image.channels,
+            output_format,
+        );
+        let palette_bytes = image.color.palette().map(bytemuck::cast_slice).unwrap_or(&[]);
+        let palette = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("edolview native image palette"),
+            contents: if palette_bytes.is_empty() {
+                bytemuck::bytes_of(&0_u32)
+            } else {
+                palette_bytes
+            },
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let source_bytes = image.pixels.bytes();
+        let max_binding = self.device.limits().max_storage_buffer_binding_size as usize;
+        if image.layout.planes > 5 {
+            return Err(eyre!("Native planar images with more than five planes are not supported"));
+        }
+        if image.layout.row_stride_bytes > max_binding {
+            return Err(eyre!(
+                "A native image row exceeds the GPU storage binding limit: {} > {max_binding}",
+                image.layout.row_stride_bytes
+            ));
+        }
+        let rows_per_chunk = (max_binding / image.layout.row_stride_bytes).max(1).min(image.height as usize);
+        let dummy_source = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("edolview native image unused plane"),
+            contents: bytemuck::bytes_of(&0_u32),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        for base_y in (0..image.height as usize).step_by(rows_per_chunk) {
+            let row_count = rows_per_chunk.min(image.height as usize - base_y);
+            let plane_count = image.layout.planes.max(1) as usize;
+            let mut sources = Vec::with_capacity(plane_count);
+            for plane in 0..plane_count {
+                let start = if plane_count == 1 {
+                    base_y * image.layout.row_stride_bytes
+                } else {
+                    plane * image.layout.plane_stride_bytes + base_y * image.layout.row_stride_bytes
+                };
+                let end = start + row_count * image.layout.row_stride_bytes;
+                let bytes = source_bytes
+                    .get(start..end)
+                    .ok_or_else(|| eyre!("Native image plane or row is truncated"))?;
+                sources.push(self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("edolview native image source plane"),
+                    contents: bytes,
+                    usage: wgpu::BufferUsages::STORAGE,
+                }));
+            }
+            let params = NativeUploadParams {
+                image: [
+                    image.width as u32,
+                    image.height as u32,
+                    image.layout.input_channels as u32,
+                    image.channels as u32,
+                ],
+                memory: [
+                    image.layout.row_stride_bytes as u32,
+                    0,
+                    image.layout.planes,
+                    image.layout.bit_depth as u32,
+                ],
+                format: [pixel_kind, image.color.shader_kind(), base_y as u32, row_count as u32],
+            };
+            let params = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("edolview native image upload parameters"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let upload_layout = if compact_u8_output {
+                &self.native_u8_upload_layout
+            } else {
+                &self.native_upload_layout
+            };
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("edolview native image upload bind group"),
+                layout: upload_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: sources[0].as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: sources.get(1).unwrap_or(&dummy_source).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: sources.get(2).unwrap_or(&dummy_source).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: sources.get(3).unwrap_or(&dummy_source).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: sources.get(4).unwrap_or(&dummy_source).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: palette.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(&output.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: params.as_entire_binding(),
+                    },
+                ],
+            });
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("edolview native image upload encoder"),
+            });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("edolview fused native image conversion"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(if compact_u8_output {
+                    &self.native_u8_upload_pipeline
+                } else {
+                    &self.native_upload_pipeline
+                });
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups((image.width as u32).div_ceil(16), (row_count as u32).div_ceil(16), 1);
+            }
+            self.queue.submit([encoder.finish()]);
+        }
+        Ok(Arc::new(output))
     }
 
     pub fn upload(&self, spec: &ImageSpec, pixels: &[f32]) -> Result<Arc<GpuImageTexture>> {
@@ -730,6 +998,77 @@ fn texture_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+fn create_native_upload_layout(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    label: &'static str,
+) -> wgpu::BindGroupLayout {
+    let mut entries = (0..=5)
+        .map(|binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        })
+        .collect::<Vec<_>>();
+    entries.push(wgpu::BindGroupLayoutEntry {
+        binding: 6,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly,
+            format,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        },
+        count: None,
+    });
+    entries.push(wgpu::BindGroupLayoutEntry {
+        binding: 7,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    });
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(label),
+        entries: &entries,
+    })
+}
+
+fn create_native_output_texture(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    channels: i32,
+    format: wgpu::TextureFormat,
+) -> GpuImageTexture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("edolview normalized native image"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+        view_formats: &[],
+    });
+    GpuImageTexture {
+        view: texture.create_view(&Default::default()),
+        texture,
+        spec: ImageSpec::new(width as i32, height as i32, channels, PixelType::F32),
+    }
+}
+
 fn create_empty_rgba_texture(
     device: &wgpu::Device,
     width: u32,
@@ -1085,6 +1424,180 @@ fn ssim(
 }
 "#;
 
+const NATIVE_UPLOAD_SHADER: &str = r#"
+struct NativeUploadParams {
+    image: vec4<u32>,
+    memory: vec4<u32>,
+    format: vec4<u32>,
+}
+
+@group(0) @binding(0) var<storage, read> source0: array<u32>;
+@group(0) @binding(1) var<storage, read> source1: array<u32>;
+@group(0) @binding(2) var<storage, read> source2: array<u32>;
+@group(0) @binding(3) var<storage, read> source3: array<u32>;
+@group(0) @binding(4) var<storage, read> source4: array<u32>;
+@group(0) @binding(5) var<storage, read> palette: array<u32>;
+@group(0) @binding(6) var output_texture: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(7) var<uniform> params: NativeUploadParams;
+
+fn load_word(plane: u32, index: u32) -> u32 {
+    if plane == 1u { return source1[index]; }
+    if plane == 2u { return source2[index]; }
+    if plane == 3u { return source3[index]; }
+    if plane == 4u { return source4[index]; }
+    return source0[index];
+}
+
+fn load_byte(plane: u32, offset: u32) -> u32 {
+    let word = load_word(plane, offset >> 2u);
+    return (word >> ((offset & 3u) * 8u)) & 255u;
+}
+
+fn load_u16(plane: u32, offset: u32) -> u32 {
+    return load_byte(plane, offset) | (load_byte(plane, offset + 1u) << 8u);
+}
+
+fn load_palette_u16(index: u32) -> u32 {
+    let word = palette[index >> 1u];
+    return (word >> ((index & 1u) * 16u)) & 65535u;
+}
+
+fn sample_bytes() -> u32 {
+    let kind = params.format.x;
+    if kind <= 1u { return 1u; }
+    if kind <= 3u || kind == 5u { return 2u; }
+    return 4u;
+}
+
+fn unsigned_maximum() -> f32 {
+    let bits = params.memory.w;
+    if bits >= 32u { return 4294967295.0; }
+    return f32((1u << bits) - 1u);
+}
+
+fn signed_maximum() -> f32 {
+    let bits = params.memory.w;
+    if bits >= 32u { return 2147483647.0; }
+    return f32((1u << (bits - 1u)) - 1u);
+}
+
+fn sample_offset(x: u32, y: u32, channel: u32) -> u32 {
+    let bytes = sample_bytes();
+    if params.memory.z > 1u {
+        return y * params.memory.x + x * bytes;
+    }
+    return y * params.memory.x + (x * params.image.z + channel) * bytes;
+}
+
+fn packed_sample(x: u32, y: u32, channel: u32) -> f32 {
+    var base = y * params.memory.x;
+    var sample = x * params.image.z + channel;
+    var plane = 0u;
+    if params.memory.z > 1u {
+        plane = channel;
+        base = y * params.memory.x;
+        sample = x;
+    }
+    let bit = sample * params.memory.w;
+    let byte = load_byte(plane, base + bit / 8u);
+    let shift = 8u - params.memory.w - bit % 8u;
+    let mask = (1u << params.memory.w) - 1u;
+    return f32((byte >> shift) & mask) / f32(mask);
+}
+
+fn normalized_sample(x: u32, y: u32, channel: u32) -> f32 {
+    if params.memory.w < 8u {
+        return packed_sample(x, y, channel);
+    }
+    let offset = sample_offset(x, y, channel);
+    let plane = select(0u, channel, params.memory.z > 1u);
+    let kind = params.format.x;
+    if kind == 0u { return f32(load_byte(plane, offset)) / unsigned_maximum(); }
+    if kind == 1u {
+        let signed = bitcast<i32>(load_byte(plane, offset) << 24u) >> 24;
+        return f32(signed) / signed_maximum();
+    }
+    if kind == 2u { return f32(load_u16(plane, offset)) / unsigned_maximum(); }
+    if kind == 3u {
+        let signed = bitcast<i32>(load_u16(plane, offset) << 16u) >> 16;
+        return f32(signed) / signed_maximum();
+    }
+    if kind == 4u {
+        let raw = load_byte(plane, offset) | (load_byte(plane, offset + 1u) << 8u) |
+            (load_byte(plane, offset + 2u) << 16u) | (load_byte(plane, offset + 3u) << 24u);
+        return f32(bitcast<i32>(raw)) / signed_maximum();
+    }
+    if kind == 5u {
+        let word_offset = offset & ~3u;
+        let raw = load_word(plane, word_offset >> 2u);
+        let pair = unpack2x16float(raw);
+        return select(pair.x, pair.y, (offset & 2u) != 0u);
+    }
+    let raw = load_byte(plane, offset) | (load_byte(plane, offset + 1u) << 8u) |
+        (load_byte(plane, offset + 2u) << 16u) | (load_byte(plane, offset + 3u) << 24u);
+    if kind == 6u { return bitcast<f32>(raw); }
+    return f32(raw) / unsigned_maximum();
+}
+
+fn lab_to_rgb(l_in: f32, a_in: f32, b_in: f32) -> vec3<f32> {
+    let l = l_in * 100.0;
+    let a = a_in * 255.0 - 128.0;
+    let b = b_in * 255.0 - 128.0;
+    let fy = (l + 16.0) / 116.0;
+    let f = vec3<f32>(fy + a / 500.0, fy, fy - b / 200.0);
+    let cube = f * f * f;
+    let xyz = vec3<f32>(0.95047, 1.0, 1.08883) * select((116.0 * f - 16.0) / 903.3, cube, cube > vec3<f32>(0.008856));
+    let linear = vec3<f32>(
+        3.240454 * xyz.x - 1.537139 * xyz.y - 0.498531 * xyz.z,
+        -0.969266 * xyz.x + 1.876011 * xyz.y + 0.041556 * xyz.z,
+        0.055643 * xyz.x - 0.204026 * xyz.y + 1.057225 * xyz.z
+    );
+    let positive = max(linear, vec3<f32>(0.0));
+    return clamp(select(12.92 * positive, 1.055 * pow(positive, vec3<f32>(1.0 / 2.4)) - 0.055,
+        positive > vec3<f32>(0.0031308)), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if id.x >= params.image.x || id.y >= params.format.w { return; }
+    var input: array<f32, 5>;
+    for (var channel = 0u; channel < params.image.z; channel++) {
+        input[channel] = normalized_sample(id.x, id.y, channel);
+    }
+    var output = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let color = params.format.y;
+    if color == 0u {
+        output.x = input[0];
+        if params.image.w > 1u { output.y = input[1]; }
+        if params.image.w > 2u { output.z = input[2]; }
+        if params.image.w > 3u { output.w = input[3]; }
+    } else if color == 1u {
+        let entries = 1u << params.memory.w;
+        let index = u32(round(input[0] * f32(entries - 1u)));
+        output = vec4<f32>(
+            f32(load_palette_u16(index)) / 65535.0,
+            f32(load_palette_u16(entries + index)) / 65535.0,
+            f32(load_palette_u16(2u * entries + index)) / 65535.0,
+            1.0
+        );
+    } else if color == 2u || color == 3u {
+        let k = 1.0 - input[3];
+        output = vec4<f32>((vec3<f32>(1.0) - vec3<f32>(input[0], input[1], input[2])) * k, select(1.0, input[4], color == 3u));
+    } else if color == 4u {
+        let cb = input[1] - 0.5;
+        let cr = input[2] - 0.5;
+        output = vec4<f32>(clamp(vec3<f32>(
+            input[0] + 1.402 * cr,
+            input[0] - 0.344136 * cb - 0.714136 * cr,
+            input[0] + 1.772 * cb
+        ), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    } else {
+        output = vec4<f32>(lab_to_rgb(input[0], input[1], input[2]), 1.0);
+    }
+    textureStore(output_texture, vec2<i32>(i32(id.x), i32(params.format.z + id.y)), output);
+}
+"#;
+
 const RGB_UPLOAD_SHADER: &str = r#"
 struct Params {
     base_y: u32,
@@ -1113,6 +1626,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::image_io::{DecodedColor, DecodedImage, DecodedLayout, DecodedPixels};
     use crate::model::{Image, ImageData, PixelType};
 
     fn context() -> Arc<GpuComputeContext> {
@@ -1231,6 +1745,152 @@ mod tests {
         assert_eq!(histogram.len(), 4);
         assert_eq!(histogram[0].iter().sum::<f32>(), 2048.0);
         assert_eq!(histogram[3].iter().sum::<f32>(), 0.0);
+    }
+
+    #[test]
+    fn native_upload_normalizes_and_fuses_layout_and_palette() {
+        let compute = context();
+
+        let rgba = ImageData::from_raw_bytes(&[0, 64, 128, 255, 255, 128, 64, 0], 2, 1, 4, PixelType::U8).unwrap();
+        let (mins, maxs) = compute.minmax(&rgba.gpu_texture().unwrap(), Recti::ZERO).unwrap();
+        assert_eq!(mins, vec![0.0, 64.0 / 255.0, 64.0 / 255.0, 0.0]);
+        assert_eq!(maxs, vec![1.0, 128.0 / 255.0, 128.0 / 255.0, 1.0]);
+
+        let rgb16 = ImageData::from_raw_bytes(
+            bytemuck::cast_slice(&[0_u16, 32768, u16::MAX, u16::MAX, 16384, 0]),
+            2,
+            1,
+            3,
+            PixelType::U16,
+        )
+        .unwrap();
+        let (mins, maxs) = compute.minmax(&rgb16.gpu_texture().unwrap(), Recti::ZERO).unwrap();
+        assert!((mins[0] - 0.0).abs() < 1e-6 && (maxs[0] - 1.0).abs() < 1e-6);
+        assert!((mins[1] - 16384.0 / 65535.0).abs() < 1e-6);
+        assert!((maxs[1] - 32768.0 / 65535.0).abs() < 1e-6);
+
+        let planar = DecodedImage::new_with_layout(
+            2,
+            1,
+            3,
+            PixelType::U8,
+            DecodedPixels::U8(vec![0, 255, 128, 64, 255, 0]),
+            DecodedLayout {
+                row_stride_bytes: 2,
+                plane_stride_bytes: 2,
+                planes: 3,
+                bit_depth: 8,
+                input_channels: 3,
+            },
+            DecodedColor::Direct,
+        )
+        .unwrap();
+        let planar = ImageData::from_decoded(planar).unwrap();
+        let (mins, maxs) = compute.minmax(&planar.gpu_texture().unwrap(), Recti::ZERO).unwrap();
+        for (actual, expected) in mins.iter().zip([0.0, 64.0 / 255.0, 0.0]) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+        for (actual, expected) in maxs.iter().zip([1.0, 128.0 / 255.0, 1.0]) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+
+        let mut palette = vec![0_u16; 16 * 3];
+        palette[15] = u16::MAX;
+        palette[16] = u16::MAX;
+        palette[2 * 16 + 15] = u16::MAX;
+        let packed = DecodedImage::new_with_layout(
+            2,
+            1,
+            3,
+            PixelType::U16,
+            DecodedPixels::U8(vec![0x0f]),
+            DecodedLayout {
+                row_stride_bytes: 1,
+                plane_stride_bytes: 1,
+                planes: 1,
+                bit_depth: 4,
+                input_channels: 1,
+            },
+            DecodedColor::Palette(palette),
+        )
+        .unwrap();
+        let packed = ImageData::from_decoded(packed).unwrap();
+        let (mins, maxs) = compute.minmax(&packed.gpu_texture().unwrap(), Recti::ZERO).unwrap();
+        assert_eq!(mins, vec![0.0, 0.0, 0.0]);
+        assert_eq!(maxs, vec![1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    #[ignore = "manual supported-format GPU pipeline validation"]
+    fn supported_format_matrix_reaches_gpu_statistics() {
+        let root =
+            std::path::PathBuf::from(std::env::var("EDOLVIEW_GPU_MATRIX_DIR").expect("set EDOLVIEW_GPU_MATRIX_DIR"));
+        let compute = context();
+        let mut tested = 0;
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let path = entry.unwrap().path();
+            let extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if !crate::supported_image::is_supported_image_extension(&extension) {
+                continue;
+            }
+            let image = ImageData::load_from_path(&path)
+                .unwrap_or_else(|error| panic!("{} failed to decode: {error:#}", path.display()));
+            let texture = image
+                .gpu_texture()
+                .unwrap_or_else(|error| panic!("{} failed GPU upload: {error:#}", path.display()));
+            let (mins, maxs) = compute
+                .minmax(&texture, Recti::ZERO)
+                .unwrap_or_else(|error| panic!("{} failed GPU statistics: {error:#}", path.display()));
+            assert_eq!(mins.len(), image.spec().channels as usize, "{}", path.display());
+            assert_eq!(maxs.len(), image.spec().channels as usize, "{}", path.display());
+            tested += 1;
+        }
+        assert!(tested >= 100, "only {tested} supported samples were tested");
+        eprintln!("validated {tested} supported images through decode, GPU upload, and min/max");
+    }
+
+    #[test]
+    #[ignore = "manual decode and GPU upload benchmark"]
+    fn benchmark_decode_and_gpu_upload() {
+        let files = std::env::var("EDOLVIEW_GPU_BENCH_FILES").expect("set EDOLVIEW_GPU_BENCH_FILES");
+        let compute = context();
+        for path in files.split(';').filter(|value| !value.is_empty()) {
+            let path = std::path::PathBuf::from(path);
+            let mut decode_ms = Vec::new();
+            let mut upload_ms = Vec::new();
+            let mut output_format = None;
+            for iteration in 0..6 {
+                let start = std::time::Instant::now();
+                let image = ImageData::load_from_path(&path).unwrap();
+                let decoded = start.elapsed().as_secs_f64() * 1_000.0;
+                let start = std::time::Instant::now();
+                let texture = image.gpu_texture().unwrap();
+                compute
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .expect("wait for native upload");
+                let uploaded = start.elapsed().as_secs_f64() * 1_000.0;
+                output_format = Some(texture.texture.format());
+                if iteration > 0 {
+                    decode_ms.push(decoded);
+                    upload_ms.push(uploaded);
+                }
+            }
+            decode_ms.sort_by(f64::total_cmp);
+            upload_ms.sort_by(f64::total_cmp);
+            eprintln!(
+                "GPU_BENCH,{},{:.3},{:.3},{:.3},{:?}",
+                path.file_name().unwrap().to_string_lossy(),
+                decode_ms[decode_ms.len() / 2],
+                upload_ms[upload_ms.len() / 2],
+                decode_ms[decode_ms.len() / 2] + upload_ms[upload_ms.len() / 2],
+                output_format.unwrap()
+            );
+        }
     }
 
     #[test]

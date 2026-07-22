@@ -1,6 +1,5 @@
 use crate::model::{gpu_compute, GpuImageTexture, MeanDim, MeanProcessor, Recti};
 use color_eyre::eyre::{eyre, Result};
-use half::f16;
 use std::f64;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::{
@@ -280,7 +279,7 @@ enum ImageStorage {
     // `ImageDataInner` is already reference counted, so an additional `Arc`
     // around the pixels only adds a second allocation and a full Vec-to-slice
     // copy during construction.
-    Cpu(Vec<f32>),
+    Cpu(crate::model::image_io::DecodedImage),
     Derived(DerivedImage),
     Empty,
 }
@@ -299,10 +298,17 @@ impl ImageData {
         if pixels.len() != expected {
             return Err(eyre!("Unexpected image data length: {} != {expected}", pixels.len()));
         }
+        let decoded = crate::model::image_io::DecodedImage::new(
+            spec.width as u32,
+            spec.height as u32,
+            spec.channels,
+            spec.dtype,
+            crate::model::image_io::DecodedPixels::F32(pixels),
+        )?;
         Ok(Self(Arc::new(ImageDataInner {
             id: new_id(),
             spec,
-            storage: ImageStorage::Cpu(pixels),
+            storage: ImageStorage::Cpu(decoded),
             gpu: OnceLock::new(),
             gpu_init: Mutex::new(()),
             hist: OnceLock::new(),
@@ -349,7 +355,7 @@ impl ImageData {
 
     pub fn pixels(&self) -> Option<&[f32]> {
         match &self.0.storage {
-            ImageStorage::Cpu(pixels) => Some(pixels),
+            ImageStorage::Cpu(image) => image.f32_pixels(),
             ImageStorage::Derived(_) | ImageStorage::Empty => None,
         }
     }
@@ -425,10 +431,10 @@ impl ImageData {
         if bytes.len() != expected_bytes {
             return Err(eyre!("Unexpected raw image size: {} != {expected_bytes}", bytes.len()));
         }
-        let factor = (1.0 / pixel_type.alpha()) as f32;
-        let mut pixels = Vec::with_capacity(element_count);
-        append_raw_pixels(&mut pixels, bytes, element_count, pixel_type, factor)?;
-        Self::from_f32(ImageSpec::new(width, height, channels, pixel_type), pixels)
+        let pixels = decoded_pixels_from_bytes(bytes, element_count, pixel_type)?;
+        let decoded =
+            crate::model::image_io::DecodedImage::new(width as u32, height as u32, channels, pixel_type, pixels)?;
+        Self::from_decoded(decoded)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<ImageData> {
@@ -480,8 +486,13 @@ impl ImageData {
             return Err(eyre!("Invalid clipboard image dimensions or channels"));
         }
 
-        let pixels = bytes.into_iter().map(|value| value as f32 / 255.0).collect();
-        Self::from_f32(ImageSpec::new(width, height, channels, PixelType::U8), pixels)
+        Self::from_decoded(crate::model::image_io::DecodedImage::new(
+            width as u32,
+            height as u32,
+            channels,
+            PixelType::U8,
+            crate::model::image_io::DecodedPixels::U8(bytes),
+        )?)
     }
 
     pub fn load_from_url(url: &str) -> Result<ImageData> {
@@ -493,13 +504,19 @@ impl ImageData {
         Self::from_bytes(&bytes)
     }
 
-    fn from_decoded(decoded: crate::model::image_io::DecodedImage) -> Result<ImageData> {
+    pub(crate) fn from_decoded(decoded: crate::model::image_io::DecodedImage) -> Result<ImageData> {
         #[cfg(debug_assertions)]
         let _timer = crate::util::timer::ScopedTimer::new("Image read postprocess");
-        Self::from_f32(
-            ImageSpec::new(decoded.width, decoded.height, decoded.channels, decoded.pixel_type),
-            decoded.pixels,
-        )
+        let spec = ImageSpec::new(decoded.width, decoded.height, decoded.channels, decoded.pixel_type);
+        Ok(Self(Arc::new(ImageDataInner {
+            id: new_id(),
+            spec,
+            storage: ImageStorage::Cpu(decoded),
+            gpu: OnceLock::new(),
+            gpu_init: Mutex::new(()),
+            hist: OnceLock::new(),
+            minmax: OnceLock::new(),
+        })))
     }
 
     pub fn gpu_texture(&self) -> Result<Arc<GpuImageTexture>> {
@@ -512,7 +529,7 @@ impl ImageData {
         }
         let compute = gpu_compute()?;
         let texture = match &self.0.storage {
-            ImageStorage::Cpu(pixels) => compute.upload(&self.0.spec, pixels)?,
+            ImageStorage::Cpu(image) => compute.upload_decoded(image)?,
             ImageStorage::Derived(derived) => {
                 let primary = derived.primary.gpu_texture()?;
                 let secondary = derived.secondary.gpu_texture()?;
@@ -537,9 +554,9 @@ impl ImageData {
             return Err(eyre!("Coordinates out of bounds"));
         }
         match &self.0.storage {
-            ImageStorage::Cpu(pixels) => {
-                let start = ((y * spec.width + x) * spec.channels) as usize;
-                Ok(pixels[start..start + spec.channels as usize].to_vec())
+            ImageStorage::Cpu(image) => {
+                let (values, channels) = image.normalized_pixel(x as usize, y as usize)?;
+                Ok(values[..channels].to_vec())
             }
             ImageStorage::Derived(derived) => {
                 let mut lhs = derived.primary.pixel_values(x, y)?;
@@ -568,7 +585,7 @@ impl ImageData {
             return None;
         }
         match &self.0.storage {
-            ImageStorage::Cpu(pixels) => pixels.get(pixel_index * spec.channels as usize + channel).copied(),
+            ImageStorage::Cpu(image) => image.normalized_scalar(pixel_index, channel),
             ImageStorage::Derived(derived) => {
                 let primary_channel = if derived.channel_strategy == 1 { 0 } else { channel };
                 let secondary_channel = if derived.channel_strategy == 2 { 0 } else { channel };
@@ -581,6 +598,26 @@ impl ImageData {
                     }
                     crate::model::ComparisonMode::Split => lhs,
                 })
+            }
+            ImageStorage::Empty => None,
+        }
+    }
+
+    pub(crate) fn normalized_pixel_at(&self, pixel_index: usize) -> Option<([f32; 4], usize)> {
+        let spec = self.spec();
+        if pixel_index >= spec.width as usize * spec.height as usize {
+            return None;
+        }
+        match &self.0.storage {
+            ImageStorage::Cpu(image) => image
+                .normalized_pixel(pixel_index % spec.width as usize, pixel_index / spec.width as usize)
+                .ok(),
+            ImageStorage::Derived(_) => {
+                let mut values = [0.0; 4];
+                for (channel, value) in values.iter_mut().enumerate().take(spec.channels as usize) {
+                    *value = self.scalar_at(pixel_index, channel)?;
+                }
+                Some((values, spec.channels as usize))
             }
             ImageStorage::Empty => None,
         }
@@ -624,13 +661,11 @@ impl Image for ImageData {
     }
 }
 
-fn append_raw_pixels(
-    pixels: &mut Vec<f32>,
+fn decoded_pixels_from_bytes(
     bytes: &[u8],
     element_count: usize,
     pixel_type: PixelType,
-    factor: f32,
-) -> Result<()> {
+) -> Result<crate::model::image_io::DecodedPixels> {
     let required_bytes = element_count
         .checked_mul(pixel_type.bytes())
         .ok_or_else(|| eyre!("Raw image byte count overflow"))?;
@@ -638,45 +673,32 @@ fn append_raw_pixels(
         .get(..required_bytes)
         .ok_or_else(|| eyre!("Unexpected raw image size: {} < {required_bytes}", bytes.len()))?;
 
-    macro_rules! append_scaled {
-        ($ty:ty, $convert:expr) => {{
+    macro_rules! read_values {
+        ($ty:ty) => {{
             if let Ok(values) = bytemuck::try_cast_slice::<u8, $ty>(bytes) {
-                pixels.extend(values.iter().map(|&value| ($convert)(value) * factor));
+                values.to_vec()
             } else {
                 // Socket payloads can begin at arbitrary byte alignment.
-                pixels.extend(bytes.chunks_exact(mem::size_of::<$ty>()).map(|chunk| {
-                    let value = <$ty>::from_ne_bytes(chunk.try_into().expect("exact scalar chunk"));
-                    ($convert)(value) * factor
-                }));
+                bytes
+                    .chunks_exact(mem::size_of::<$ty>())
+                    .map(|chunk| <$ty>::from_ne_bytes(chunk.try_into().expect("exact scalar chunk")))
+                    .collect()
             }
         }};
     }
 
-    match pixel_type {
-        PixelType::U8 => pixels.extend(bytes.iter().map(|&value| value as f32 * factor)),
-        PixelType::I8 => pixels.extend(bytes.iter().map(|&value| (value as i8) as f32 * factor)),
-        PixelType::U16 => append_scaled!(u16, |value: u16| value as f32),
-        PixelType::I16 => append_scaled!(i16, |value: i16| value as f32),
-        PixelType::I32 => append_scaled!(i32, |value: i32| value as f32),
-        PixelType::F32 => {
-            if let Ok(values) = bytemuck::try_cast_slice::<u8, f32>(bytes) {
-                if factor == 1.0 {
-                    pixels.extend_from_slice(values);
-                } else {
-                    pixels.extend(values.iter().map(|&value| value * factor));
-                }
-            } else {
-                pixels.extend(
-                    bytes
-                        .chunks_exact(mem::size_of::<f32>())
-                        .map(|chunk| f32::from_ne_bytes(chunk.try_into().expect("exact scalar chunk")) * factor),
-                );
-            }
-        }
-        PixelType::F64 => append_scaled!(f64, |value: f64| value as f32),
-        PixelType::F16 => append_scaled!(u16, |value: u16| f16::from_bits(value).to_f32()),
-    }
-    Ok(())
+    Ok(match pixel_type {
+        PixelType::U8 => crate::model::image_io::DecodedPixels::U8(bytes.to_vec()),
+        PixelType::I8 => crate::model::image_io::DecodedPixels::I8(bytes.iter().map(|&value| value as i8).collect()),
+        PixelType::U16 => crate::model::image_io::DecodedPixels::U16(read_values!(u16)),
+        PixelType::I16 => crate::model::image_io::DecodedPixels::I16(read_values!(i16)),
+        PixelType::I32 => crate::model::image_io::DecodedPixels::I32(read_values!(i32)),
+        PixelType::F32 => crate::model::image_io::DecodedPixels::F32(read_values!(f32)),
+        PixelType::F64 => crate::model::image_io::DecodedPixels::F32(
+            read_values!(f64).into_iter().map(|value| value as f32).collect(),
+        ),
+        PixelType::F16 => crate::model::image_io::DecodedPixels::F16(read_values!(u16)),
+    })
 }
 
 fn normalize_pixel_channels(lhs: &mut Vec<f32>, rhs: &mut Vec<f32>, strategy: u32, output_channels: usize) {
@@ -719,7 +741,8 @@ mod tests {
         let image = ImageData::from_raw_bytes(&bytes[1..], values.len() as i32, 1, 1, PixelType::U16).unwrap();
 
         let expected: Vec<f32> = values.iter().map(|&value| value as f32 / u16::MAX as f32).collect();
-        assert_eq!(image.pixels().unwrap(), expected);
+        let actual: Vec<f32> = (0..values.len()).map(|x| image.get_pixel_at(x as i32, 0).unwrap()[0]).collect();
+        assert_eq!(actual, expected);
 
         let float_values = [0.125_f32, 0.5, 1.0];
         let mut float_bytes = vec![0_u8];

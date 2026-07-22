@@ -129,13 +129,14 @@ fn build_derived_integral<const CHANNELS: usize>(
         let mut row_sum = [0.0f64; CHANNELS];
         for x in 0..width {
             let pixel = y * width + x;
+            let (pixel_values, channels) = image
+                .normalized_pixel_at(pixel)
+                .ok_or_else(|| eyre!("Image pixels are unavailable for integral precompute"))?;
+            debug_assert_eq!(channels, CHANNELS);
             let dst = ((y + 1) * stride + x + 1) * CHANNELS;
             let above = (y * stride + x + 1) * CHANNELS;
             for channel in 0..CHANNELS {
-                let value = image
-                    .scalar_at(pixel, channel)
-                    .ok_or_else(|| eyre!("Image pixels are unavailable for integral precompute"))?;
-                row_sum[channel] += value as f64;
+                row_sum[channel] += pixel_values[channel] as f64;
                 values[dst + channel] = values[above + channel] + row_sum[channel];
             }
         }

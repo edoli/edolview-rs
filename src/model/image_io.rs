@@ -9,7 +9,7 @@ use std::{
     sync::Once,
 };
 use tiff::{
-    decoder::{BufferLayoutPreference, Decoder as TiffDecoder, DecodingResult, Limits as TiffLimits},
+    decoder::{Decoder as TiffDecoder, DecodingResult, Limits as TiffLimits},
     ColorType as TiffColorType,
 };
 
@@ -29,21 +29,209 @@ fn ensure_decoder_hooks() {
     });
 }
 
+pub(crate) enum DecodedPixels {
+    U8(Vec<u8>),
+    I8(Vec<i8>),
+    U16(Vec<u16>),
+    I16(Vec<i16>),
+    I32(Vec<i32>),
+    U32(Vec<u32>),
+    F16(Vec<u16>),
+    F32(Vec<f32>),
+}
+
+impl DecodedPixels {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::U8(values) => values.len(),
+            Self::I8(values) => values.len(),
+            Self::U16(values) => values.len(),
+            Self::I16(values) => values.len(),
+            Self::I32(values) => values.len(),
+            Self::U32(values) => values.len(),
+            Self::F16(values) => values.len(),
+            Self::F32(values) => values.len(),
+        }
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        match self {
+            Self::U8(values) => values,
+            Self::I8(values) => bytemuck::cast_slice(values),
+            Self::U16(values) => bytemuck::cast_slice(values),
+            Self::I16(values) => bytemuck::cast_slice(values),
+            Self::I32(values) => bytemuck::cast_slice(values),
+            Self::U32(values) => bytemuck::cast_slice(values),
+            Self::F16(values) => bytemuck::cast_slice(values),
+            Self::F32(values) => bytemuck::cast_slice(values),
+        }
+    }
+
+    pub(crate) fn f32_slice(&self) -> Option<&[f32]> {
+        match self {
+            Self::F32(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn sample_bytes(&self) -> usize {
+        match self {
+            Self::U8(_) | Self::I8(_) => 1,
+            Self::U16(_) | Self::I16(_) | Self::F16(_) => 2,
+            Self::I32(_) | Self::U32(_) | Self::F32(_) => 4,
+        }
+    }
+
+    pub(crate) fn shader_kind(&self) -> Option<u32> {
+        match self {
+            Self::U8(_) => Some(0),
+            Self::I8(_) => Some(1),
+            Self::U16(_) => Some(2),
+            Self::I16(_) => Some(3),
+            Self::I32(_) => Some(4),
+            Self::F16(_) => Some(5),
+            Self::F32(_) => Some(6),
+            Self::U32(_) => Some(7),
+        }
+    }
+}
+
+pub(crate) struct DecodedLayout {
+    pub row_stride_bytes: usize,
+    pub plane_stride_bytes: usize,
+    pub planes: u32,
+    pub bit_depth: u8,
+    pub input_channels: usize,
+}
+
+pub(crate) enum DecodedColor {
+    Direct,
+    Palette(Vec<u16>),
+    Cmyk,
+    Cmyka,
+    YCbCr,
+    Lab,
+}
+
+impl DecodedColor {
+    pub(crate) fn shader_kind(&self) -> u32 {
+        match self {
+            Self::Direct => 0,
+            Self::Palette(_) => 1,
+            Self::Cmyk => 2,
+            Self::Cmyka => 3,
+            Self::YCbCr => 4,
+            Self::Lab => 5,
+        }
+    }
+
+    pub(crate) fn palette(&self) -> Option<&[u16]> {
+        match self {
+            Self::Palette(values) => Some(values),
+            _ => None,
+        }
+    }
+}
+
 pub struct DecodedImage {
     pub width: i32,
     pub height: i32,
     pub channels: i32,
     pub pixel_type: PixelType,
-    pub pixels: Vec<f32>,
+    pub(crate) pixels: DecodedPixels,
+    pub(crate) layout: DecodedLayout,
+    pub(crate) color: DecodedColor,
 }
 
 impl DecodedImage {
-    fn new(width: u32, height: u32, channels: i32, pixel_type: PixelType, pixels: Vec<f32>) -> Result<Self> {
+    pub(crate) fn new(
+        width: u32,
+        height: u32,
+        channels: i32,
+        pixel_type: PixelType,
+        pixels: DecodedPixels,
+    ) -> Result<Self> {
+        let input_channels = channels as usize;
+        let sample_bytes = pixels.sample_bytes();
+        let bit_depth = (sample_bytes * 8) as u8;
+        Self::new_with_layout(
+            width,
+            height,
+            channels,
+            pixel_type,
+            pixels,
+            DecodedLayout {
+                row_stride_bytes: width as usize * input_channels * sample_bytes,
+                plane_stride_bytes: width as usize * height as usize * input_channels * sample_bytes,
+                planes: 1,
+                bit_depth,
+                input_channels,
+            },
+            DecodedColor::Direct,
+        )
+    }
+
+    pub(crate) fn new_with_layout(
+        width: u32,
+        height: u32,
+        channels: i32,
+        pixel_type: PixelType,
+        pixels: DecodedPixels,
+        layout: DecodedLayout,
+        color: DecodedColor,
+    ) -> Result<Self> {
         let width = i32::try_from(width).map_err(|_| eyre!("Image width exceeds i32: {width}"))?;
         let height = i32::try_from(height).map_err(|_| eyre!("Image height exceeds i32: {height}"))?;
-        let expected = width as usize * height as usize * channels as usize;
-        if pixels.len() != expected {
-            return Err(eyre!("Unexpected decoded image length: {} != {expected}", pixels.len()));
+        if width <= 0 || height <= 0 || !(1..=4).contains(&channels) {
+            return Err(eyre!("Invalid decoded image dimensions or channels"));
+        }
+        if !(1..=5).contains(&layout.input_channels) || layout.planes == 0 || layout.planes > 5 {
+            return Err(eyre!("Invalid decoded image channel or plane layout"));
+        }
+        let samples_per_row = if layout.planes > 1 {
+            width as usize
+        } else {
+            width as usize * layout.input_channels
+        };
+        let minimum_row_bytes = if layout.bit_depth < 8 {
+            (samples_per_row * layout.bit_depth as usize).div_ceil(8)
+        } else {
+            samples_per_row * pixels.sample_bytes()
+        };
+        if layout.row_stride_bytes < minimum_row_bytes {
+            return Err(eyre!(
+                "Decoded image row stride is too small: {} < {minimum_row_bytes}",
+                layout.row_stride_bytes
+            ));
+        }
+        let plane_bytes = layout
+            .row_stride_bytes
+            .checked_mul(height as usize)
+            .ok_or_else(|| eyre!("Decoded image plane size overflow"))?;
+        if layout.planes > 1 && layout.plane_stride_bytes < plane_bytes {
+            return Err(eyre!("Decoded image plane stride is too small"));
+        }
+        let required_bytes = if layout.planes > 1 {
+            (layout.planes as usize - 1)
+                .checked_mul(layout.plane_stride_bytes)
+                .and_then(|offset| offset.checked_add(plane_bytes))
+        } else {
+            Some(plane_bytes)
+        }
+        .ok_or_else(|| eyre!("Decoded image buffer size overflow"))?;
+        if pixels.bytes().len() < required_bytes {
+            return Err(eyre!(
+                "Decoded image buffer is truncated: {} < {required_bytes}",
+                pixels.bytes().len()
+            ));
+        }
+        if let DecodedColor::Palette(values) = &color {
+            let required = 3_usize
+                .checked_mul(1_usize << layout.bit_depth)
+                .ok_or_else(|| eyre!("Decoded palette size overflow"))?;
+            if values.len() < required {
+                return Err(eyre!("Decoded palette is truncated: {} < {required}", values.len()));
+            }
         }
         Ok(Self {
             width,
@@ -51,7 +239,133 @@ impl DecodedImage {
             channels,
             pixel_type,
             pixels,
+            layout,
+            color,
         })
+    }
+
+    pub(crate) fn f32_pixels(&self) -> Option<&[f32]> {
+        if self.is_canonical_direct() {
+            self.pixels.f32_slice()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn is_canonical_direct(&self) -> bool {
+        matches!(self.color, DecodedColor::Direct)
+            && self.layout.planes == 1
+            && self.layout.bit_depth >= 8
+            && self.layout.input_channels == self.channels as usize
+            && self.layout.row_stride_bytes
+                == self.width as usize * self.layout.input_channels * self.pixels.sample_bytes()
+    }
+
+    pub(crate) fn normalized_pixel(&self, x: usize, y: usize) -> Result<([f32; 4], usize)> {
+        if x >= self.width as usize || y >= self.height as usize {
+            return Err(eyre!("Pixel coordinates are outside the decoded image"));
+        }
+        let mut source = [0.0_f32; 5];
+        for (channel, value) in source.iter_mut().enumerate().take(self.layout.input_channels) {
+            *value = self.normalized_sample(x, y, channel)?;
+        }
+        let mut output = [0.0_f32; 4];
+        let channels = self.channels as usize;
+        match &self.color {
+            DecodedColor::Direct => output[..channels].copy_from_slice(&source[..channels]),
+            DecodedColor::Palette(palette) => {
+                let entries = 1_usize << self.layout.bit_depth;
+                let index = (source[0] * (entries - 1) as f32).round() as usize;
+                output[..3].copy_from_slice(&[
+                    palette[index] as f32 / u16::MAX as f32,
+                    palette[entries + index] as f32 / u16::MAX as f32,
+                    palette[2 * entries + index] as f32 / u16::MAX as f32,
+                ]);
+            }
+            DecodedColor::Cmyk | DecodedColor::Cmyka => {
+                let k = 1.0 - source[3];
+                output[..3].copy_from_slice(&[(1.0 - source[0]) * k, (1.0 - source[1]) * k, (1.0 - source[2]) * k]);
+                if matches!(self.color, DecodedColor::Cmyka) {
+                    output[3] = source[4];
+                }
+            }
+            DecodedColor::YCbCr => {
+                let cb = source[1] - 0.5;
+                let cr = source[2] - 0.5;
+                output[..3].copy_from_slice(&[
+                    (source[0] + 1.402 * cr).clamp(0.0, 1.0),
+                    (source[0] - 0.344_136 * cb - 0.714_136 * cr).clamp(0.0, 1.0),
+                    (source[0] + 1.772 * cb).clamp(0.0, 1.0),
+                ]);
+            }
+            DecodedColor::Lab => output[..3].copy_from_slice(&tiff_lab_to_rgb(source[0], source[1], source[2])),
+        }
+        Ok((output, channels))
+    }
+
+    pub(crate) fn normalized_scalar(&self, pixel_index: usize, channel: usize) -> Option<f32> {
+        if channel >= self.channels as usize {
+            return None;
+        }
+        let x = pixel_index % self.width as usize;
+        let y = pixel_index / self.width as usize;
+        self.normalized_pixel(x, y).ok().map(|(values, _)| values[channel])
+    }
+
+    fn normalized_sample(&self, x: usize, y: usize, channel: usize) -> Result<f32> {
+        let bit_depth = self.layout.bit_depth as usize;
+        if bit_depth < 8 {
+            let (base, sample) = if self.layout.planes > 1 {
+                (channel * self.layout.plane_stride_bytes + y * self.layout.row_stride_bytes, x)
+            } else {
+                (y * self.layout.row_stride_bytes, x * self.layout.input_channels + channel)
+            };
+            let bit = sample * bit_depth;
+            let byte = *self
+                .pixels
+                .bytes()
+                .get(base + bit / 8)
+                .ok_or_else(|| eyre!("Packed image row is truncated"))?;
+            let shift = 8 - bit_depth - bit % 8;
+            let raw = (byte >> shift) & ((1_u8 << bit_depth) - 1);
+            return Ok(raw as f32 / ((1_u16 << bit_depth) - 1) as f32);
+        }
+
+        let sample_bytes = self.pixels.sample_bytes();
+        let byte_offset = if self.layout.planes > 1 {
+            channel * self.layout.plane_stride_bytes + y * self.layout.row_stride_bytes + x * sample_bytes
+        } else {
+            y * self.layout.row_stride_bytes + (x * self.layout.input_channels + channel) * sample_bytes
+        };
+        let index = byte_offset / sample_bytes;
+        let unsigned_max = if self.layout.bit_depth >= 32 {
+            u32::MAX as f64
+        } else {
+            ((1_u32 << self.layout.bit_depth) - 1) as f64
+        };
+        let signed_max = if self.layout.bit_depth >= 32 {
+            i32::MAX as f64
+        } else {
+            ((1_i32 << (self.layout.bit_depth - 1)) - 1).max(1) as f64
+        };
+        macro_rules! sample {
+            ($values:expr) => {
+                *$values
+                    .get(index)
+                    .ok_or_else(|| eyre!("Decoded image sample buffer is truncated"))?
+            };
+        }
+        let value = match &self.pixels {
+            DecodedPixels::U8(values) => sample!(values) as f64 / unsigned_max,
+            DecodedPixels::I8(values) => sample!(values) as f64 / signed_max,
+            DecodedPixels::U16(values) => sample!(values) as f64 / unsigned_max,
+            DecodedPixels::I16(values) => sample!(values) as f64 / signed_max,
+            DecodedPixels::I32(values) => sample!(values) as f64 / signed_max,
+            DecodedPixels::U32(values) => sample!(values) as f64 / unsigned_max,
+            DecodedPixels::F16(values) => half::f16::from_bits(sample!(values)).to_f32() as f64,
+            DecodedPixels::F32(values) => sample!(values) as f64,
+        };
+        Ok(value as f32)
     }
 }
 
@@ -224,7 +538,7 @@ fn decode_exr_reader<R: BufRead + Seek>(reader: R) -> Result<DecodedImage> {
         u32::try_from(selection.height).map_err(|_| eyre!("EXR height exceeds u32"))?,
         selection.channels() as i32,
         PixelType::F32,
-        pixels,
+        DecodedPixels::F32(pixels),
     )
 }
 
@@ -299,7 +613,7 @@ fn decode_jpeg2000_reader<R: Read + Seek>(mut reader: R) -> Result<DecodedImage>
     let height = image.height();
     let channels = image.color_space().num_channels() as usize + usize::from(image.has_alpha());
     let pixel_count = width as usize * height as usize;
-    let value_count = pixel_count
+    pixel_count
         .checked_mul(channels)
         .ok_or_else(|| eyre!("JPEG 2000 image size overflow"))?;
 
@@ -314,12 +628,57 @@ fn decode_jpeg2000_reader<R: Read + Seek>(mut reader: R) -> Result<DecodedImage>
     }
 
     let max_depth = components.iter().map(|component| component.bit_depth()).max().unwrap_or(8);
+    let uniform_depth = components.iter().all(|component| component.bit_depth() == max_depth);
     let pixel_type = match max_depth {
         0..=8 => PixelType::U8,
         9..=16 => PixelType::U16,
         _ => PixelType::F32,
     };
-    let mut pixels = Vec::with_capacity(value_count);
+    if uniform_depth && max_depth <= 16 {
+        let pixels = if max_depth <= 8 {
+            DecodedPixels::U8(
+                components
+                    .iter()
+                    .flat_map(|component| {
+                        component
+                            .samples()
+                            .iter()
+                            .map(|value| value.round().clamp(0.0, u8::MAX as f32) as u8)
+                    })
+                    .collect(),
+            )
+        } else {
+            DecodedPixels::U16(
+                components
+                    .iter()
+                    .flat_map(|component| {
+                        component
+                            .samples()
+                            .iter()
+                            .map(|value| value.round().clamp(0.0, u16::MAX as f32) as u16)
+                    })
+                    .collect(),
+            )
+        };
+        let sample_bytes = pixels.sample_bytes();
+        return DecodedImage::new_with_layout(
+            width,
+            height,
+            channels as i32,
+            pixel_type,
+            pixels,
+            DecodedLayout {
+                row_stride_bytes: width as usize * sample_bytes,
+                plane_stride_bytes: pixel_count * sample_bytes,
+                planes: channels as u32,
+                bit_depth: max_depth,
+                input_channels: channels,
+            },
+            DecodedColor::Direct,
+        );
+    }
+
+    let mut pixels = Vec::with_capacity(pixel_count * channels);
     for pixel in 0..pixel_count {
         for component in components {
             let bit_depth = component.bit_depth();
@@ -332,7 +691,7 @@ fn decode_jpeg2000_reader<R: Read + Seek>(mut reader: R) -> Result<DecodedImage>
         }
     }
 
-    DecodedImage::new(width, height, channels as i32, pixel_type, pixels)
+    DecodedImage::new(width, height, channels as i32, pixel_type, DecodedPixels::F32(pixels))
 }
 
 #[derive(Clone, Copy)]
@@ -631,19 +990,103 @@ fn decode_tiff_image<R: Read + Seek>(
 
     let mut result = DecodingResult::U8(Vec::new());
     let buffer_layout = decoder.read_image_to_buffer(&mut result)?;
-    let (raw, pixel_type, sample_bytes) = normalize_tiff_result(result, bit_depth)?;
-    let samples = reshape_tiff_samples(
-        raw,
-        &buffer_layout,
-        sample_bytes,
-        width as usize,
-        height as usize,
-        color_layout.input_channels(),
-        bit_depth,
-    )?;
-    let (pixels, pixel_type) = convert_tiff_color(samples, color_layout, palette.as_deref(), bit_depth, pixel_type)?;
+    let source_sample_bytes = match &result {
+        DecodingResult::U8(_) | DecodingResult::I8(_) => 1,
+        DecodingResult::U16(_) | DecodingResult::I16(_) | DecodingResult::F16(_) => 2,
+        DecodingResult::U32(_) | DecodingResult::I32(_) | DecodingResult::F32(_) => 4,
+        DecodingResult::U64(_) | DecodingResult::I64(_) | DecodingResult::F64(_) => 8,
+    };
+    let (pixels, mut pixel_type) = decoded_tiff_pixels(result, bit_depth);
+    let sample_bytes = pixels.sample_bytes();
+    let input_channels = color_layout.input_channels();
+    let mut row_stride_bytes = buffer_layout.row_stride.map_or_else(
+        || {
+            if bit_depth < 8 {
+                (width as usize * input_channels * bit_depth as usize).div_ceil(8)
+            } else {
+                width as usize * input_channels * sample_bytes
+            }
+        },
+        |stride| stride.get(),
+    );
+    let mut plane_stride_bytes = buffer_layout
+        .plane_stride
+        .map_or(row_stride_bytes * height as usize, |stride| stride.get());
+    if bit_depth >= 8 && source_sample_bytes != sample_bytes {
+        row_stride_bytes = row_stride_bytes / source_sample_bytes * sample_bytes;
+        plane_stride_bytes = plane_stride_bytes / source_sample_bytes * sample_bytes;
+    }
+    let color = match color_layout {
+        TiffColorLayout::Direct { .. } => DecodedColor::Direct,
+        TiffColorLayout::Palette => {
+            // The TIFF ColorMap itself is U16 even when its indices are packed
+            // U1/U2/U4/U8 samples. Keep the displayed value type consistent
+            // with the pre-GPU implementation.
+            pixel_type = PixelType::U16;
+            DecodedColor::Palette(palette.ok_or_else(|| eyre!("Palette TIFF has no color map"))?)
+        }
+        TiffColorLayout::Cmyk { alpha: false } => DecodedColor::Cmyk,
+        TiffColorLayout::Cmyk { alpha: true } => DecodedColor::Cmyka,
+        TiffColorLayout::YCbCr => DecodedColor::YCbCr,
+        TiffColorLayout::Lab => {
+            // Lab conversion produces nonlinear RGB floats.
+            pixel_type = PixelType::F32;
+            DecodedColor::Lab
+        }
+    };
+    DecodedImage::new_with_layout(
+        width,
+        height,
+        color_layout.output_channels() as i32,
+        pixel_type,
+        pixels,
+        DecodedLayout {
+            row_stride_bytes,
+            plane_stride_bytes,
+            planes: buffer_layout.planes as u32,
+            bit_depth,
+            input_channels,
+        },
+        color,
+    )
+}
 
-    DecodedImage::new(width, height, color_layout.output_channels() as i32, pixel_type, pixels)
+fn decoded_tiff_pixels(result: DecodingResult, bit_depth: u8) -> (DecodedPixels, PixelType) {
+    let unsigned_max = if bit_depth >= 64 {
+        u64::MAX as f64
+    } else {
+        ((1_u64 << bit_depth) - 1) as f64
+    };
+    let signed_max = if bit_depth >= 64 {
+        i64::MAX as f64
+    } else {
+        ((1_i64 << bit_depth.saturating_sub(1)) - 1).max(1) as f64
+    };
+    match result {
+        DecodingResult::U8(values) => (DecodedPixels::U8(values), PixelType::U8),
+        DecodingResult::U16(values) => (DecodedPixels::U16(values), PixelType::U16),
+        DecodingResult::U32(values) => (DecodedPixels::U32(values), PixelType::F32),
+        DecodingResult::U64(values) => (
+            DecodedPixels::F32(values.into_iter().map(|value| (value as f64 / unsigned_max) as f32).collect()),
+            PixelType::F32,
+        ),
+        DecodingResult::I8(values) => (DecodedPixels::I8(values), PixelType::I8),
+        DecodingResult::I16(values) => (DecodedPixels::I16(values), PixelType::I16),
+        DecodingResult::I32(values) => (DecodedPixels::I32(values), PixelType::I32),
+        DecodingResult::I64(values) => (
+            DecodedPixels::F32(values.into_iter().map(|value| (value as f64 / signed_max) as f32).collect()),
+            PixelType::F32,
+        ),
+        DecodingResult::F16(values) => (
+            DecodedPixels::F16(values.into_iter().map(half::f16::to_bits).collect()),
+            PixelType::F16,
+        ),
+        DecodingResult::F32(values) => (DecodedPixels::F32(values), PixelType::F32),
+        DecodingResult::F64(values) => (
+            DecodedPixels::F32(values.into_iter().map(|value| value as f32).collect()),
+            PixelType::F64,
+        ),
+    }
 }
 
 fn patch_tiff_photometric(bytes: &mut [u8], replacement: u16) -> Result<()> {
@@ -715,199 +1158,6 @@ fn patch_tiff_photometric(bytes: &mut [u8], replacement: u16) -> Result<()> {
     Err(eyre!("TIFF has no PhotometricInterpretation tag"))
 }
 
-fn normalize_tiff_result(result: DecodingResult, bit_depth: u8) -> Result<(Vec<f32>, PixelType, usize)> {
-    let unsigned_max = if bit_depth >= 64 {
-        u64::MAX as f64
-    } else {
-        ((1_u64 << bit_depth) - 1) as f64
-    };
-    let signed_max = if bit_depth >= 64 {
-        i64::MAX as f64
-    } else {
-        ((1_i64 << bit_depth.saturating_sub(1)) - 1).max(1) as f64
-    };
-    let converted = match result {
-        DecodingResult::U8(values) => (
-            values
-                .into_iter()
-                .map(|value| value as f32 / if bit_depth < 8 { 255.0 } else { unsigned_max as f32 })
-                .collect(),
-            PixelType::U8,
-            1,
-        ),
-        DecodingResult::U16(values) => (
-            values.into_iter().map(|value| value as f32 / unsigned_max as f32).collect(),
-            PixelType::U16,
-            2,
-        ),
-        DecodingResult::U32(values) => (
-            values.into_iter().map(|value| (value as f64 / unsigned_max) as f32).collect(),
-            PixelType::F32,
-            4,
-        ),
-        DecodingResult::U64(values) => (
-            values.into_iter().map(|value| (value as f64 / unsigned_max) as f32).collect(),
-            PixelType::F32,
-            8,
-        ),
-        DecodingResult::I8(values) => (
-            values.into_iter().map(|value| value as f32 / signed_max as f32).collect(),
-            PixelType::I8,
-            1,
-        ),
-        DecodingResult::I16(values) => (
-            values.into_iter().map(|value| value as f32 / signed_max as f32).collect(),
-            PixelType::I16,
-            2,
-        ),
-        DecodingResult::I32(values) => (
-            values.into_iter().map(|value| (value as f64 / signed_max) as f32).collect(),
-            PixelType::I32,
-            4,
-        ),
-        DecodingResult::I64(values) => (
-            values.into_iter().map(|value| (value as f64 / signed_max) as f32).collect(),
-            PixelType::F32,
-            8,
-        ),
-        DecodingResult::F16(values) => (values.into_iter().map(|value| value.to_f32()).collect(), PixelType::F16, 2),
-        DecodingResult::F32(values) => (values, PixelType::F32, 4),
-        DecodingResult::F64(values) => (values.into_iter().map(|value| value as f32).collect(), PixelType::F64, 8),
-    };
-    Ok(converted)
-}
-
-fn reshape_tiff_samples(
-    values: Vec<f32>,
-    layout: &BufferLayoutPreference,
-    sample_bytes: usize,
-    width: usize,
-    height: usize,
-    channels: usize,
-    bit_depth: u8,
-) -> Result<Vec<f32>> {
-    if bit_depth < 8 {
-        // Sub-byte samples occupy packed bytes, so the normalized f32 values
-        // above correspond one-to-one with source bytes. Recover the byte and
-        // expand MSB-first samples while respecting TIFF row padding.
-        let bytes: Vec<u8> = values.iter().map(|value| (value * 255.0).round() as u8).collect();
-        let row_stride = layout
-            .row_stride
-            .map_or_else(|| (width * channels * bit_depth as usize).div_ceil(8), |stride| stride.get());
-        let plane_stride = layout.plane_stride.map_or(row_stride * height, |stride| stride.get());
-        let max_value = ((1_u16 << bit_depth) - 1) as f32;
-        let mask = (1_u8 << bit_depth) - 1;
-        let mut output = Vec::with_capacity(width * height * channels);
-        for y in 0..height {
-            for x in 0..width {
-                for channel in 0..channels {
-                    let (base, sample) = if layout.planes > 1 {
-                        (channel * plane_stride + y * row_stride, x)
-                    } else {
-                        (y * row_stride, x * channels + channel)
-                    };
-                    let bit = sample * bit_depth as usize;
-                    let byte = *bytes.get(base + bit / 8).ok_or_else(|| eyre!("Packed TIFF row is truncated"))?;
-                    let shift = 8 - bit_depth as usize - bit % 8;
-                    output.push(((byte >> shift) & mask) as f32 / max_value);
-                }
-            }
-        }
-        return Ok(output);
-    }
-
-    let row_stride = layout.row_stride.map_or(width * channels, |stride| stride.get() / sample_bytes);
-    let plane_stride = layout
-        .plane_stride
-        .map_or(row_stride * height, |stride| stride.get() / sample_bytes);
-    let expected = width
-        .checked_mul(height)
-        .and_then(|pixels| pixels.checked_mul(channels))
-        .ok_or_else(|| eyre!("TIFF sample count overflow"))?;
-    if layout.planes <= 1 && row_stride == width * channels && values.len() == expected {
-        return Ok(values);
-    }
-    let mut output = Vec::with_capacity(width * height * channels);
-    for y in 0..height {
-        for x in 0..width {
-            for channel in 0..channels {
-                let index = if layout.planes > 1 {
-                    channel * plane_stride + y * row_stride + x
-                } else {
-                    y * row_stride + x * channels + channel
-                };
-                output.push(*values.get(index).ok_or_else(|| eyre!("TIFF sample buffer is truncated"))?);
-            }
-        }
-    }
-    Ok(output)
-}
-
-fn convert_tiff_color(
-    samples: Vec<f32>,
-    layout: TiffColorLayout,
-    palette: Option<&[u16]>,
-    bit_depth: u8,
-    pixel_type: PixelType,
-) -> Result<(Vec<f32>, PixelType)> {
-    let pixels = match layout {
-        TiffColorLayout::Direct { .. } => return Ok((samples, pixel_type)),
-        TiffColorLayout::Palette => {
-            let palette = palette.ok_or_else(|| eyre!("Palette TIFF has no color map"))?;
-            let entries = 1_usize
-                .checked_shl(bit_depth as u32)
-                .ok_or_else(|| eyre!("Invalid TIFF palette depth {bit_depth}"))?;
-            if palette.len() < entries * 3 {
-                return Err(eyre!("TIFF color map is truncated"));
-            }
-            let mut output = Vec::with_capacity(samples.len() * 3);
-            for sample in samples {
-                let index = (sample * (entries - 1) as f32).round() as usize;
-                output.extend([
-                    palette[index] as f32 / u16::MAX as f32,
-                    palette[entries + index] as f32 / u16::MAX as f32,
-                    palette[entries * 2 + index] as f32 / u16::MAX as f32,
-                ]);
-            }
-            return Ok((output, PixelType::U16));
-        }
-        TiffColorLayout::Cmyk { alpha } => {
-            let input_channels = 4 + usize::from(alpha);
-            let mut output = Vec::with_capacity(samples.len() / input_channels * (3 + usize::from(alpha)));
-            for pixel in samples.chunks_exact(input_channels) {
-                let k = 1.0 - pixel[3];
-                output.extend([(1.0 - pixel[0]) * k, (1.0 - pixel[1]) * k, (1.0 - pixel[2]) * k]);
-                if alpha {
-                    output.push(pixel[4]);
-                }
-            }
-            output
-        }
-        TiffColorLayout::YCbCr => {
-            let mut output = Vec::with_capacity(samples.len());
-            for pixel in samples.chunks_exact(3) {
-                let y = pixel[0];
-                let cb = pixel[1] - 0.5;
-                let cr = pixel[2] - 0.5;
-                output.extend([
-                    (y + 1.402 * cr).clamp(0.0, 1.0),
-                    (y - 0.344_136 * cb - 0.714_136 * cr).clamp(0.0, 1.0),
-                    (y + 1.772 * cb).clamp(0.0, 1.0),
-                ]);
-            }
-            output
-        }
-        TiffColorLayout::Lab => {
-            let mut output = Vec::with_capacity(samples.len());
-            for pixel in samples.chunks_exact(3) {
-                output.extend(tiff_lab_to_rgb(pixel[0], pixel[1], pixel[2]));
-            }
-            return Ok((output, PixelType::F32));
-        }
-    };
-    Ok((pixels, pixel_type))
-}
-
 fn tiff_lab_to_rgb(l: f32, a: f32, b: f32) -> [f32; 3] {
     let l = l * 100.0;
     let a = a * 255.0 - 128.0;
@@ -946,58 +1196,50 @@ fn decoded_dynamic_image(image: DynamicImage) -> Result<DecodedImage> {
     match image {
         DynamicImage::ImageLuma8(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 1, PixelType::U8, normalize_u8(image.into_raw()))
+            DecodedImage::new(width, height, 1, PixelType::U8, DecodedPixels::U8(image.into_raw()))
         }
         DynamicImage::ImageLumaA8(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 2, PixelType::U8, normalize_u8(image.into_raw()))
+            DecodedImage::new(width, height, 2, PixelType::U8, DecodedPixels::U8(image.into_raw()))
         }
         DynamicImage::ImageRgb8(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 3, PixelType::U8, normalize_u8(image.into_raw()))
+            DecodedImage::new(width, height, 3, PixelType::U8, DecodedPixels::U8(image.into_raw()))
         }
         DynamicImage::ImageRgba8(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 4, PixelType::U8, normalize_u8(image.into_raw()))
+            DecodedImage::new(width, height, 4, PixelType::U8, DecodedPixels::U8(image.into_raw()))
         }
         DynamicImage::ImageLuma16(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 1, PixelType::U16, normalize_u16(image.into_raw()))
+            DecodedImage::new(width, height, 1, PixelType::U16, DecodedPixels::U16(image.into_raw()))
         }
         DynamicImage::ImageLumaA16(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 2, PixelType::U16, normalize_u16(image.into_raw()))
+            DecodedImage::new(width, height, 2, PixelType::U16, DecodedPixels::U16(image.into_raw()))
         }
         DynamicImage::ImageRgb16(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 3, PixelType::U16, normalize_u16(image.into_raw()))
+            DecodedImage::new(width, height, 3, PixelType::U16, DecodedPixels::U16(image.into_raw()))
         }
         DynamicImage::ImageRgba16(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 4, PixelType::U16, normalize_u16(image.into_raw()))
+            DecodedImage::new(width, height, 4, PixelType::U16, DecodedPixels::U16(image.into_raw()))
         }
         DynamicImage::ImageRgb32F(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 3, PixelType::F32, image.into_raw())
+            DecodedImage::new(width, height, 3, PixelType::F32, DecodedPixels::F32(image.into_raw()))
         }
         DynamicImage::ImageRgba32F(image) => {
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 4, PixelType::F32, image.into_raw())
+            DecodedImage::new(width, height, 4, PixelType::F32, DecodedPixels::F32(image.into_raw()))
         }
         other => {
             let image = other.into_rgba32f();
             let (width, height) = image.dimensions();
-            DecodedImage::new(width, height, 4, PixelType::F32, image.into_raw())
+            DecodedImage::new(width, height, 4, PixelType::F32, DecodedPixels::F32(image.into_raw()))
         }
     }
-}
-
-fn normalize_u8(values: Vec<u8>) -> Vec<f32> {
-    values.into_iter().map(|value| value as f32 / u8::MAX as f32).collect()
-}
-
-fn normalize_u16(values: Vec<u16>) -> Vec<f32> {
-    values.into_iter().map(|value| value as f32 / u16::MAX as f32).collect()
 }
 
 pub fn decode_pfm(bytes: &[u8]) -> Result<DecodedImage> {
@@ -1055,7 +1297,7 @@ pub fn decode_pfm(bytes: &[u8]) -> Result<DecodedImage> {
         }
     }
 
-    DecodedImage::new(width, height, channels, PixelType::F32, pixels)
+    DecodedImage::new(width, height, channels, PixelType::F32, DecodedPixels::F32(pixels))
 }
 
 fn next_pfm_token<'a>(bytes: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
@@ -1106,7 +1348,7 @@ pub fn decode_flo(bytes: &[u8]) -> Result<DecodedImage> {
         .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("exact flo value")))
         .collect();
-    DecodedImage::new(width as u32, height as u32, 2, PixelType::F32, pixels)
+    DecodedImage::new(width as u32, height as u32, 2, PixelType::F32, DecodedPixels::F32(pixels))
 }
 
 #[cfg(feature = "heif")]
@@ -1204,12 +1446,12 @@ pub fn decode_heif(path: &Path) -> Result<DecodedImage> {
             // SAFETY: stride and visible row length were validated above and
             // libheif owns this plane until `heif_image_release` below.
             let row = std::slice::from_raw_parts(source.add(y * stride as usize), row_bytes);
-            pixels.extend(row.iter().map(|&value| value as f32 / u8::MAX as f32));
+            pixels.extend_from_slice(row);
         }
         libheif_sys::heif_image_release(image);
         libheif_sys::heif_image_handle_release(handle);
         libheif_sys::heif_context_free(context);
-        DecodedImage::new(width as u32, height as u32, channels, PixelType::U8, pixels)
+        DecodedImage::new(width as u32, height as u32, channels, PixelType::U8, DecodedPixels::U8(pixels))
     }
 }
 
@@ -1218,6 +1460,17 @@ mod tests {
     use super::*;
     use exr::prelude::{Image as ExrImage, SpecificChannels, WritableImage};
     use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
+
+    fn normalized_values(image: &DecodedImage) -> Vec<f32> {
+        (0..image.width as usize * image.height as usize)
+            .flat_map(|index| {
+                let (values, channels) = image
+                    .normalized_pixel(index % image.width as usize, index / image.width as usize)
+                    .unwrap();
+                values[..channels].to_vec()
+            })
+            .collect()
+    }
 
     fn encode_mono_exr(channel_name: &'static str) -> Vec<u8> {
         let channels = SpecificChannels::build()
@@ -1258,7 +1511,7 @@ mod tests {
         }
         let image = decode_pfm(&bytes).unwrap();
         assert_eq!((image.width, image.height, image.channels), (2, 2, 1));
-        assert_eq!(image.pixels, vec![2.0, 4.0, 6.0, 8.0]);
+        assert_eq!(normalized_values(&image), vec![2.0, 4.0, 6.0, 8.0]);
     }
 
     #[test]
@@ -1271,7 +1524,7 @@ mod tests {
         }
         let image = decode_flo(&bytes).unwrap();
         assert_eq!((image.width, image.height, image.channels), (2, 1, 2));
-        assert_eq!(image.pixels, vec![1.0, -1.0, 2.0, -2.0]);
+        assert_eq!(normalized_values(&image), vec![1.0, -1.0, 2.0, -2.0]);
     }
 
     #[test]
@@ -1291,7 +1544,7 @@ mod tests {
             let decoded = decode_bytes(&encode_mono_exr(channel_name)).unwrap();
             assert_eq!((decoded.width, decoded.height, decoded.channels), (2, 1, 1), "{channel_name}");
             assert_eq!(decoded.pixel_type, PixelType::F32, "{channel_name}");
-            assert_eq!(decoded.pixels, vec![0.25, 0.75], "{channel_name}");
+            assert_eq!(normalized_values(&decoded), vec![0.25, 0.75], "{channel_name}");
         }
     }
 
@@ -1307,7 +1560,7 @@ mod tests {
         let decoded = decode_bytes(signed.get_ref()).unwrap();
         assert_eq!((decoded.width, decoded.height, decoded.channels), (3, 1, 1));
         assert_eq!(decoded.pixel_type, PixelType::I32);
-        assert_eq!(decoded.pixels, vec![-1.0, 0.0, 1.0]);
+        assert_eq!(normalized_values(&decoded), vec![-1.0, 0.0, 1.0]);
 
         let mut float = Cursor::new(Vec::new());
         TiffEncoder::new(&mut float)
@@ -1317,7 +1570,7 @@ mod tests {
         let decoded = decode_bytes(float.get_ref()).unwrap();
         assert_eq!((decoded.width, decoded.height, decoded.channels), (3, 1, 1));
         assert_eq!(decoded.pixel_type, PixelType::F32);
-        assert_eq!(decoded.pixels, vec![-0.25, 0.5, 2.0]);
+        assert_eq!(normalized_values(&decoded), vec![-0.25, 0.5, 2.0]);
     }
 
     #[test]
