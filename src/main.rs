@@ -24,6 +24,150 @@ const ICON_DATA: &[u8] = include_bytes!("../icons/icon.png");
 #[cfg(target_os = "windows")]
 const WINDOWS_APP_USER_MODEL_ID: &str = "kr.edoli.edolview";
 
+const REQUIRED_STORAGE_BUFFERS_PER_STAGE: u32 = 6;
+const REQUIRED_STORAGE_TEXTURES_PER_STAGE: u32 = 1;
+const REQUIRED_COMPUTE_INVOCATIONS_PER_WORKGROUP: u32 = 256;
+const REQUIRED_COMPUTE_WORKGROUP_STORAGE_SIZE: u32 = 256 * 16;
+
+fn supports_image_compute_limits(limits: &wgpu::Limits) -> bool {
+    limits.max_bind_groups >= 1
+        && limits.max_bindings_per_bind_group >= 8
+        && limits.max_sampled_textures_per_shader_stage >= 2
+        && limits.max_storage_buffers_per_shader_stage >= REQUIRED_STORAGE_BUFFERS_PER_STAGE
+        && limits.max_storage_textures_per_shader_stage >= REQUIRED_STORAGE_TEXTURES_PER_STAGE
+        && limits.max_uniform_buffers_per_shader_stage >= 1
+        && limits.max_storage_buffer_binding_size > 0
+        && limits.max_compute_workgroup_storage_size >= REQUIRED_COMPUTE_WORKGROUP_STORAGE_SIZE
+        && limits.max_compute_invocations_per_workgroup >= REQUIRED_COMPUTE_INVOCATIONS_PER_WORKGROUP
+        && limits.max_compute_workgroup_size_x >= REQUIRED_COMPUTE_INVOCATIONS_PER_WORKGROUP
+        && limits.max_compute_workgroup_size_y >= 16
+        && limits.max_compute_workgroup_size_z >= 1
+        && limits.max_compute_workgroups_per_dimension > 0
+}
+
+fn supports_image_compute(adapter: &wgpu::Adapter) -> bool {
+    if !adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
+        || !supports_image_compute_limits(&adapter.limits())
+    {
+        return false;
+    }
+
+    let required_texture_usages = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING;
+    [wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Rgba32Float]
+        .into_iter()
+        .all(|format| {
+            adapter
+                .get_texture_format_features(format)
+                .allowed_usages
+                .contains(required_texture_usages)
+        })
+}
+
+fn apply_adapter_compute_limits(required: &mut wgpu::Limits, adapter: &wgpu::Limits) {
+    required.max_texture_dimension_2d = adapter.max_texture_dimension_2d;
+    required.max_storage_buffer_binding_size = adapter.max_storage_buffer_binding_size;
+    required.max_buffer_size = adapter.max_buffer_size;
+    required.max_storage_buffers_per_shader_stage = adapter.max_storage_buffers_per_shader_stage;
+    required.max_storage_textures_per_shader_stage = adapter.max_storage_textures_per_shader_stage;
+    required.max_compute_workgroup_storage_size = adapter.max_compute_workgroup_storage_size;
+    required.max_compute_invocations_per_workgroup = adapter.max_compute_invocations_per_workgroup;
+    required.max_compute_workgroup_size_x = adapter.max_compute_workgroup_size_x;
+    required.max_compute_workgroup_size_y = adapter.max_compute_workgroup_size_y;
+    required.max_compute_workgroup_size_z = adapter.max_compute_workgroup_size_z;
+    required.max_compute_workgroups_per_dimension = adapter.max_compute_workgroups_per_dimension;
+}
+
+fn backend_priority(backend: wgpu::Backend) -> u8 {
+    let native_backend = if cfg!(target_os = "windows") {
+        wgpu::Backend::Dx12
+    } else if cfg!(target_os = "macos") {
+        wgpu::Backend::Metal
+    } else {
+        wgpu::Backend::Vulkan
+    };
+
+    match backend {
+        backend if backend == native_backend => 5,
+        wgpu::Backend::Vulkan | wgpu::Backend::Metal | wgpu::Backend::Dx12 => 4,
+        wgpu::Backend::Gl => 1,
+        _ => 0,
+    }
+}
+
+fn device_priority(device_type: wgpu::DeviceType, power_preference: wgpu::PowerPreference) -> u8 {
+    match power_preference {
+        wgpu::PowerPreference::LowPower => match device_type {
+            wgpu::DeviceType::IntegratedGpu => 5,
+            wgpu::DeviceType::VirtualGpu => 4,
+            wgpu::DeviceType::DiscreteGpu => 3,
+            wgpu::DeviceType::Other => 2,
+            wgpu::DeviceType::Cpu => 1,
+        },
+        wgpu::PowerPreference::None | wgpu::PowerPreference::HighPerformance => match device_type {
+            wgpu::DeviceType::DiscreteGpu => 5,
+            wgpu::DeviceType::IntegratedGpu => 4,
+            wgpu::DeviceType::VirtualGpu => 3,
+            wgpu::DeviceType::Other => 2,
+            wgpu::DeviceType::Cpu => 1,
+        },
+    }
+}
+
+fn configure_wgpu(options: &mut eframe::NativeOptions) {
+    let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup else {
+        return;
+    };
+
+    let power_preference = setup.power_preference;
+    setup.native_adapter_selector = Some(Arc::new(move |adapters, surface| {
+        adapters
+            .iter()
+            .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
+            .filter(|adapter| supports_image_compute(adapter))
+            .max_by_key(|adapter| {
+                let info = adapter.get_info();
+                (
+                    info.device_type != wgpu::DeviceType::Cpu,
+                    backend_priority(info.backend),
+                    device_priority(info.device_type, power_preference),
+                )
+            })
+            .cloned()
+            .ok_or_else(|| {
+                let available = adapters
+                    .iter()
+                    .map(|adapter| {
+                        let info = adapter.get_info();
+                        format!("{} ({:?}, {:?})", info.name, info.backend, info.device_type)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "No graphics adapter supports the compute and storage capabilities required by edolview. Available adapters: {available}"
+                )
+            })
+    }));
+
+    let default_device_descriptor = Arc::clone(&setup.device_descriptor);
+    setup.device_descriptor = Arc::new(move |adapter| {
+        let mut descriptor = default_device_descriptor(adapter);
+        apply_adapter_compute_limits(&mut descriptor.required_limits, &adapter.limits());
+        if adapter.get_info().backend == wgpu::Backend::Dx12 {
+            // Keep the initial DX12 heaps small enough for low VRAM usage while
+            // allowing the allocator to grow for workloads with many resources.
+            // wgpu-hal derives the host range as half of this device range.
+            const MIB: u64 = 1024 * 1024;
+            descriptor.memory_hints = wgpu::MemoryHints::Manual {
+                suballocated_device_memory_block_size: 40 * MIB..256 * MIB,
+            };
+        }
+        descriptor
+    });
+}
+
 /// GPU-accelerated image viewer using image-rs for decoding and egui for GUI.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
@@ -79,26 +223,7 @@ fn main() -> Result<()> {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-    if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut native_options.wgpu_options.wgpu_setup {
-        let default_device_descriptor = Arc::clone(&setup.device_descriptor);
-        setup.device_descriptor = Arc::new(move |adapter| {
-            let mut descriptor = default_device_descriptor(adapter);
-            let adapter_limits = adapter.limits();
-            descriptor.required_limits.max_texture_dimension_2d = adapter_limits.max_texture_dimension_2d;
-            descriptor.required_limits.max_storage_buffer_binding_size = adapter_limits.max_storage_buffer_binding_size;
-            descriptor.required_limits.max_buffer_size = adapter_limits.max_buffer_size;
-            if adapter.get_info().backend == wgpu::Backend::Dx12 {
-                // Keep the initial DX12 heaps small enough for low VRAM usage while
-                // allowing the allocator to grow for workloads with many resources.
-                // wgpu-hal derives the host range as half of this device range.
-                const MIB: u64 = 1024 * 1024;
-                descriptor.memory_hints = wgpu::MemoryHints::Manual {
-                    suballocated_device_memory_block_size: 40 * MIB..256 * MIB,
-                };
-            }
-            descriptor
-        });
-    }
+    configure_wgpu(&mut native_options);
 
     if let Err(e) = eframe::run_native(
         "edolview-rs",
@@ -124,3 +249,36 @@ fn set_windows_app_user_model_id() {
 
 #[cfg(not(target_os = "windows"))]
 fn set_windows_app_user_model_id() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn webgl2_limits_are_rejected_for_image_compute() {
+        assert!(!supports_image_compute_limits(&wgpu::Limits::downlevel_webgl2_defaults()));
+    }
+
+    #[test]
+    fn standard_wgpu_limits_support_image_compute() {
+        assert!(supports_image_compute_limits(&wgpu::Limits::default()));
+    }
+
+    #[test]
+    fn adapter_compute_limits_replace_webgl2_zeroes() {
+        let mut requested = wgpu::Limits::downlevel_webgl2_defaults();
+        let supported = wgpu::Limits::default();
+
+        apply_adapter_compute_limits(&mut requested, &supported);
+
+        assert!(supports_image_compute_limits(&requested));
+        assert_eq!(
+            requested.max_storage_buffers_per_shader_stage,
+            supported.max_storage_buffers_per_shader_stage
+        );
+        assert_eq!(
+            requested.max_compute_invocations_per_workgroup,
+            supported.max_compute_invocations_per_workgroup
+        );
+    }
+}
