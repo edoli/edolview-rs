@@ -305,6 +305,16 @@ jobs:
       - name: Run icon generation
         run: cargo run -p xtask --features heif -- icons
 
+      - name: Select MSVC-compatible compiler for dav1d (Windows)
+        if: startsWith(runner.os, 'Windows')
+        shell: pwsh
+        run: |
+          # dav1d-sys builds its pinned dav1d source with Meson. The hosted
+          # PATH also contains MinGW, whose GCC output cannot be linked by the
+          # MSVC Rust target. clang-cl emits MSVC-compatible objects instead.
+          Add-Content -Path $Env:GITHUB_ENV -Value "CC=clang-cl"
+          Add-Content -Path $Env:GITHUB_ENV -Value "CXX=clang-cl"
+
       - name: Package release binary
         run: cargo build --release --features heif,avif
 
