@@ -102,18 +102,6 @@ jobs:
 
               
 
-      # ----- Cache Chocolatey packages (Windows) -----
-      - name: Cache Chocolatey packages (Windows)
-        if: startsWith(runner.os, 'Windows')
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:\ProgramData\chocolatey\lib
-            C:\ProgramData\chocolatey\bin
-          key: choco-${{ runner.os }}-llvm-cmake-meson-ninja-pkgconfiglite-git-curl-unzip-nasm-v3
-          restore-keys: |
-            choco-${{ runner.os }}-
-
       - name: Install native build deps (Ubuntu)
         if: startsWith(runner.os, 'Linux')
         run: |
@@ -135,8 +123,7 @@ jobs:
           choco install -y --no-progress llvm cmake meson ninja pkgconfiglite git curl unzip nasm
           Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
           refreshenv
-          # A restored Chocolatey cache contains the package shims, but does
-          # not update this job's PATH. Add the shim directory explicitly.
+          # Add Chocolatey's shim directory explicitly for this job.
           $chocoBin = Join-Path $env:ChocolateyInstall 'bin'
           $env:PATH = "$chocoBin;$env:PATH"
           if (-not (Get-Command meson -ErrorAction SilentlyContinue)) {
