@@ -4,6 +4,8 @@ use crate::model::PixelType;
 use crate::res::TEXT_EDIT_PARSE_FAILED_FLASH;
 use crate::util::color::ColorDisplay;
 
+type ColumnsContents<'c, R, const N: usize> = Box<dyn FnOnce(&mut [Ui; N]) -> R + 'c>;
+
 #[derive(Clone, Debug, Copy)]
 pub enum Size {
     /// Absolute size in points, with a given range of allowed sizes to resize within.
@@ -112,7 +114,7 @@ pub trait UiExt {
     fn columns_sized_dyn<'c, R, const N: usize>(
         &mut self,
         sizes: [Size; N],
-        add_contents: Box<dyn FnOnce(&mut [Self; N]) -> R + 'c>,
+        add_contents: ColumnsContents<'c, R, N>,
     ) -> R
     where
         Self: Sized;
@@ -255,8 +257,7 @@ impl UiExt for Ui {
         };
         let image = icon.into().tint(tint_color);
 
-        let resp = self.add(image).on_hover_text(name);
-        resp
+        self.add(image).on_hover_text(name)
     }
 
     fn radio_icon<'a, Value: PartialEq>(
@@ -403,11 +404,11 @@ impl ResponseExt for Response {
 }
 
 pub trait InnerRespExt {
-    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self;
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) -> Self;
 }
 
 impl<R> InnerRespExt for InnerResponse<R> {
-    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &Vec<T>, current: &mut T, is_cycle: bool) -> Self {
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) -> Self {
         if self.response.hovered() {
             let scroll = ui.raw_scroll_delta_y();
 
@@ -434,19 +435,19 @@ impl<R> InnerRespExt for InnerResponse<R> {
 }
 
 pub trait ComboBoxExt {
-    fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &Vec<String>) -> InnerResponse<Option<()>>;
-    fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &Vec<i32>) -> InnerResponse<Option<()>>;
+    fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &[String]) -> InnerResponse<Option<()>>;
+    fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &[i32]) -> InnerResponse<Option<()>>;
     fn combo_i32_with<F: Fn(i32) -> String>(
         self,
         ui: &mut Ui,
         selected_value: &mut i32,
-        list: &Vec<i32>,
+        list: &[i32],
         to_label: F,
     ) -> InnerResponse<Option<()>>;
 }
 
 impl ComboBoxExt for ComboBox {
-    fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &Vec<String>) -> InnerResponse<Option<()>> {
+    fn combo(self, ui: &mut Ui, selected_text: &mut String, list: &[String]) -> InnerResponse<Option<()>> {
         self.selected_text(selected_text.as_str())
             .show_ui(ui, |ui| {
                 for name in list {
@@ -456,7 +457,7 @@ impl ComboBoxExt for ComboBox {
             .hover_scroll(ui, list, selected_text, false)
     }
 
-    fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &Vec<i32>) -> InnerResponse<Option<()>> {
+    fn combo_i32(self, ui: &mut Ui, selected_text: &mut i32, list: &[i32]) -> InnerResponse<Option<()>> {
         self.selected_text(selected_text.to_string())
             .show_ui(ui, |ui| {
                 for index in list {
@@ -470,7 +471,7 @@ impl ComboBoxExt for ComboBox {
         self,
         ui: &mut Ui,
         selected_value: &mut i32,
-        list: &Vec<i32>,
+        list: &[i32],
         to_label: F,
     ) -> InnerResponse<Option<()>> {
         // We capture labels first so hover_scroll can still work with underlying values.

@@ -17,7 +17,7 @@ const WINDOWS_APP_USER_MODEL_ID: &str = "kr.edoli.edolview";
 
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    let cmd = args.get(0).map(String::as_str).unwrap_or("");
+    let cmd = args.first().map(String::as_str).unwrap_or("");
     match cmd {
         "icons" => generate_all_icons(),
         "install-linux" => install_linux_assets(),
@@ -640,7 +640,7 @@ fn install_linux_assets() -> Result<()> {
     }
 
     // Copy icons
-    for entry in walkdir::WalkDir::new(&icons) {
+    for entry in walkdir::WalkDir::new(icons) {
         let entry = entry?;
         let p = entry.path();
         if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("png") {

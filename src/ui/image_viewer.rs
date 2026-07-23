@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::model::{AppState, Image, MeanDim, PixelType, Recti, EMPTY_MINMAX};
+use crate::model::{empty_minmax, AppState, Image, MeanDim, PixelType, Recti};
 use crate::res::{
     selection_handle_clipped_fill, KeyboardShortcutExt, PIXEL_VALUE_CHANNEL_COLORS, SELECTION_HANDLE_CLIPPED_STROKE,
 };
@@ -20,6 +20,8 @@ enum ExportToast {
     Success(String),
     Error(String),
 }
+
+type PendingExportRequest = (Option<String>, Option<(PathBuf, String)>, i32, i32, egui::Vec2, f32);
 
 enum DragMode {
     None,
@@ -122,14 +124,14 @@ impl ImageViewer {
         let min_max_primary = if use_auto_minmax {
             render_primary_image.minmax().clone()
         } else {
-            EMPTY_MINMAX
+            empty_minmax()
         };
         let min_max_secondary = if use_auto_minmax {
             secondary_image
                 .map(|secondary_image| secondary_image.minmax().clone())
                 .unwrap_or_else(|| min_max_primary.clone())
         } else {
-            EMPTY_MINMAX
+            empty_minmax()
         };
 
         let gpu_ready = frame.wgpu_render_state().is_some_and(|render_state| {
@@ -288,7 +290,7 @@ impl ImageViewer {
                     if let Some(cursor_pos) = app_state.cursor_pos {
                         if let Ok(vals) = active_image.get_pixel_at(cursor_pos.x, cursor_pos.y) {
                             let spec = active_image.spec();
-                            let text = spec.pixel_values_to_string(&*vals);
+                            let text = spec.pixel_values_to_string(&vals);
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 let _ = cb.set_text(text);
                             }
@@ -506,8 +508,7 @@ impl ImageViewer {
                 secondary_selection_rect_view.map(|selection_rect_view| selection_rect_view.intersect(right_pane_rect));
 
             // Queue clipboard/save export operations for the wgpu callback.
-            let mut export_request: Option<(Option<String>, Option<(PathBuf, String)>, i32, i32, egui::Vec2, f32)> =
-                None;
+            let mut export_request: Option<PendingExportRequest> = None;
             let copy_requested = self.copy_requested.take();
             let save_requested = self.save_requested.take();
             if copy_requested.is_some() || save_requested.is_some() {
@@ -529,13 +530,13 @@ impl ImageViewer {
             }
 
             if let Some(render_state) = frame.wgpu_render_state() {
-                let viewport_size = vec2(rect_pixels.width() as f32, rect_pixels.height() as f32);
+                let viewport_size = vec2(rect_pixels.width(), rect_pixels.height());
                 let left_pane_pixels = left_pane_rect * pixel_per_point;
                 let right_pane_pixels = right_pane_rect * pixel_per_point;
-                let pane_viewport_size = vec2(left_pane_pixels.width() as f32, left_pane_pixels.height() as f32);
+                let pane_viewport_size = vec2(left_pane_pixels.width(), left_pane_pixels.height());
                 let image_size = vec2(spec.width as f32, spec.height as f32);
 
-                let scale = self.zoom() as f32;
+                let scale = self.zoom();
                 let position = self.pan;
 
                 let visuals = ui.visuals().clone();
@@ -1183,6 +1184,7 @@ impl ImageViewer {
         (self.pane_view_to_image_coords(view_pos, rect, pixel_per_point), false)
     }
 
+    #[allow(clippy::too_many_arguments)] // Viewport and clipping context are required to keep resize handles stable.
     fn resize_start_rect(
         &self,
         start_rect: Recti,
@@ -1362,10 +1364,8 @@ impl ImageViewer {
 
         let mut enabled_min_channels = [false; 4];
         let mut enabled_max_channels = [false; 4];
-        for i in 0..channel_count {
-            enabled_min_channels[i] = show_min_channels[i];
-            enabled_max_channels[i] = show_max_channels[i];
-        }
+        enabled_min_channels[..channel_count].copy_from_slice(&show_min_channels[..channel_count]);
+        enabled_max_channels[..channel_count].copy_from_slice(&show_max_channels[..channel_count]);
 
         if !enabled_min_channels[..channel_count].iter().copied().any(|selected| selected)
             && !enabled_max_channels[..channel_count].iter().copied().any(|selected| selected)

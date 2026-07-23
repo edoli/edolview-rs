@@ -1,7 +1,4 @@
-use std::{
-    sync::LazyLock,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use eframe::{
     egui::{self, Frame, Response, Shape, Stroke, StrokeKind, Ui, Widget, WidgetText},
@@ -46,11 +43,11 @@ pub struct Toast {
     pub created_at: Instant,
 }
 
-const DEFAULT_TOAST_DURATION: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(3));
+const DEFAULT_TOAST_DURATION: Duration = Duration::from_secs(3);
 
 impl Toast {
     pub fn new(message: String, duration: Option<Duration>, kind: ToastKind) -> Self {
-        let duration = duration.unwrap_or(*DEFAULT_TOAST_DURATION);
+        let duration = duration.unwrap_or(DEFAULT_TOAST_DURATION);
         Self {
             message,
             duration,
@@ -113,14 +110,14 @@ impl ToastsExt for Toasts {
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct ToastUi<'a> {
-    pub toasts: Box<&'a mut Toasts>,
+    pub toasts: &'a mut Toasts,
     pub style: ToastStyle,
 }
 
 impl<'a> ToastUi<'a> {
     pub fn new(toasts: &'a mut Toasts) -> Self {
         Self {
-            toasts: Box::new(toasts),
+            toasts,
             style: ToastStyle::new(),
         }
     }

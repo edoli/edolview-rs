@@ -1173,7 +1173,7 @@ fn logarithmic_zero_cutoff(min: f64, max: f64) -> f64 {
 
     let cutoff = min_magnitude / (min_magnitude + max_magnitude);
     debug_assert!(
-        0.0 <= cutoff && cutoff <= 1.0,
+        (0.0..=1.0).contains(&cutoff),
         "Bad cutoff {cutoff:?} for min {min:?} and max {max:?}"
     );
     cutoff

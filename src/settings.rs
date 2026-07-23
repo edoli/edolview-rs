@@ -8,14 +8,18 @@ pub const VIEW_PRESET_COUNT: usize = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ExternalOpenMode {
+    #[default]
     NewWindow,
     ExistingWindow,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AngleDisplayUnit {
+    #[default]
     Degrees,
     Radians,
 }
@@ -85,18 +89,6 @@ impl Default for PersistentUiState {
             copy_use_original_size: true,
             angle_display_unit: AngleDisplayUnit::Degrees,
         }
-    }
-}
-
-impl Default for ExternalOpenMode {
-    fn default() -> Self {
-        Self::NewWindow
-    }
-}
-
-impl Default for AngleDisplayUnit {
-    fn default() -> Self {
-        Self::Degrees
     }
 }
 

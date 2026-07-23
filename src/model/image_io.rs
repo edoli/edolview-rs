@@ -219,6 +219,7 @@ impl DecodedImage {
         )
     }
 
+    #[allow(clippy::too_many_arguments)] // Decoding metadata is assembled independently by each format reader.
     pub(crate) fn new_with_transform(
         width: u32,
         height: u32,

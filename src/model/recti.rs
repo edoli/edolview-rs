@@ -136,7 +136,7 @@ impl Recti {
         self.width() as f32 / self.height() as f32
     }
 
-    pub fn to_rect(&self) -> eframe::egui::Rect {
+    pub fn to_rect(self) -> eframe::egui::Rect {
         eframe::egui::Rect {
             min: Pos2::new(self.min.x as f32, self.min.y as f32),
             max: Pos2::new(self.max.x as f32, self.max.y as f32),

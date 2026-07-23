@@ -245,7 +245,7 @@ impl ViewerApp {
 
     pub fn new() -> Self {
         let mut state = AppState::empty();
-        let marquee_rect = state.marquee_rect.clone();
+        let marquee_rect = state.marquee_rect;
         let app_settings = crate::settings::AppSettings::load().unwrap_or_else(|err| {
             eprintln!("Failed to load settings: {err}");
             crate::settings::AppSettings::default()
@@ -298,8 +298,8 @@ impl ViewerApp {
             startup_paths: Vec::new(),
             startup_path_rx: None,
 
-            tmp_marquee_rect: marquee_rect.clone(),
-            marquee_rect_text: marquee_rect.to_string().into(),
+            tmp_marquee_rect: marquee_rect,
+            marquee_rect_text: marquee_rect.to_string(),
             is_start_background_event_handlers_called: false,
 
             last_marquee_rect_for_cb: marquee_rect,
@@ -756,10 +756,10 @@ impl ViewerApp {
         ctx.request_repaint();
         if clipped_rect.empty() {
             self.toasts
-                .add_info(format!("The bookmarked area is outside the current image bounds"));
+                .add_info("The bookmarked area is outside the current image bounds".to_string());
         } else if clipped_rect != requested_rect {
             self.toasts
-                .add_info(format!("The bookmarked area is clipped to the current image bounds"));
+                .add_info("The bookmarked area is clipped to the current image bounds".to_string());
         }
     }
 
@@ -1375,7 +1375,7 @@ impl ViewerApp {
                     let img_rect = Recti::from_min_size(vec2i(0, 0), vec2i(spec.width, spec.height));
                     self.state.marquee_rect = img_rect;
                     self.tmp_marquee_rect = img_rect;
-                    self.marquee_rect_text = img_rect.to_string().into();
+                    self.marquee_rect_text = img_rect.to_string();
                 }
             }
             if i.consume_shortcut(&crate::res::SELECT_NONE_SC) {
@@ -1676,7 +1676,7 @@ impl eframe::App for ViewerApp {
                     ui.toggle_value(&mut self.show_bookmarks_modal, "Bookmarks")
                         .on_hover_text(format!(
                             "Show bookmark panel ({})",
-                            &crate::res::BOOKMARK_PANEL_TOGGLE.format_sys()
+                            crate::res::BOOKMARK_PANEL_TOGGLE.format_sys()
                         ));
                 });
             });
@@ -1890,7 +1890,7 @@ impl eframe::App for ViewerApp {
                                             (_, 2) => "B".to_string(),
                                             _ => "A".to_string(),
                                         };
-                                        ui.label(format!("{}", label));
+                                        ui.label(label.to_string());
 
                                         display_controls_ui(
                                             ui,
@@ -1946,7 +1946,7 @@ impl eframe::App for ViewerApp {
                         };
                         let reduced_value = asset
                             .image()
-                            .mean_value_in_rect(rect, mean_dim.clone())
+                            .mean_value_in_rect(rect, mean_dim)
                             .expect("Failed to compute mean in rect");
                         let (position_label, position_offset) = match mean_dim {
                             MeanDim::Column => ("x", rect.min.x),
@@ -2018,7 +2018,7 @@ impl eframe::App for ViewerApp {
                             );
 
                             if channels > 1 {
-                                channel_toggle_ui(ui, &mut self.show_plot_channels, channels as usize);
+                                channel_toggle_ui(ui, &mut self.show_plot_channels, channels);
                             }
                         });
                     } else {
@@ -2040,13 +2040,10 @@ impl eframe::App for ViewerApp {
                         let desired_size = egui::vec2(ui.available_width(), 100.0);
                         if let Some(asset) = &self.state.asset {
                             let hist = asset.image().hist();
-                            let max = hist.iter().flatten().cloned().fold(0. / 0., f32::max);
+                            let max = hist.iter().flatten().copied().fold(f32::NAN, f32::max);
 
                             if !hist.is_empty() {
-                                let mut display_hist: Vec<&[f32]> = Vec::with_capacity(hist.len());
-                                for i in 0..hist.len() {
-                                    display_hist.push(&hist[i]);
-                                }
+                                let display_hist: Vec<&[f32]> = hist.iter().map(Vec::as_slice).collect();
 
                                 if channels > 1 {
                                     if let Some(export) = draw_histogram(
@@ -2084,11 +2081,9 @@ impl eframe::App for ViewerApp {
                         .checkbox(&mut self.show_statistics, "Show Statistics")
                         .on_hover_text("Show min/max and comparison metrics for the current selection.")
                         .clicked()
-                    {
-                        if self.show_statistics {
-                            self.update_statistics();
-                        }
-                    };
+                        && self.show_statistics {
+                        self.update_statistics();
+                    }
 
                     if self.show_statistics {
                         let min_values = &self.state.statistics.min_max.value.min;
@@ -2101,11 +2096,11 @@ impl eframe::App for ViewerApp {
                                 .striped(true)
                                 .show(ui, |ui| {
                                     ui.label("Min:").on_hover_text("Minimum value per channel.");
-                                    for i in 0..num_channels {
+                                    for (i, &min_value) in min_values.iter().take(num_channels).enumerate() {
                                         statistics_overlay_toggle(
                                             ui,
                                             &mut self.show_statistics_min_overlay_channels[i],
-                                            min_values[i],
+                                            min_value,
                                             STATISTICS_MIN_TOGGLE_FILL,
                                             "Highlight pixels matching this minimum value.".to_owned(),
                                         );
@@ -2113,11 +2108,11 @@ impl eframe::App for ViewerApp {
                                     ui.end_row();
 
                                     ui.label("Max:").on_hover_text("Maximum value per channel.");
-                                    for i in 0..num_channels {
+                                    for (i, &max_value) in max_values.iter().take(num_channels).enumerate() {
                                         statistics_overlay_toggle(
                                             ui,
                                             &mut self.show_statistics_max_overlay_channels[i],
-                                            max_values[i],
+                                            max_value,
                                             STATISTICS_MAX_TOGGLE_FILL,
                                             "Highlight pixels matching this maximum value.".to_owned(),
                                         );

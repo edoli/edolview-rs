@@ -39,7 +39,7 @@ pub fn debug_window(ctx: &egui::Context) {
                         });
                     })
                     .body(|mut body| {
-                        for (_, (name, duration)) in debug_state.iter_timings().enumerate() {
+                        for (name, duration) in debug_state.iter_timings() {
                             body.row(18.0, |mut row| {
                                 let timing_changed = debug_state.timing_changed(name);
 

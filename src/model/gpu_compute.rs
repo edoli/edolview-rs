@@ -104,7 +104,7 @@ impl GpuComputeContext {
         let rgb_upload_max_binding_size = if backend == wgpu::Backend::Vulkan {
             VULKAN_RGB_UPLOAD_CHUNK_BYTES
         } else {
-            device.limits().max_storage_buffer_binding_size as u64
+            device.limits().max_storage_buffer_binding_size
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("edolview image compute layout"),
@@ -643,7 +643,7 @@ impl GpuComputeContext {
         let rows_per_chunk = rgb_rows_per_chunk(
             size.width,
             self.rgb_upload_max_binding_size
-                .min(self.device.limits().max_storage_buffer_binding_size as u64),
+                .min(self.device.limits().max_storage_buffer_binding_size),
         )
         .min(size.height);
         let view = texture.create_view(&Default::default());

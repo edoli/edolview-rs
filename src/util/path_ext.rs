@@ -1,10 +1,10 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub fn is_ascii_path(path: &PathBuf) -> bool {
+pub fn is_ascii_path(path: &Path) -> bool {
     match path.to_str() {
-        Some(s) => s.chars().all(|c| c.is_ascii()),
+        Some(s) => s.is_ascii(),
         None => false,
     }
 }

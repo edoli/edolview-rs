@@ -16,18 +16,13 @@ use crate::{
 const IMAGE_SHADER_CODE: &str = include_str!("gpu_image.frag");
 const PARAM_SLOT_COUNT: u64 = 3;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ScaleMode {
+    #[default]
     Linear = 0,
     Inverse = 1,
     Log = 2,
     Absolute = 3,
-}
-
-impl Default for ScaleMode {
-    fn default() -> Self {
-        Self::Linear
-    }
 }
 
 impl ScaleMode {

@@ -23,7 +23,7 @@ fn downsample_avg(xs: &[f64], step: usize) -> Vec<f64> {
     if step <= 1 {
         return xs.to_vec();
     }
-    let mut out = Vec::with_capacity((xs.len() + step - 1) / step);
+    let mut out = Vec::with_capacity(xs.len().div_ceil(step));
     let mut i = 0;
     while i < xs.len() {
         let end = (i + step).min(xs.len());
@@ -74,7 +74,7 @@ pub fn draw_multi_line_plot(
         1
     } else {
         // ceil(orig_len / max_points)
-        (orig_len + max_points - 1) / max_points
+        orig_len.div_ceil(max_points)
     };
 
     // Downsample all series according to mask
@@ -110,12 +110,10 @@ pub fn draw_multi_line_plot(
 
     let mut y_min = f64::INFINITY;
     let mut y_max = f64::NEG_INFINITY;
-    for opt in ds_series.iter() {
-        if let Some(ys) = opt {
-            for &y in ys {
-                y_min = y_min.min(y);
-                y_max = y_max.max(y);
-            }
+    for ys in ds_series.iter().flatten() {
+        for &y in ys {
+            y_min = y_min.min(y);
+            y_max = y_max.max(y);
         }
     }
     if !y_min.is_finite() || !y_max.is_finite() {

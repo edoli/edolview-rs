@@ -112,8 +112,8 @@ impl From<(i32, i32)> for Vec2i {
     }
 }
 
-impl Into<(i32, i32)> for Vec2i {
-    fn into(self) -> (i32, i32) {
-        (self.x, self.y)
+impl From<Vec2i> for (i32, i32) {
+    fn from(val: Vec2i) -> Self {
+        (val.x, val.y)
     }
 }

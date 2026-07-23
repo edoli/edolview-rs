@@ -167,12 +167,9 @@ pub struct MinMaxTotal {
     total_max: OnceLock<f32>,
 }
 
-pub const EMPTY_MINMAX: MinMaxTotal = MinMaxTotal {
-    mins: Vec::new(),
-    maxs: Vec::new(),
-    total_min: OnceLock::new(),
-    total_max: OnceLock::new(),
-};
+pub fn empty_minmax() -> MinMaxTotal {
+    MinMaxTotal::new(Vec::new(), Vec::new())
+}
 
 impl MinMaxTotal {
     pub fn new(mins: Vec<f32>, maxs: Vec<f32>) -> Self {

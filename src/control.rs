@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     fs,
     io::{Read, Write},
     net::{Shutdown, TcpListener, TcpStream},
@@ -173,9 +174,7 @@ pub fn start_control_listener(tx: NotifierSender<Vec<PathBuf>>) -> Result<Contro
 
 pub fn try_forward_paths_to_last_active(paths: &[PathBuf]) -> Result<bool, String> {
     let mut registry = load_registry()?;
-    registry
-        .windows
-        .sort_by(|left, right| right.last_active_ms.cmp(&left.last_active_ms));
+    registry.windows.sort_by_key(|window| Reverse(window.last_active_ms));
 
     let mut changed = false;
     for record in registry.windows.clone() {

@@ -32,6 +32,7 @@ fn scale_mode_icon<'a>(icons: &'a Icons, ctx: &'a egui::Context, scale_mode: Sca
     }
 }
 
+#[allow(clippy::too_many_arguments)] // These controls are edited together by the caller.
 pub fn display_controls_ui(
     ui: &mut egui::Ui,
     icons: &Icons,

@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)] // Metric names intentionally use their conventional abbreviations.
+
 use std::{
     collections::HashSet,
     sync::mpsc::{Receiver, Sender, TryRecvError},

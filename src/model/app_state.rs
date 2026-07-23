@@ -61,13 +61,11 @@ fn list_colormaps(rel_dir: &str) -> Vec<String> {
     let dir = base_dir.join(rel_dir);
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry_res in entries {
-            if let Ok(entry) = entry_res {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".glsl") {
-                        if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
-                            files.push(stem.to_string());
-                        }
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.ends_with(".glsl") {
+                    if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
+                        files.push(stem.to_string());
                     }
                 }
             }
@@ -156,7 +154,7 @@ impl AppState {
                 return;
             }
             self.file_nav.refresh_dir_listing_for(dir.to_path_buf());
-            self.file_nav.select_index_for_path(&path);
+            self.file_nav.select_index_for_path(path);
             let _ = self.file_nav.start_dir_watcher(dir.to_path_buf());
         } else {
             self.file_nav.clear();
@@ -181,7 +179,7 @@ impl AppState {
         let image = ImageData::load_from_clipboard()
             .or_else(|_| ImageData::load_from_url(arboard::Clipboard::new().unwrap().get_text()?.as_str()));
 
-        if let Err(_) = &image {
+        if image.is_err() {
             let ctx = ClipboardContext::new().unwrap();
 
             if !ctx.has(ContentFormat::Files) {
@@ -192,7 +190,7 @@ impl AppState {
                 return Err(eyre!("Clipboard does not contain image or file data"));
             }
 
-            let paths: Vec<PathBuf> = uris.iter().map(|u| PathBuf::from(u)).collect();
+            let paths: Vec<PathBuf> = uris.iter().map(PathBuf::from).collect();
 
             for path in &paths {
                 if path.exists() && path.is_file() {
@@ -323,7 +321,7 @@ impl AppState {
             }
 
             if let Some(asset) = &self.asset {
-                let num_channels = asset.image().spec().channels as i32;
+                let num_channels = asset.image().spec().channels;
 
                 if num_channels == 1 {
                     self.channel_index = -1;

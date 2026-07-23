@@ -1,7 +1,7 @@
 use crate::util::str_ext::Join;
 use eframe::egui::Color32;
 
-fn to_color32(color: &Vec<f32>) -> Color32 {
+fn to_color32(color: &[f32]) -> Color32 {
     if color.len() == 1 {
         Color32::from_gray((color[0] * 255.0).round() as u8)
     } else if color.len() == 2 {
@@ -24,7 +24,7 @@ fn to_color32(color: &Vec<f32>) -> Color32 {
     }
 }
 
-fn to_hex_string(color: &Vec<f32>) -> String {
+fn to_hex_string(color: &[f32]) -> String {
     if color.len() == 1 {
         format!("#{:02X}", (color[0] * 255.0).round() as u8)
     } else if color.len() == 2 {
@@ -53,11 +53,11 @@ fn to_hex_string(color: &Vec<f32>) -> String {
     }
 }
 
-fn to_rgba_string(color: &Vec<f32>) -> String {
-    color.join(", ")
+fn to_rgba_string(color: &[f32]) -> String {
+    color.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
-fn to_rgba_int_string(color: &Vec<f32>, alpha: f64) -> String {
+fn to_rgba_int_string(color: &[f32], alpha: f64) -> String {
     color
         .iter()
         .map(|c| (((*c as f64) * alpha).round() as i32).to_string())

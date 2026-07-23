@@ -41,7 +41,7 @@ impl FileNav {
     }
 
     #[inline]
-    pub fn is_supported_image(path: &PathBuf) -> bool {
+    pub fn is_supported_image(path: &Path) -> bool {
         let ext = path
             .extension()
             .and_then(|s| s.to_str())
@@ -51,7 +51,7 @@ impl FileNav {
     }
 
     #[inline]
-    pub fn sort_paths_case_insensitive(files: &mut Vec<PathBuf>) {
+    pub fn sort_paths_case_insensitive(files: &mut [PathBuf]) {
         files.sort_by(|a, b| {
             let an = a
                 .file_name()
@@ -178,40 +178,30 @@ impl FileNav {
             match event.kind {
                 EventKind::Create(CreateKind::File) | EventKind::Create(CreateKind::Any) => {
                     for p in event.paths.iter() {
-                        if p.parent() == Some(dir.as_path()) && Self::is_supported_image(p) {
-                            if set.insert(p.clone()) {
-                                changed = true;
-                            }
+                        if p.parent() == Some(dir.as_path()) && Self::is_supported_image(p) && set.insert(p.clone()) {
+                            changed = true;
                         }
                     }
                     handled = true;
                 }
                 EventKind::Remove(RemoveKind::File) | EventKind::Remove(RemoveKind::Any) => {
                     for p in event.paths.iter() {
-                        if p.parent() == Some(dir.as_path()) {
-                            if set.remove(p) {
-                                changed = true;
-                            }
+                        if p.parent() == Some(dir.as_path()) && set.remove(p) {
+                            changed = true;
                         }
                     }
                     handled = true;
                 }
-                EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                    if event.paths.len() == 2 {
-                        let old = event.paths[0].clone();
-                        let newp = event.paths[1].clone();
-                        if old.parent() == Some(dir.as_path()) {
-                            if set.remove(&old) {
-                                changed = true;
-                            }
-                        }
-                        if newp.parent() == Some(dir.as_path()) && Self::is_supported_image(&newp) {
-                            if set.insert(newp) {
-                                changed = true;
-                            }
-                        }
-                        handled = true;
+                EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
+                    let old = event.paths[0].clone();
+                    let newp = event.paths[1].clone();
+                    if old.parent() == Some(dir.as_path()) && set.remove(&old) {
+                        changed = true;
                     }
+                    if newp.parent() == Some(dir.as_path()) && Self::is_supported_image(&newp) && set.insert(newp) {
+                        changed = true;
+                    }
+                    handled = true;
                 }
                 _ => {}
             }

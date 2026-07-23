@@ -45,12 +45,12 @@ fn build_cpu_integral<const CHANNELS: usize>(
             let pixel = (y * width + x) * CHANNELS;
             let dst = ((y + 1) * stride + x + 1) * CHANNELS;
             let above = (y * stride + x + 1) * CHANNELS;
-            for channel in 0..CHANNELS {
+            for (channel, row_sum) in row_sum.iter_mut().enumerate() {
                 // ImageData validates the pixel count, and the integral allocation
                 // includes the one-pixel top/left border used by these offsets.
                 unsafe {
-                    row_sum[channel] += *input.add(pixel + channel) as f64;
-                    *output.add(dst + channel) = *output.add(above + channel) + row_sum[channel];
+                    *row_sum += *input.add(pixel + channel) as f64;
+                    *output.add(dst + channel) = *output.add(above + channel) + *row_sum;
                 }
             }
         }
@@ -501,7 +501,7 @@ mod tests {
             image.spec().height,
             image.spec().channels,
             decode_elapsed,
-            image.pixels().map_or(0, |pixels| pixels.len() * std::mem::size_of::<f32>()) as f64 / (1024.0 * 1024.0),
+            image.pixels().map_or(0, std::mem::size_of_val) as f64 / (1024.0 * 1024.0),
             table_started.elapsed(),
             integral.bytes() as f64 / (1024.0 * 1024.0),
         );
