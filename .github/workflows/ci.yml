@@ -30,7 +30,6 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: 1
-      OPENCV_LINK_STATIC: 1
       PKG_CONFIG_ALL_STATIC: 1
       # image's native AVIF decoder uses dav1d. Build it from the pinned
       # dav1d-sys source so release artifacts do not depend on a runner-provided
@@ -103,34 +102,6 @@ jobs:
 
               
 
-      # ----- Cache OpenCV install directories -----
-      - name: Cache OpenCV install (Ubuntu)
-        if: startsWith(runner.os, 'Linux')
-        uses: actions/cache@v4
-        with:
-          path: .opencv/install
-          key: opencv4-${{ runner.os }}-4.12.0
-          restore-keys: |
-            opencv4-${{ runner.os }}-
-
-      - name: Cache OpenCV install (macOS)
-        if: startsWith(runner.os, 'macOS')
-        uses: actions/cache@v4
-        with:
-          path: .opencv/install
-          key: opencv4-${{ runner.os }}-4.12.0
-          restore-keys: |
-            opencv4-${{ runner.os }}-
-
-      - name: Cache OpenCV install (Windows)
-        if: startsWith(runner.os, 'Windows')
-        uses: actions/cache@v4
-        with:
-          path: .opencv/install
-          key: opencv4-${{ runner.os }}-4.12.0
-          restore-keys: |
-            opencv4-${{ runner.os }}-
-
       # ----- Cache Chocolatey packages (Windows) -----
       - name: Cache Chocolatey packages (Windows)
         if: startsWith(runner.os, 'Windows')
@@ -143,89 +114,20 @@ jobs:
           restore-keys: |
             choco-${{ runner.os }}-
 
-      # ----- Linux (Ubuntu) OpenCV deps -----
-      - name: Install OpenCV deps (Ubuntu)
+      - name: Install native build deps (Ubuntu)
         if: startsWith(runner.os, 'Linux')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake meson ninja-build git curl unzip pkg-config \
-            clang libclang-dev llvm-dev nasm
+            nasm
 
-      - name: Build OpenCV 4.12.0 (Ubuntu)
-        if: startsWith(runner.os, 'Linux')
-        env:
-          OPENCV_VERSION: 4.12.0
-        run: |
-          set -e
-          OPENCV_VERSION=${OPENCV_VERSION}
-          WORKDIR="$GITHUB_WORKSPACE/.opencv"
-          SRC_DIR="$WORKDIR/opencv-$OPENCV_VERSION"
-          INSTALL_DIR="$WORKDIR/install"
-          mkdir -p "$WORKDIR"
-          if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
-            echo "OpenCV already installed at $INSTALL_DIR";
-          else
-            cd "$WORKDIR"
-            if [ ! -d "$SRC_DIR" ]; then
-              echo "Downloading OpenCV $OPENCV_VERSION sources"
-              git clone -b release https://github.com/edoli/opencv-edolview.git $SRC_DIR
-            fi
-            test -f "$SRC_DIR/CMakeLists.txt" || { echo "CMakeLists.txt not found in $SRC_DIR"; ls -al "$WORKDIR"; exit 1; }
-            cd "$SRC_DIR"
-            sh cmake_script.sh
-          fi
-          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
-          echo "OPENCV_LINK_STATIC=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALL_STATIC=1" >> $GITHUB_ENV
-
-          export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig:${PKG_CONFIG_PATH}"
-          export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
-          pkg-config --modversion opencv4 || true
-
-      # ----- macOS OpenCV -----
-      - name: Build OpenCV 4.12.0 (macOS static)
+      - name: Install native build deps (macOS)
         if: startsWith(runner.os, 'macOS')
-        env:
-          OPENCV_VERSION: 4.12.0
         run: |
-          set -e
-          # Basic deps
           brew update
-          brew install cmake meson ninja llvm nasm
-          LLVM_PREFIX="$(brew --prefix llvm)"
-          echo "LIBCLANG_PATH=$LLVM_PREFIX/lib" >> $GITHUB_ENV
-          echo "DYLD_LIBRARY_PATH=$LLVM_PREFIX/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "PATH=$LLVM_PREFIX/bin:$PATH" >> $GITHUB_ENV
-          OPENCV_VERSION=${OPENCV_VERSION}
-          WORKDIR="$GITHUB_WORKSPACE/.opencv"
-          SRC_DIR="$WORKDIR/opencv-$OPENCV_VERSION"
-          INSTALL_DIR="$WORKDIR/install"
-          # Cache check
-          mkdir -p "$WORKDIR"
-          if [ -d "$INSTALL_DIR/lib/cmake/opencv4" ]; then
-            echo "OpenCV already installed at $INSTALL_DIR";
-          else
-            cd "$WORKDIR"
-            if [ ! -d "$SRC_DIR" ]; then
-              echo "Downloading OpenCV $OPENCV_VERSION sources"
-              git clone -b release https://github.com/edoli/opencv-edolview.git $SRC_DIR
-            fi
-            test -f "$SRC_DIR/CMakeLists.txt" || { echo "Missing CMakeLists.txt for macOS"; ls -al "$WORKDIR"; exit 1; }
-            cd "$SRC_DIR"
-            sh cmake_script.sh
-          fi
-          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          echo "OPENCV_PKGCONFIG=1" >> $GITHUB_ENV
-          echo "OPENCV_LINK_STATIC=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALL_STATIC=1" >> $GITHUB_ENV
+          brew install cmake meson ninja nasm
 
-          export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig:${PKG_CONFIG_PATH}"
-          export OPENCV_PKGCONFIG=1 OPENCV_LINK_STATIC=1 PKG_CONFIG_ALL_STATIC=1
-          pkg-config --modversion opencv4 || true
-
-      # ----- Windows OpenCV source build (similar to Ubuntu/macOS) -----
       - name: Install build deps (Windows)
         if: startsWith(runner.os, 'Windows')
         shell: pwsh
@@ -244,56 +146,6 @@ jobs:
             echo "PATH=$llvmBin;$env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
             echo "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $Env:GITHUB_ENV -Append
           }
-
-      - name: Build OpenCV 4.12.0 (Windows static)
-        if: startsWith(runner.os, 'Windows')
-        shell: pwsh
-        env:
-          OPENCV_VERSION: 4.12.0
-        run: |
-          $workdir = Join-Path $env:GITHUB_WORKSPACE '.opencv'
-          $installDir = Join-Path $workdir 'install'
-          $srcDir = Join-Path $workdir "opencv-$env:OPENCV_VERSION"
-          $staticLibCandidates = @(
-            (Join-Path $installDir 'staticlib'),
-            (Join-Path $installDir 'x64/vc17/staticlib')
-          )
-          New-Item -ItemType Directory -Force -Path $workdir | Out-Null
-          $opencvConfigPath = $staticLibCandidates |
-            ForEach-Object { Join-Path $_ 'OpenCVConfig.cmake' } |
-            Where-Object { Test-Path $_ } |
-            Select-Object -First 1
-          if ($opencvConfigPath) {
-            Write-Host "OpenCV already installed at $installDir"
-          } else {
-            if (-not (Test-Path $srcDir)) {
-              Write-Host "Downloading OpenCV $env:OPENCV_VERSION sources"
-              git clone -b release https://github.com/edoli/opencv-edolview.git $srcDir
-            }
-            if (-not (Test-Path (Join-Path $srcDir 'CMakeLists.txt'))) {
-              Write-Host "CMakeLists.txt not found in $srcDir"; Get-ChildItem $workdir; exit 1
-            }
-            Push-Location $srcDir
-            pwsh .\cmake_script.ps1
-          }
-
-          $libPath = $staticLibCandidates |
-            Where-Object { Test-Path $_ } |
-            Select-Object -First 1
-          if (-not $libPath) {
-            Write-Host "OpenCV static library directory not found. Install directory contents:"
-            Get-ChildItem -Path $installDir -Recurse -Depth 3
-            exit 1
-          }
-          $libs = Get-ChildItem -Path $libPath -Filter *.lib | ForEach-Object { $_.BaseName }
-          $libsJoined = $libs -join ","
-
-          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_LIBS=$libsJoined"
-          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_PATHS=$libPath"
-          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_INCLUDE_PATHS=$installDir\include"
-          Add-Content -Path $Env:GITHUB_ENV -Value "OPENCV_LINK_STATIC=1"
-          
-          Get-Content -Path $Env:GITHUB_ENV
 
       - name: Run vcpkg build
         run: |
