@@ -33,6 +33,11 @@ impl ExternalOpenMode {
 pub struct AppSettings {
     #[serde(default)]
     pub external_open_mode: ExternalOpenMode,
+    /// Build a CPU summed-area table for O(1) marquee mean queries.
+    /// This costs `(width + 1) * (height + 1) * channels * 8` bytes per
+    /// active image, so keeping it configurable is important for very large images.
+    #[serde(default = "default_integral_table_precompute")]
+    pub integral_table_precompute: bool,
     #[serde(default)]
     pub ui_state: PersistentUiState,
     #[serde(default = "default_view_presets")]
@@ -62,6 +67,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             external_open_mode: ExternalOpenMode::NewWindow,
+            integral_table_precompute: default_integral_table_precompute(),
             ui_state: PersistentUiState::default(),
             view_presets: default_view_presets(),
         }
@@ -143,4 +149,8 @@ fn settings_path() -> PathBuf {
 
 fn default_view_presets() -> Vec<Option<ViewPreset>> {
     vec![None; VIEW_PRESET_COUNT]
+}
+
+const fn default_integral_table_precompute() -> bool {
+    true
 }

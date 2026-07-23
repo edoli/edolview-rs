@@ -251,6 +251,7 @@ impl ViewerApp {
             crate::settings::AppSettings::default()
         });
         let persisted_ui_state = app_settings.ui_state.clone();
+        crate::model::MEAN_PROCESSOR.set_precompute_enabled(app_settings.integral_table_precompute);
         state.is_show_background = persisted_ui_state.is_show_background;
         state.is_show_pixel_value = persisted_ui_state.is_show_pixel_value;
         state.is_show_crosshair = persisted_ui_state.is_show_crosshair;
@@ -923,6 +924,34 @@ impl ViewerApp {
 
                 if changed_new || changed_existing {
                     self.app_settings.external_open_mode = mode;
+                    if let Err(err) = self.app_settings.save() {
+                        self.toasts.add_error(err);
+                    }
+                }
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(12.0);
+                ui.heading("Mean calculation");
+                ui.add_space(8.0);
+
+                let precompute_changed = ui
+                    .checkbox(
+                        &mut self.app_settings.integral_table_precompute,
+                        "Precompute integral table",
+                    )
+                    .on_hover_text(
+                        "Keeps marquee mean and plot queries fast after loading, but uses 8 bytes per channel for every image pixel. Disable it to minimize CPU memory; mean queries then run on the GPU.",
+                    )
+                    .changed();
+                if precompute_changed {
+                    let enabled = self.app_settings.integral_table_precompute;
+                    crate::model::MEAN_PROCESSOR.set_precompute_enabled(enabled);
+                    if enabled {
+                        if let Some(asset) = &self.state.asset {
+                            crate::model::MEAN_PROCESSOR.precompute_async(asset.image());
+                        }
+                    }
                     if let Err(err) = self.app_settings.save() {
                         self.toasts.add_error(err);
                     }

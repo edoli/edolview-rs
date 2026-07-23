@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 
@@ -309,6 +309,7 @@ impl Default for MeanCache {
 pub struct MeanProcessor {
     cache: Arc<Mutex<MeanCache>>,
     active_image_id: Arc<AtomicU64>,
+    precompute_enabled: AtomicBool,
 }
 
 impl MeanProcessor {
@@ -316,7 +317,20 @@ impl MeanProcessor {
         Self {
             cache: Arc::new(Mutex::new(MeanCache::default())),
             active_image_id: Arc::new(AtomicU64::new(u64::MAX)),
+            precompute_enabled: AtomicBool::new(true),
         }
+    }
+
+    pub fn set_precompute_enabled(&self, enabled: bool) {
+        let was_enabled = self.precompute_enabled.swap(enabled, Ordering::AcqRel);
+        if !enabled && was_enabled {
+            self.active_image_id.store(u64::MAX, Ordering::Release);
+            *self.cache.lock().unwrap() = MeanCache::default();
+        }
+    }
+
+    pub fn precompute_enabled(&self) -> bool {
+        self.precompute_enabled.load(Ordering::Acquire)
     }
 
     /// Uses the O(1) summed-area query whenever precompute is ready. The GPU
@@ -334,12 +348,17 @@ impl MeanProcessor {
             }
         }
 
-        self.precompute_async(image);
+        if self.precompute_enabled() {
+            self.precompute_async(image);
+        }
         let texture = image.gpu_texture()?;
         gpu_compute()?.mean(&texture, rect, dim)
     }
 
     pub fn precompute_async(&self, image: &ImageData) {
+        if !self.precompute_enabled() {
+            return;
+        }
         let image_id = image.id();
         {
             let mut cache = self.cache.lock().unwrap();
@@ -384,6 +403,11 @@ impl MeanProcessor {
     fn clear_integral(&self) {
         self.active_image_id.store(u64::MAX, Ordering::Release);
         *self.cache.lock().unwrap() = MeanCache::default();
+    }
+
+    #[cfg(test)]
+    fn cached_integral_bytes(&self) -> usize {
+        self.cache.lock().unwrap().integral.as_ref().map_or(0, IntegralImage::bytes)
     }
 }
 
@@ -438,5 +462,48 @@ mod tests {
                 assert!((actual[channel] - expected).abs() < 1e-12);
             }
         }
+    }
+
+    #[test]
+    fn disabling_precompute_discards_the_cached_integral() {
+        let image = ImageData::from_f32(ImageSpec::new(2, 2, 1, PixelType::F32), vec![1.0; 4]).unwrap();
+        let active = AtomicU64::new(image.id());
+        let integral = IntegralImage::build(&image, &active).unwrap().unwrap();
+        let processor = MeanProcessor::new();
+        processor.install_integral(&image, integral);
+        assert!(processor.cached_integral_bytes() > 0);
+
+        processor.set_precompute_enabled(false);
+        assert!(!processor.precompute_enabled());
+        assert_eq!(processor.cached_integral_bytes(), 0);
+    }
+
+    #[test]
+    #[ignore = "manual 8K EXR integral-table memory benchmark"]
+    fn benchmark_8k_exr_integral_table_memory() {
+        let path =
+            std::path::PathBuf::from(std::env::var("EDOLVIEW_8K_EXR").expect("set EDOLVIEW_8K_EXR to an 8K EXR path"));
+        let decode_started = std::time::Instant::now();
+        let image = ImageData::load_from_path(&path).unwrap();
+        let decode_elapsed = decode_started.elapsed();
+
+        let disabled_processor = MeanProcessor::new();
+        disabled_processor.set_precompute_enabled(false);
+        disabled_processor.precompute_async(&image);
+        assert_eq!(disabled_processor.cached_integral_bytes(), 0);
+
+        let active = AtomicU64::new(image.id());
+        let table_started = std::time::Instant::now();
+        let integral = IntegralImage::build(&image, &active).unwrap().unwrap();
+        eprintln!(
+            "8K EXR: {}x{}x{}, decode={:.1?}, decoded pixels={:.1} MiB, disabled integral=0 MiB, integral={:.1?}, enabled integral={:.1} MiB",
+            image.spec().width,
+            image.spec().height,
+            image.spec().channels,
+            decode_elapsed,
+            image.pixels().map_or(0, |pixels| pixels.len() * std::mem::size_of::<f32>()) as f64 / (1024.0 * 1024.0),
+            table_started.elapsed(),
+            integral.bytes() as f64 / (1024.0 * 1024.0),
+        );
     }
 }
