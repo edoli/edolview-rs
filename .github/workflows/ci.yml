@@ -135,6 +135,10 @@ jobs:
           choco install -y --no-progress llvm cmake meson ninja pkgconfiglite git curl unzip nasm
           Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
           refreshenv
+          # A restored Chocolatey cache contains the package shims, but does
+          # not update this job's PATH. Add the shim directory explicitly.
+          $chocoBin = Join-Path $env:ChocolateyInstall 'bin'
+          $env:PATH = "$chocoBin;$env:PATH"
           if (-not (Get-Command meson -ErrorAction SilentlyContinue)) {
             throw "Meson is not available on PATH after installation."
           }
