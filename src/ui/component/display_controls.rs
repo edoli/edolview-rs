@@ -11,6 +11,7 @@ use crate::{
         },
         gpu::ScaleMode,
     },
+    util::expression::parse_number_expression,
 };
 
 fn scale_mode_name(scale_mode: ScaleMode) -> &'static str {
@@ -105,14 +106,18 @@ pub fn display_controls_ui(
         |columns| {
             // Min control
             columns[0].add_enabled_ui(!locked, |ui| {
-                ui.add(egui::DragValue::new(switch!(locked => &mut tmp_min, min_v)).speed(0.01))
-                    .on_hover_text("Min value")
-                    .context_menu(|ui| {
-                        if ui.button("Reset").clicked() {
-                            *min_v = 0.0;
-                            ui.close();
-                        }
-                    });
+                ui.add(
+                    egui::DragValue::new(switch!(locked => &mut tmp_min, min_v))
+                        .speed(0.01)
+                        .custom_parser(parse_number_expression),
+                )
+                .on_hover_text("Min value")
+                .context_menu(|ui| {
+                    if ui.button("Reset").clicked() {
+                        *min_v = 0.0;
+                        ui.close();
+                    }
+                });
             });
 
             // Swap min/max button
@@ -126,14 +131,18 @@ pub fn display_controls_ui(
 
             // Max control
             columns[2].add_enabled_ui(!locked, |ui| {
-                ui.add(egui::DragValue::new(switch!(locked => &mut tmp_max, max_v)).speed(0.01))
-                    .on_hover_text("Max value")
-                    .context_menu(|ui| {
-                        if ui.button("Reset").clicked() {
-                            *max_v = 1.0;
-                            ui.close();
-                        }
-                    });
+                ui.add(
+                    egui::DragValue::new(switch!(locked => &mut tmp_max, max_v))
+                        .speed(0.01)
+                        .custom_parser(parse_number_expression),
+                )
+                .on_hover_text("Max value")
+                .context_menu(|ui| {
+                    if ui.button("Reset").clicked() {
+                        *max_v = 1.0;
+                        ui.close();
+                    }
+                });
             });
 
             // Auto min/max toggle
