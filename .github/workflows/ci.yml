@@ -231,8 +231,16 @@ jobs:
         shell: pwsh
         run: |
           choco install -y --no-progress llvm cmake meson ninja pkgconfiglite git curl unzip nasm
+          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+          refreshenv
+          if (-not (Get-Command meson -ErrorAction SilentlyContinue)) {
+            throw "Meson is not available on PATH after installation."
+          }
+          meson --version
+
           $llvmBin = "C:\Program Files\LLVM\bin"
           if (Test-Path $llvmBin) {
+            # Preserve the refreshed PATH so later steps can find Meson.
             echo "PATH=$llvmBin;$env:PATH" | Out-File -FilePath $Env:GITHUB_ENV -Append
             echo "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $Env:GITHUB_ENV -Append
           }
