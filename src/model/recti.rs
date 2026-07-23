@@ -4,7 +4,10 @@ use eframe::egui::Pos2;
 
 use crate::{
     switch,
-    util::math_ext::{vec2i, Vec2i},
+    util::{
+        expression::parse_i32_expression,
+        math_ext::{vec2i, Vec2i},
+    },
 };
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
@@ -147,9 +150,10 @@ impl std::str::FromStr for Recti {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
 
-        // Helper to parse i32 with trimming
+        // Each component can be an arithmetic expression, but the resulting
+        // coordinate must remain an exact i32 value.
         fn parse_i32(t: &str) -> Result<i32, ()> {
-            t.trim().parse::<i32>().map_err(|_| ())
+            parse_i32_expression(t).ok_or(())
         }
 
         // Format 1: [y_min:y_max, x_min:x_max]
@@ -185,10 +189,11 @@ impl std::str::FromStr for Recti {
 
         // Format 2: (x, y, width, height) — parentheses optional
         let inner = s.trim_matches(|c: char| c == '(' || c == ')' || c == '[' || c == ']' || c.is_whitespace());
-        let parts: Vec<&str> = inner
-            .split(|c: char| c == ',' || c.is_whitespace())
-            .filter(|t| !t.is_empty())
-            .collect();
+        let parts: Vec<&str> = if inner.contains(',') {
+            inner.split(',').map(str::trim).collect()
+        } else {
+            inner.split_whitespace().collect()
+        };
 
         if parts.len() != 4 {
             return Err(());
@@ -216,6 +221,17 @@ impl std::fmt::Display for Recti {
         let y = self.min.y;
         let width = self.max.x - self.min.x;
         let height = self.max.y - self.min.y;
-        write!(f, "({}, {}, {}, {})", x, y, width, height)
+        write!(f, "{}, {}, {}, {}", x, y, width, height)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Recti;
+
+    #[test]
+    fn parses_expression_components() {
+        let rect: Recti = "10 * 2, 20 / 2, 1920 / 2, (3 + 1) * 5".parse().unwrap();
+        assert_eq!(rect.to_string(), "20, 10, 960, 20");
     }
 }

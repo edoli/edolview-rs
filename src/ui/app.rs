@@ -1698,9 +1698,9 @@ impl eframe::App for ViewerApp {
 
                         columns[1].vertical(|ui| {
                             if let Some(cursor_pos) = self.state.cursor_pos {
-                                ui.label(format!("Cursor: ({}, {})", cursor_pos.x, cursor_pos.y));
+                                ui.label(format!("Cursor: {}, {}", cursor_pos.x, cursor_pos.y));
                             } else {
-                                ui.label("Cursor: (-, -)");
+                                ui.label("Cursor: -, -");
                             }
 
                             ui.text_edit_value_capture(

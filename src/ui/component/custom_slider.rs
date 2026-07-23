@@ -11,6 +11,7 @@ use crate::egui::{
     TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText,
 };
 use crate::ui::component::egui_ext::UiExt;
+use crate::util::expression::parse_number_expression;
 
 /// The minus character: <https://www.compart.com/en/unicode/U+2212>
 pub(crate) const MINUS_CHAR_STR: &str = "−";
@@ -946,6 +947,8 @@ impl CustomSlider<'_> {
             };
             if let Some(parser) = &self.custom_parser {
                 dv = dv.custom_parser(parser);
+            } else {
+                dv = dv.custom_parser(parse_number_expression);
             }
             dv
         });

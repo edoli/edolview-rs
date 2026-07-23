@@ -54,18 +54,15 @@ fn to_hex_string(color: &Vec<f32>) -> String {
 }
 
 fn to_rgba_string(color: &Vec<f32>) -> String {
-    format!("({})", color.join(", "))
+    color.join(", ")
 }
 
 fn to_rgba_int_string(color: &Vec<f32>, alpha: f64) -> String {
-    format!(
-        "({})",
-        color
-            .iter()
-            .map(|c| (((*c as f64) * alpha).round() as i32).to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
+    color
+        .iter()
+        .map(|c| (((*c as f64) * alpha).round() as i32).to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub trait ColorDisplay {
