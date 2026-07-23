@@ -76,7 +76,7 @@ jobs:
         with:
           path: |
             target/vcpkg/installed/x64-linux-release
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          key: vcpkg-${{ runner.os }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
@@ -86,7 +86,7 @@ jobs:
         with:
           path: |
             target/vcpkg/installed/arm64-osx-release
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          key: vcpkg-${{ runner.os }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
@@ -96,7 +96,7 @@ jobs:
         with:
           path: |
             target/vcpkg/installed/x64-windows-static-md
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          key: vcpkg-${{ runner.os }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
