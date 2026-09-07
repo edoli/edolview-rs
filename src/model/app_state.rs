@@ -12,6 +12,7 @@ use crate::{
         AssetType, ClipboardAsset, ComparisonAsset, ComparisonMode, FileAsset, Image, ImageData, Recti, SharedAsset,
         SocketInfo, SocketState, Statistics,
     },
+    settings::BackgroundStyle,
     ui::gpu::ShaderParams,
     util::math_ext::{vec2i, Vec2i},
 };
@@ -35,7 +36,7 @@ pub struct AppState {
     pub colormap_rgb_list: Vec<String>,
     pub colormap_mono_list: Vec<String>,
 
-    pub is_show_background: bool,
+    pub background_style: BackgroundStyle,
     pub is_show_pixel_value: bool,
     pub is_show_crosshair: bool,
     pub is_show_sidebar: bool,
@@ -94,7 +95,7 @@ impl AppState {
             colormap_mono: String::from("gray"),
             colormap_rgb_list: list_colormaps("colormap/rgb"),
             colormap_mono_list: list_colormaps("colormap/mono"),
-            is_show_background: true,
+            background_style: BackgroundStyle::default(),
             is_show_pixel_value: true,
             is_show_crosshair: false,
             is_show_sidebar: true,

@@ -8,6 +8,12 @@ pub const DANGER_TEXT: Color32 = Color32::from_rgb(255, 100, 100);
 pub const NOTICE_ERROR_TEXT: Color32 = Color32::from_rgb(255, 60, 60);
 pub const NOTICE_WARNING_TEXT: Color32 = Color32::from_rgb(255, 210, 120);
 
+pub const BACKGROUND_BLACK: Color32 = Color32::BLACK;
+pub const BACKGROUND_GRAY: Color32 = Color32::from_gray(128);
+pub const BACKGROUND_WHITE: Color32 = Color32::WHITE;
+pub const BACKGROUND_LIGHT_CHECKER: [Color32; 2] = [Color32::from_gray(208), Color32::from_gray(240)];
+pub const BACKGROUND_HIGH_CONTRAST_CHECKER: [Color32; 2] = [Color32::BLACK, Color32::WHITE];
+
 pub const STATISTICS_MIN_TOGGLE_FILL: Color32 = Color32::from_rgb(0, 122, 255);
 pub const STATISTICS_MAX_TOGGLE_FILL: Color32 = Color32::from_rgb(214, 48, 49);
 

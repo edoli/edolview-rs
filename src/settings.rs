@@ -24,6 +24,51 @@ pub enum AngleDisplayUnit {
     Radians,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundStyle {
+    Black,
+    Gray,
+    White,
+    #[default]
+    DarkChecker,
+    LightChecker,
+    HighContrastChecker,
+}
+
+impl BackgroundStyle {
+    pub const ALL: [Self; 6] = [
+        Self::Black,
+        Self::Gray,
+        Self::White,
+        Self::DarkChecker,
+        Self::LightChecker,
+        Self::HighContrastChecker,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Black => "Black",
+            Self::Gray => "Gray",
+            Self::White => "White",
+            Self::DarkChecker => "Dark checkerboard",
+            Self::LightChecker => "Light checkerboard",
+            Self::HighContrastChecker => "High-contrast checkerboard",
+        }
+    }
+
+    pub const fn colors(self, dark_checker_colors: [eframe::egui::Color32; 2]) -> [eframe::egui::Color32; 2] {
+        match self {
+            Self::Black => [crate::res::BACKGROUND_BLACK; 2],
+            Self::Gray => [crate::res::BACKGROUND_GRAY; 2],
+            Self::White => [crate::res::BACKGROUND_WHITE; 2],
+            Self::DarkChecker => dark_checker_colors,
+            Self::LightChecker => crate::res::BACKGROUND_LIGHT_CHECKER,
+            Self::HighContrastChecker => crate::res::BACKGROUND_HIGH_CONTRAST_CHECKER,
+        }
+    }
+}
+
 impl ExternalOpenMode {
     pub fn label(self) -> &'static str {
         match self {
@@ -56,8 +101,10 @@ pub struct ViewPreset {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PersistentUiState {
-    pub is_show_background: bool,
+    #[serde(default)]
+    pub background_style: BackgroundStyle,
     pub is_show_pixel_value: bool,
     pub is_show_crosshair: bool,
     pub is_show_sidebar: bool,
@@ -81,7 +128,7 @@ impl Default for AppSettings {
 impl Default for PersistentUiState {
     fn default() -> Self {
         Self {
-            is_show_background: true,
+            background_style: BackgroundStyle::default(),
             is_show_pixel_value: true,
             is_show_crosshair: false,
             is_show_sidebar: true,

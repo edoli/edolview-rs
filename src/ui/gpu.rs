@@ -224,7 +224,6 @@ pub struct ExportRequest {
 #[derive(Clone)]
 pub struct ImagePaintCallback {
     pub panes: Vec<PaneDraw>,
-    pub show_background: bool,
     pub export: Option<ExportRequest>,
 }
 
@@ -259,7 +258,7 @@ impl egui_wgpu::CallbackTrait for ImagePaintCallback {
         resources: &egui_wgpu::CallbackResources,
     ) {
         if let Some(renderer) = resources.get::<GpuRenderer>() {
-            renderer.paint(pass, &self.panes, self.show_background);
+            renderer.paint(pass, &self.panes);
         }
     }
 }
@@ -473,7 +472,7 @@ impl GpuRenderer {
         }
     }
 
-    fn paint(&self, pass: &mut wgpu::RenderPass<'static>, panes: &[PaneDraw], show_background: bool) {
+    fn paint(&self, pass: &mut wgpu::RenderPass<'static>, panes: &[PaneDraw]) {
         for pane in panes {
             let width = pane.viewport_px.width().round().max(0.0);
             let height = pane.viewport_px.height().round().max(0.0);
@@ -493,10 +492,8 @@ impl GpuRenderer {
             );
             let offset = (self.uniform_stride * pane.uniform_slot as u64) as u32;
             pass.set_bind_group(0, &image.bind_group, &[offset]);
-            if show_background {
-                pass.set_pipeline(&self.background_pipeline);
-                pass.draw(0..4, 0..1);
-            }
+            pass.set_pipeline(&self.background_pipeline);
+            pass.draw(0..4, 0..1);
             pass.set_pipeline(&self.image_pipeline);
             pass.draw(0..4, 0..1);
         }

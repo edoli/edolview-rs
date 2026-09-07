@@ -27,7 +27,7 @@ use crate::{
     ui::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
-            egui_ext::{ComboBoxExt, Size, UiExt},
+            egui_ext::{ComboBoxExt, InnerRespExt, Size, UiExt},
             show_bookmark_window, BookmarkJumpMode, CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
         },
         fonts::{apply_fallback_fonts, spawn_fallback_font_loader, LoadedFallbackFonts},
@@ -252,7 +252,7 @@ impl ViewerApp {
         });
         let persisted_ui_state = app_settings.ui_state.clone();
         crate::model::MEAN_PROCESSOR.set_precompute_enabled(app_settings.integral_table_precompute);
-        state.is_show_background = persisted_ui_state.is_show_background;
+        state.background_style = persisted_ui_state.background_style;
         state.is_show_pixel_value = persisted_ui_state.is_show_pixel_value;
         state.is_show_crosshair = persisted_ui_state.is_show_crosshair;
         state.is_show_sidebar = persisted_ui_state.is_show_sidebar;
@@ -604,15 +604,15 @@ impl ViewerApp {
     }
 
     fn current_persistent_ui_state(&self) -> crate::settings::PersistentUiState {
-        crate::settings::PersistentUiState {
-            is_show_background: self.state.is_show_background,
-            is_show_pixel_value: self.state.is_show_pixel_value,
-            is_show_crosshair: self.state.is_show_crosshair,
-            is_show_sidebar: self.state.is_show_sidebar,
-            is_show_statusbar: self.state.is_show_statusbar,
-            copy_use_original_size: self.state.copy_use_original_size,
-            angle_display_unit: self.app_settings.ui_state.angle_display_unit,
-        }
+        let mut ui_state = crate::settings::PersistentUiState::default();
+        ui_state.background_style = self.state.background_style;
+        ui_state.is_show_pixel_value = self.state.is_show_pixel_value;
+        ui_state.is_show_crosshair = self.state.is_show_crosshair;
+        ui_state.is_show_sidebar = self.state.is_show_sidebar;
+        ui_state.is_show_statusbar = self.state.is_show_statusbar;
+        ui_state.copy_use_original_size = self.state.copy_use_original_size;
+        ui_state.angle_display_unit = self.app_settings.ui_state.angle_display_unit;
+        ui_state
     }
 
     fn save_persistent_ui_state_if_needed(&mut self) {
@@ -1623,11 +1623,21 @@ impl eframe::App for ViewerApp {
                         "When enabled, {} copies marquee at image pixel size (ignores zoom).",
                         crate::res::COPY_SC.format_sys()
                     ));
-                ui.toggle_icon(
-                    &mut self.state.is_show_background,
-                    self.icons.get_show_background(&ctx),
-                    "Show Background",
-                );
+                egui::ComboBox::from_id_salt("background_style")
+                    .selected_text(format!("Background: {}", self.state.background_style.label()))
+                    .show_ui(ui, |ui| {
+                        for style in crate::settings::BackgroundStyle::ALL {
+                            ui.selectable_value(&mut self.state.background_style, style, style.label());
+                        }
+                    })
+                    .hover_scroll(
+                        ui,
+                        &crate::settings::BackgroundStyle::ALL,
+                        &mut self.state.background_style,
+                        false,
+                    )
+                    .response
+                    .on_hover_text("Choose the background shown behind transparent image areas");
                 ui.toggle_icon(
                     &mut self.state.is_show_pixel_value,
                     self.icons.get_show_pixel_value(&ctx),

@@ -539,7 +539,6 @@ impl ImageViewer {
                 let scale = self.zoom();
                 let position = self.pan;
 
-                let visuals = ui.visuals().clone();
                 let shader_params = app_state.shader_params.clone();
                 let channel_index = app_state.channel_index;
 
@@ -549,7 +548,10 @@ impl ImageViewer {
                 } else {
                     app_state.colormap_rgb.clone()
                 };
-                let is_show_background = app_state.is_show_background;
+                let visuals = ui.visuals();
+                let background_colors = app_state
+                    .background_style
+                    .colors([visuals.extreme_bg_color, visuals.faint_bg_color]);
                 let export_toasts = self.export_toasts.clone();
                 let repaint_ctx = ui.ctx().clone();
                 let render_primary_asset_hash = if split_view {
@@ -593,8 +595,8 @@ impl ImageViewer {
                         position,
                         &shader_params,
                         &primary_min_max_overlay,
-                        visuals.extreme_bg_color,
-                        visuals.faint_bg_color,
+                        background_colors[0],
+                        background_colors[1],
                     );
                     if split_view {
                         renderer.write_params(
@@ -608,8 +610,8 @@ impl ImageViewer {
                             position,
                             &shader_params,
                             &secondary_min_max_overlay,
-                            visuals.extreme_bg_color,
-                            visuals.faint_bg_color,
+                            background_colors[0],
+                            background_colors[1],
                         );
                     }
 
@@ -640,8 +642,8 @@ impl ImageViewer {
                                 crop_pos,
                                 &shader_params,
                                 &disabled_min_max_overlay,
-                                visuals.extreme_bg_color,
-                                visuals.faint_bg_color,
+                                background_colors[0],
+                                background_colors[1],
                             );
 
                             let completion_toasts = export_toasts.clone();
@@ -713,11 +715,7 @@ impl ImageViewer {
                     drop(egui_renderer);
                     ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
                         rect,
-                        ImagePaintCallback {
-                            panes,
-                            show_background: is_show_background,
-                            export,
-                        },
+                        ImagePaintCallback { panes, export },
                     ));
                 }
 
