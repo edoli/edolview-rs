@@ -1623,6 +1623,16 @@ impl eframe::App for ViewerApp {
                         "When enabled, {} copies marquee at image pixel size (ignores zoom).",
                         crate::res::COPY_SC.format_sys()
                     ));
+                ui.toggle_icon(
+                    &mut self.state.is_show_pixel_value,
+                    self.icons.get_show_pixel_value(&ctx),
+                    "Show Pixel Value (Zoom in to see values)",
+                );
+                ui.toggle_icon(
+                    &mut self.state.is_show_crosshair,
+                    self.icons.get_show_crosshair(&ctx),
+                    "Show Crosshair",
+                );
                 let background_button = ui
                     .add(egui::Button::image(self.icons.get_background(
                         &ctx,
@@ -1656,16 +1666,6 @@ impl eframe::App for ViewerApp {
                         }
                     }
                 });
-                ui.toggle_icon(
-                    &mut self.state.is_show_pixel_value,
-                    self.icons.get_show_pixel_value(&ctx),
-                    "Show Pixel Value (Zoom in to see values)",
-                );
-                ui.toggle_icon(
-                    &mut self.state.is_show_crosshair,
-                    self.icons.get_show_crosshair(&ctx),
-                    "Show Crosshair",
-                );
 
                 ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
                 let socket_address = self.state.socket_info.lock().unwrap().address.clone();
