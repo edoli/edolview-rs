@@ -389,6 +389,7 @@ impl UiExt for Ui {
 
 pub trait ResponseExt {
     fn on_enter<'c>(&self, lost_focus: bool, f: impl FnMut() + 'c) -> &Self;
+    fn hover_scroll<T: PartialEq + Clone>(&self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool);
 }
 
 impl ResponseExt for Response {
@@ -401,15 +402,9 @@ impl ResponseExt for Response {
         }
         self
     }
-}
 
-pub trait InnerRespExt {
-    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) -> Self;
-}
-
-impl<R> InnerRespExt for InnerResponse<R> {
-    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) -> Self {
-        if self.response.hovered() {
+    fn hover_scroll<T: PartialEq + Clone>(&self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) {
+        if self.hovered() {
             let scroll = ui.raw_scroll_delta_y();
 
             if scroll.abs() > 0.0 {
@@ -430,6 +425,16 @@ impl<R> InnerRespExt for InnerResponse<R> {
                 }
             }
         }
+    }
+}
+
+pub trait InnerRespExt {
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) -> Self;
+}
+
+impl<R> InnerRespExt for InnerResponse<R> {
+    fn hover_scroll<T: PartialEq + Clone>(self, ui: &Ui, values: &[T], current: &mut T, is_cycle: bool) -> Self {
+        self.response.hover_scroll(ui, values, current, is_cycle);
         self
     }
 }

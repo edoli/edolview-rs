@@ -27,7 +27,7 @@ use crate::{
     ui::{
         component::{
             channel_toggle_ui, display_controls_ui, display_profile_slider, draw_histogram, draw_multi_line_plot,
-            egui_ext::{ComboBoxExt, InnerRespExt, Size, UiExt},
+            egui_ext::{ComboBoxExt, ResponseExt, Size, UiExt},
             show_bookmark_window, BookmarkJumpMode, CopyExport, ExportAction, SaveExport, Toast, ToastUi, ToastsExt,
         },
         fonts::{apply_fallback_fonts, spawn_fallback_font_loader, LoadedFallbackFonts},
@@ -1623,21 +1623,39 @@ impl eframe::App for ViewerApp {
                         "When enabled, {} copies marquee at image pixel size (ignores zoom).",
                         crate::res::COPY_SC.format_sys()
                     ));
-                egui::ComboBox::from_id_salt("background_style")
-                    .selected_text(format!("Background: {}", self.state.background_style.label()))
-                    .show_ui(ui, |ui| {
-                        for style in crate::settings::BackgroundStyle::ALL {
-                            ui.selectable_value(&mut self.state.background_style, style, style.label());
+                let background_button = ui
+                    .add(egui::Button::image(self.icons.get_background(
+                        &ctx,
+                        self.state.background_style,
+                        ui.visuals(),
+                    )))
+                    .on_hover_text(format!(
+                        "Background: {}\nClick to choose a background; scroll to change it.",
+                        self.state.background_style.label()
+                    ));
+                background_button.hover_scroll(
+                    ui,
+                    &crate::settings::BackgroundStyle::ALL,
+                    &mut self.state.background_style,
+                    false,
+                );
+                egui::Popup::menu(&background_button).show(|ui| {
+                    for style in crate::settings::BackgroundStyle::ALL {
+                        if ui
+                            .add(
+                                egui::Button::image_and_text(
+                                    self.icons.get_background(&ctx, style, ui.visuals()),
+                                    style.label(),
+                                )
+                                .selected(self.state.background_style == style),
+                            )
+                            .clicked()
+                        {
+                            self.state.background_style = style;
+                            ui.close();
                         }
-                    })
-                    .hover_scroll(
-                        ui,
-                        &crate::settings::BackgroundStyle::ALL,
-                        &mut self.state.background_style,
-                        false,
-                    )
-                    .response
-                    .on_hover_text("Choose the background shown behind transparent image areas");
+                    }
+                });
                 ui.toggle_icon(
                     &mut self.state.is_show_pixel_value,
                     self.icons.get_show_pixel_value(&ctx),

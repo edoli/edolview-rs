@@ -1,10 +1,16 @@
-use std::sync::OnceLock;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 use eframe::egui;
 
+use crate::settings::BackgroundStyle;
 use crate::ui::icon::{self, IconExt};
 
-const SHOW_BACKGROUND: &[u8] = include_bytes!("icons/show_background.svg");
+const BACKGROUND_ICON_SIZE: usize = 24;
+const BACKGROUND_ICON_INSET: usize = 3;
+const BACKGROUND_ICON_CELL_SIZE: usize = 6;
 const SHOW_PIXEL_VALUE: &[u8] = include_bytes!("icons/show_pixel_value.svg");
 const SHOW_CROSSHAIR: &[u8] = include_bytes!("icons/show_crosshair.svg");
 
@@ -25,7 +31,7 @@ const ARROW_UP: &[u8] = include_bytes!("icons/arrow_up.svg");
 const ARROW_DOWN: &[u8] = include_bytes!("icons/arrow_down.svg");
 
 pub struct Icons {
-    show_background: OnceLock<egui::TextureHandle>,
+    background: Mutex<HashMap<[egui::Color32; 2], egui::TextureHandle>>,
     show_pixel_value: OnceLock<egui::TextureHandle>,
     show_crosshair: OnceLock<egui::TextureHandle>,
 
@@ -50,7 +56,7 @@ pub struct Icons {
 impl Icons {
     pub fn new() -> Self {
         Self {
-            show_background: OnceLock::new(),
+            background: Mutex::new(HashMap::new()),
             show_pixel_value: OnceLock::new(),
             show_crosshair: OnceLock::new(),
 
@@ -74,9 +80,39 @@ impl Icons {
     }
 
     #[inline]
-    pub fn get_show_background<'c>(&self, ctx: &egui::Context) -> egui::Image<'c> {
-        self.show_background
-            .get_or_init(|| icon::load_svg_icon_texture(ctx, "show_background", SHOW_BACKGROUND))
+    pub fn get_background<'c>(
+        &self,
+        ctx: &egui::Context,
+        style: BackgroundStyle,
+        visuals: &egui::Visuals,
+    ) -> egui::Image<'c> {
+        // Share the viewer's palette, including theme-dependent dark checker colors.
+        let colors = style.colors([visuals.extreme_bg_color, visuals.faint_bg_color]);
+        let border_color = visuals.window_stroke.color;
+        self.background
+            .lock()
+            .unwrap()
+            .entry([colors[0], colors[1]])
+            .or_insert_with(|| {
+                let mut image = egui::ColorImage::filled([BACKGROUND_ICON_SIZE; 2], egui::Color32::TRANSPARENT);
+                for y in 1..BACKGROUND_ICON_SIZE - 1 {
+                    for x in 1..BACKGROUND_ICON_SIZE - 1 {
+                        let inset = BACKGROUND_ICON_INSET;
+                        image[(x, y)] = if x < inset
+                            || y < inset
+                            || x >= BACKGROUND_ICON_SIZE - inset
+                            || y >= BACKGROUND_ICON_SIZE - inset
+                        {
+                            border_color
+                        } else {
+                            let parity =
+                                ((x - inset) / BACKGROUND_ICON_CELL_SIZE + (y - inset) / BACKGROUND_ICON_CELL_SIZE) % 2;
+                            colors[parity]
+                        };
+                    }
+                }
+                ctx.load_texture(format!("background_{}", style.label()), image, Default::default())
+            })
             .to_icon()
     }
 
