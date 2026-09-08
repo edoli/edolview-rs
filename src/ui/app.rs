@@ -932,13 +932,19 @@ impl ViewerApp {
                 ui.add_space(12.0);
                 ui.separator();
                 ui.add_space(12.0);
-                ui.heading("Mean calculation");
+                ui.heading("Configuration");
                 ui.add_space(8.0);
+
+                ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size")
+                    .on_hover_text(format!(
+                        "When enabled, {} copies marquee at image pixel size (ignores zoom).",
+                        crate::res::COPY_SC.format_sys()
+                    ));
 
                 let precompute_changed = ui
                     .checkbox(
                         &mut self.app_settings.integral_table_precompute,
-                        "Precompute integral table",
+                        "Precompute integral table for mean calculation",
                     )
                     .on_hover_text(
                         "Keeps marquee mean and plot queries fast after loading, but uses 8 bytes per channel for every image pixel. Disable it to minimize CPU memory; mean queries then run on the GPU.",
@@ -1618,11 +1624,6 @@ impl eframe::App for ViewerApp {
                 }
 
                 ui.separator();
-                ui.checkbox(&mut self.state.copy_use_original_size, "Copy at original size")
-                    .on_hover_text(format!(
-                        "When enabled, {} copies marquee at image pixel size (ignores zoom).",
-                        crate::res::COPY_SC.format_sys()
-                    ));
                 ui.toggle_icon(
                     &mut self.state.is_show_pixel_value,
                     self.icons.get_show_pixel_value(&ctx),
