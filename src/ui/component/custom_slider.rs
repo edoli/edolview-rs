@@ -103,6 +103,9 @@ pub struct CustomSlider<'a> {
     /// Sets the minimal step of the widget value
     step: Option<f64>,
 
+    /// Sets the default amount to move the value with discrete input, such as the mouse wheel.
+    move_by: Option<f64>,
+
     drag_value_speed: Option<f64>,
     min_decimals: usize,
     max_decimals: Option<usize>,
@@ -154,6 +157,7 @@ impl<'a> CustomSlider<'a> {
             suffix: Default::default(),
             text: Default::default(),
             step: None,
+            move_by: None,
             drag_value_speed: None,
             min_decimals: 0,
             max_decimals: None,
@@ -315,6 +319,16 @@ impl<'a> CustomSlider<'a> {
     #[inline]
     pub fn step_by(mut self, step: f64) -> Self {
         self.step = if step != 0.0 { Some(step) } else { None };
+        self
+    }
+
+    /// Sets the default amount to move the value with discrete input, such as the mouse wheel.
+    ///
+    /// Holding Shift moves by one tenth of this amount.
+    /// By default this is the value from [`Self::step_by`], or the slider gradient if no step is set.
+    #[inline]
+    pub fn move_by(mut self, move_by: f64) -> Self {
+        self.move_by = if move_by != 0.0 { Some(move_by) } else { None };
         self
     }
 
@@ -690,8 +704,15 @@ impl CustomSlider<'_> {
         if response.hovered() {
             let scroll_delta_y = ui.raw_scroll_delta_y();
             if scroll_delta_y.abs() > 0.0 {
-                let step = self.step.unwrap_or_else(|| self.current_gradient(position_range));
-                let new_value = self.get_value() + (scroll_delta_y as f64) * step;
+                let move_by = self
+                    .move_by
+                    .unwrap_or_else(|| self.step.unwrap_or_else(|| self.current_gradient(position_range)));
+                let move_by = if ui.input(|input| input.modifiers.shift_only()) {
+                    move_by / 10.0
+                } else {
+                    move_by
+                };
+                let new_value = self.get_value() + (scroll_delta_y as f64) * move_by;
                 self.set_value(new_value);
             }
         }

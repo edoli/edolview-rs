@@ -183,6 +183,7 @@ pub fn display_profile_slider(
         CustomSlider::new(value, min..=max)
             .text(text)
             .step_by(0.01)
+            .move_by(0.1)
             .smart_aim(false)
             .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
             .trailing_fill(true)
