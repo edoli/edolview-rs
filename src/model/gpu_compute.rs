@@ -1422,6 +1422,11 @@ fn compare_images(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (params.operation.x == 1u) {
         value = mix(pair[0], pair[1], params.values.x);
     }
+    // Comparison textures are stored as RGBA even for images without an alpha
+    // channel. Keep that storage alpha opaque so an RGB diff remains visible.
+    if (params.image.z < 4u) {
+        value.w = 1.0;
+    }
     textureStore(destination, coord, value);
 }
 
